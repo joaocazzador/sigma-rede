@@ -1,0 +1,2794 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Sigma</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23ff3b1f'/%3E%3Ctext x='32' y='50' font-size='50' font-weight='900' text-anchor='middle' font-family='Arial Black,Arial,sans-serif' fill='%230b0b0a'%3E%CE%A3%3C/text%3E%3C/svg%3E">
+<style>
+/* mesma identidade do site público (sigma.css), com ajustes de aplicativo.
+   Só fontes do sistema: o painel nunca chama Google Fonts nem outro site (quem olha não fica sabendo que você usa o Sigma). */
+:root {
+  --bg: #0b0b0a; --card: #141412; --text: #f2efe6; --muted: #a39f94; --line: #2b2a26;
+  --accent: #ff3b1f; --accent-ink: #0b0b0a; --accent-soft: rgba(255, 59, 31, .12);
+  --signal: #ffd400; --ok: #5fe08a; --bad: #ff6b5b; --code: #1c1b18;
+  --display: Anton, Impact, "Haettenschweiler", "Arial Narrow Bold", sans-serif;
+  --mono: "IBM Plex Mono", Consolas, "Cascadia Mono", Menlo, monospace;
+  --sans: Inter, "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+}
+* { box-sizing: border-box; border-radius: 0; }
+[hidden] { display: none !important; }
+html { color-scheme: dark; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+::selection { background: var(--accent); color: var(--accent-ink); }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* nas faixas vermelhas o contorno vermelho sumiria: lá ele é preto */
+.band :focus-visible, .clockbox :focus-visible { outline-color: var(--accent-ink); }
+/* texto de título com acento (VOCÊ, ROBÔ, ÉPOCA) precisa de entrelinha >= 1.12, senão o acento bate na linha de cima */
+h1, h2, h3, h4 { font-family: var(--display); font-weight: 400; text-transform: uppercase; letter-spacing: .5px; line-height: 1.15; margin: 0; }
+h2 { font-size: clamp(32px, 4.8vw, 56px); margin: 6px 0 14px; }
+h3 { font-size: 22px; margin: 0 0 12px; }
+p { margin: 0 0 12px; }
+.kicker { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 2px; color: var(--accent); }
+.mega { font: 400 clamp(50px, 9vw, 116px)/1.12 var(--display); text-transform: uppercase; letter-spacing: .5px; margin: 10px 0 18px; overflow-wrap: anywhere; }
+.mega em { font-style: normal; color: var(--accent); }
+.mega.on::before { content: ""; display: inline-block; width: .3em; height: .3em; background: var(--accent); margin-right: .16em; vertical-align: .1em; animation: pulse 1.4s infinite; }
+.mega.off { color: var(--bad); } .mega.idle { color: var(--muted); } .mega.warn { color: var(--signal); }
+.lead { font-size: clamp(17px, 2vw, 20px); line-height: 1.5; max-width: 760px; }
+.lead b { background: var(--text); color: var(--bg); padding: 0 5px; }
+.muted { color: var(--muted); }
+.hint { color: var(--muted); font-size: 13.5px; line-height: 1.5; margin: 6px 0 0; }
+.mono { font-family: var(--mono); font-size: 14px; }
+.addr { font: 600 14px var(--mono); word-break: break-all; }
+.ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--signal); }
+.err { color: var(--bad); font-weight: 600; margin: 12px 0 0; }
+.mt { margin-top: 18px; }
+.sec { margin: 40px 0 14px; font-size: 28px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.between { justify-content: space-between; }
+.brand { font: 400 26px/1 var(--display); letter-spacing: 1px; white-space: nowrap; }
+.brand span { color: var(--accent); }
+.brand.xl { font-size: clamp(48px, 10vw, 96px); }
+@keyframes pulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } }
+
+/* botões e campos */
+button, .btn { font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: 1px; border: 2px solid var(--text);
+  background: transparent; color: var(--text); padding: 10px 16px; cursor: pointer; text-decoration: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: transform .08s, box-shadow .08s; }
+button:hover, .btn:hover { transform: translate(-2px, -2px); box-shadow: 4px 4px 0 var(--accent); }
+button:active, .btn:active { transform: none; box-shadow: none; }
+button.primary, .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.primary:hover, .btn.primary:hover { box-shadow: 4px 4px 0 var(--text); }
+button.danger { border-color: var(--bad); color: var(--bad); }
+button.danger:hover { box-shadow: 4px 4px 0 var(--bad); }
+button.danger-fill { background: var(--bad); border-color: var(--bad); color: var(--accent-ink); }
+button.big, .btn.big { padding: 15px 24px; font-size: 15px; }
+button.small, .btn.small { padding: 5px 10px; font-size: 12px; }
+button.link { border: 0; padding: 0; background: none; color: var(--accent); text-decoration: underline; text-transform: none; letter-spacing: 0; font: inherit; }
+button.link:hover { transform: none; box-shadow: none; }
+button:disabled { opacity: .45; cursor: default; transform: none; box-shadow: none; }
+input, select, textarea { font: inherit; width: 100%; padding: 11px 12px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+textarea { resize: vertical; min-height: 56px; }
+label { display: block; font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 14px 0 6px; }
+label.check { display: flex; gap: 12px; align-items: center; text-transform: none; letter-spacing: 0; font: 600 16px var(--sans); color: var(--text); cursor: pointer; }
+input[type=checkbox] { width: 22px; height: 22px; padding: 0; margin: 0; accent-color: var(--accent); flex: none; }
+input[type=range] { -webkit-appearance: none; appearance: none; height: 30px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+input[type=range]:focus { outline: none; }
+input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range]::-webkit-slider-runnable-track { height: 8px; background: linear-gradient(to right, var(--accent) var(--p, 50%), var(--line) var(--p, 50%)); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -8px; background: var(--text); border: 3px solid var(--bg); box-shadow: 0 0 0 2px var(--text); }
+input[type=range]::-moz-range-track { height: 8px; background: var(--line); }
+input[type=range]::-moz-range-progress { height: 8px; background: var(--accent); }
+input[type=range]::-moz-range-thumb { width: 18px; height: 18px; background: var(--text); border: 3px solid var(--bg); border-radius: 0; }
+.input-btn { display: flex; gap: 8px; }
+.input-btn input { flex: 1; min-width: 0; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.switch { width: 54px; height: 30px; padding: 0; border: 2px solid var(--text); position: relative; flex: none; }
+.switch::after { content: ""; position: absolute; top: 4px; left: 4px; width: 18px; height: 18px; background: var(--muted); transition: transform .12s; }
+.switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+.switch[aria-checked="true"]::after { transform: translateX(24px); background: var(--accent-ink); }
+.switch:hover { transform: none; box-shadow: 3px 3px 0 var(--text); }
+.seg { display: inline-flex; }
+.seg button { border-width: 1px; }
+.seg button.on { background: var(--text); color: var(--bg); }
+
+/* telas cheias: carregando, sem sessão, desligado */
+.screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.screen-box { max-width: 780px; width: 100%; }
+.banner { background: var(--signal); color: var(--accent-ink); font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: 1px; padding: 10px 20px; text-align: center; }
+
+/* topo e abas */
+.top { position: sticky; top: 0; z-index: 6; background: var(--bg); border-bottom: 2px solid var(--text); }
+.top-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 12px 24px 6px; }
+.spacer { flex: 1; }
+.live { display: inline-flex; align-items: center; gap: 8px; font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px; padding: 5px 10px; border: 1px solid var(--line); }
+.live i { width: 9px; height: 9px; background: var(--muted); flex: none; }
+.live.on { border-color: var(--accent); } .live.on i { background: var(--accent); animation: pulse 1.4s infinite; }
+.live.warn i { background: var(--signal); } .live.off i { background: var(--bad); }
+.top-bal { text-align: right; line-height: 1.1; }
+.top-bal span { display: block; font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.top-bal b { font: 400 22px var(--display); letter-spacing: .5px; white-space: nowrap; }
+.tabs { display: flex; overflow-x: auto; padding: 0 12px; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { border: 0; background: none; color: var(--muted); padding: 12px; white-space: nowrap; }
+.tabs button:hover { color: var(--text); transform: none; box-shadow: inset 0 -3px 0 var(--line); }
+.tabs button.on { color: var(--text); box-shadow: inset 0 -4px 0 var(--accent); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 34px 24px 70px; }
+.foot { border-top: 2px solid var(--text); padding: 22px 24px; display: flex; flex-wrap: wrap; gap: 8px 22px; justify-content: center;
+  font: 600 12.5px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.foot a { color: var(--muted); text-decoration: none; margin: 0 6px; }
+.foot a:hover { color: var(--accent); }
+
+/* blocos */
+.card { background: var(--card); border: 1px solid var(--line); padding: 22px; min-width: 0; }
+.cols { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); align-items: start; }
+.zone { border-color: rgba(255, 107, 91, .45); }
+.note { border-left: 4px solid var(--signal); background: rgba(255, 212, 0, .07); padding: 12px 16px; margin: 14px 0; }
+.note.err { border-color: var(--bad); background: rgba(255, 107, 91, .08); color: var(--text); font-weight: 400; }
+.note.ok { border-color: var(--ok); background: rgba(95, 224, 138, .07); }
+.pill { display: inline-flex; align-items: center; font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px; padding: 4px 10px; border: 1px solid var(--line); color: var(--muted); }
+.pill.ok { border-color: var(--ok); color: var(--ok); } .pill.bad { border-color: var(--bad); color: var(--bad); } .pill.warn { border-color: var(--signal); color: var(--signal); }
+.tag { display: inline-block; font: 600 10.5px/1.6 var(--mono); text-transform: uppercase; letter-spacing: 1px; padding: 1px 7px; border: 1px solid currentColor; margin-right: 6px; vertical-align: 1px; white-space: nowrap; }
+.tag.red { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.tag.ok { color: var(--ok); } .tag.bad { color: var(--bad); } .tag.warn { color: var(--signal); }
+.empty { color: var(--muted); padding: 14px 0; margin: 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); border: 2px solid var(--text); margin: 26px 0; }
+.stat { padding: 18px 18px 16px; border: 1px solid var(--line); min-width: 0; }
+.stat > span { display: block; font: 600 11.5px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.stat > b { display: block; font: 400 clamp(32px, 3.6vw, 46px)/1.12 var(--display); margin: 8px 0 4px; letter-spacing: .5px; overflow-wrap: anywhere; }
+.stat > b.long { font-size: clamp(24px, 2.6vw, 32px); }
+.stat > small { display: block; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.stats.six, .stats.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }   /* sem célula sobrando no fim */
+.stat.hot { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.stat.hot > b { color: var(--accent); }
+.bar { height: 8px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .5s; }
+.bar.big { height: 26px; background: transparent; border: 2px solid var(--text); }
+.bar.done > i { background: var(--ok); }
+.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; font-size: 14.5px; margin: 0; }
+.kv dt { color: var(--muted); font: 600 11.5px/1.9 var(--mono); text-transform: uppercase; letter-spacing: 1px; }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.tiles { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); }
+.tile { background: var(--card); border: 1px solid var(--line); padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.tile h4 { font-size: 24px; overflow-wrap: anywhere; }
+.tile .desc { color: var(--muted); font-size: 14px; margin: 0; }
+.tile > .row:last-child { margin-top: auto; }
+.list { border-top: 1px solid var(--line); }
+.item { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+.item .what { font-weight: 600; overflow-wrap: anywhere; }
+.item .meta { color: var(--muted); font-size: 13px; }
+.item .amt { font: 600 15px var(--mono); white-space: nowrap; text-align: right; }
+.item.in .amt { color: var(--ok); }
+.item.mint { background: var(--accent-soft); box-shadow: inset 4px 0 0 var(--accent); padding-left: 16px; }
+.item.mint .amt { color: var(--accent); font-size: 16px; }
+.dl { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.dl .bar { margin-top: 8px; }
+.dl .meta { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { color: var(--muted); font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 1px; }
+td.hot { color: var(--accent); font-weight: 700; }
+.table-wrap { overflow-x: auto; }
+
+/* início */
+.hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px; align-items: stretch; }
+.controls { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px 26px; align-items: center; margin-top: 24px; }
+.controls > button { justify-self: start; }
+.slider label { margin: 0; }
+.val, .opt .v { font: 400 26px/1 var(--display); letter-spacing: .5px; }
+.clockbox { background: var(--accent); color: var(--accent-ink); padding: 24px; display: flex; flex-direction: column; justify-content: space-between; gap: 16px; box-shadow: 8px 8px 0 var(--text); }
+.clockbox .label { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 2px; }
+.clock { font: 400 clamp(56px, 7.4vw, 100px)/.95 var(--display); letter-spacing: 1px; white-space: nowrap; }   /* só dígitos: sem acento */
+.clock .d { display: inline-block; width: .56em; text-align: center; }
+.clock.sm { font-size: clamp(44px, 6vw, 72px); }
+.clockbox p { margin: 0; font-size: 15.5px; }
+.clockbox b { font-weight: 800; }
+.clockbox.wide { flex-direction: row; flex-wrap: wrap; align-items: flex-end; gap: 14px 32px; margin: 0 0 8px; }
+.clockbox.wide p { max-width: 460px; }
+/* emissão contínua: o ritmo de agora (SIG por hora), sem contagem regressiva */
+.flow { font: 400 clamp(52px, 7vw, 96px)/1.12 var(--display); letter-spacing: 1px; overflow-wrap: anywhere; }
+.flow.sm { font-size: clamp(40px, 5.6vw, 68px); }
+.flow small { display: block; font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 2px; margin-top: 2px; }
+.strip { display: flex; flex-wrap: wrap; gap: 6px 22px; border-block: 1px solid var(--line); padding: 14px 2px; font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.strip b { color: var(--text); font-weight: 600; }
+.band { background: var(--accent); color: var(--accent-ink); padding: 32px clamp(18px, 4vw, 44px); margin-top: 44px; }
+.band h2 { font-size: clamp(32px, 5.4vw, 62px); margin: 0 0 12px; }
+.band p { font-size: 18px; max-width: 760px; margin: 0 0 8px; }
+.band a { color: var(--accent-ink); font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: 1px; margin-right: 18px; }
+
+/* carteira */
+.huge { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 8px 0 6px; }
+.huge b { font: 400 clamp(44px, 9vw, 104px)/.95 var(--display); letter-spacing: .5px; overflow-wrap: anywhere; }   /* só números: sem acento */
+.huge span { font: 400 30px var(--display); color: var(--accent); }
+.addr-line { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.wallet-top { margin-bottom: 26px; }
+.keybox { font: 600 16px/1.6 var(--mono); word-break: break-all; padding: 16px; background: var(--code); border: 2px dashed var(--accent); user-select: all; }
+.warnbox { border: 2px solid var(--signal); padding: 16px 18px; margin: 16px 0; }
+.warnbox > b { display: block; font: 400 26px/1.15 var(--display); text-transform: uppercase; letter-spacing: .5px; color: var(--signal); margin-bottom: 8px; }
+.warnbox p { margin: 0; }
+
+/* meu computador */
+.opt { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.opt:last-child { border-bottom: 0; }
+.opt .t { font-weight: 700; }
+.opt > input[type=range], .opt > .hint { grid-column: 1 / -1; }
+.opt > .hint { margin: 0; }
+
+/* IA */
+.chat-bar { display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 12px; align-items: start; margin-bottom: 14px; }
+.chat-bar label { margin-top: 0; }
+.chat-log { background: var(--card); border: 1px solid var(--line); min-height: 320px; max-height: 60vh; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 16px; }
+.chat-empty { margin: auto; text-align: center; color: var(--muted); max-width: 440px; }
+.chat-empty b { display: block; font: 400 28px/1.12 var(--display); text-transform: uppercase; color: var(--text); margin-bottom: 8px; }
+.msg { max-width: 86%; align-self: flex-start; }
+.msg .who { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 4px; }
+.msg .body { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 14px; border: 1px solid var(--line); background: var(--bg); }
+.msg.me { align-self: flex-end; }
+.msg.me .who { text-align: right; }
+.msg.me .body { background: var(--text); color: var(--bg); border-color: var(--text); }
+.msg .cost { font: 600 11.5px var(--mono); color: var(--accent); margin-top: 6px; text-transform: uppercase; letter-spacing: .5px; }
+.msg pre { white-space: pre-wrap; background: var(--code); border: 1px solid var(--line); padding: 10px; font: 13px/1.5 var(--mono); margin: 8px 0; }
+.msg code { font: 13.5px var(--mono); background: var(--code); padding: 0 4px; }
+.think { margin-bottom: 8px; color: var(--muted); }
+.think summary { cursor: pointer; font: 600 11.5px var(--mono); text-transform: uppercase; letter-spacing: 1px; }
+.dots i { display: inline-block; width: 7px; height: 7px; background: var(--accent); margin-right: 3px; animation: pulse 1s infinite; }
+.dots i:nth-child(2) { animation-delay: .2s; } .dots i:nth-child(3) { animation-delay: .4s; }
+.chat-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; margin-top: 12px; }
+.chat-foot { margin-top: 8px; }
+
+/* sites */
+.drop { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; border: 2px dashed var(--line); padding: 22px; cursor: pointer;
+  text-transform: none; letter-spacing: 0; font: 15px var(--sans); color: var(--muted); margin: 0 0 4px; }
+.drop b { font: 400 24px var(--display); text-transform: uppercase; color: var(--text); letter-spacing: .5px; }
+.drop:hover { border-color: var(--accent); }
+.estimate { font-size: 14px; border-left: 3px solid var(--accent); padding: 4px 0 4px 12px; margin: 14px 0 0; }
+
+/* rede */
+.supply { margin: 10px 0 26px; }
+.supply-top { margin-bottom: 10px; align-items: baseline; }
+.big-n { font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.big-n b { font: 400 clamp(40px, 6vw, 72px)/1 var(--display); color: var(--text); margin-right: 8px; letter-spacing: .5px; }
+.chart { margin: 4px 0 20px; }
+.chart svg { display: block; width: 100%; height: 160px; }
+.chart rect { fill: var(--accent); }
+.chart rect.me { fill: var(--signal); }
+.chart g:hover rect:not(.me) { fill: var(--text); }
+.chart line { stroke: var(--text); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.chart-head, .chart-foot { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font: 600 11.5px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.chart-head { margin-bottom: 8px; } .chart-foot { margin-top: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; background: var(--signal); margin-right: 6px; vertical-align: -1px; }
+.rules { margin: 0; padding: 0; list-style: none; counter-reset: r; }
+.rules li { counter-increment: r; position: relative; padding: 12px 0 12px 54px; border-top: 1px solid var(--line); }
+.rules li::before { content: counter(r, decimal-leading-zero); position: absolute; left: 0; top: 7px; font: 400 28px var(--display); color: var(--accent); }
+
+/* votações */
+.votes { display: flex; height: 12px; background: var(--line); overflow: hidden; }
+.votes i { display: block; height: 100%; }
+.votes .y { background: var(--ok); } .votes .n { background: var(--bad); }
+.gov-text { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); font-size: 14.5px; margin: 0; }
+.change { font: 600 14px/1.5 var(--mono); overflow-wrap: anywhere; margin: 0; }
+.change b { color: var(--accent); }
+.tile .bar { margin-top: 6px; }
+
+/* configurações */
+.cfg h3 { margin-top: 26px; }
+.cfg h3:first-child { margin-top: 0; }
+.cfg label.check { margin: 14px 0 0; }
+.save-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; border-top: 1px solid var(--line); margin-top: 22px; padding-top: 16px; }
+.save-bar span { margin-right: auto; font-size: 14px; }
+details summary { cursor: pointer; font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: 1px; }
+.adv { margin-top: 22px; }
+#logs { max-height: 340px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code); border: 1px solid var(--line); padding: 12px; font: 12.5px/1.55 var(--mono); margin: 14px 0 0; }
+
+/* assistente de primeira execução */
+.wiz { min-height: 100vh; display: flex; flex-direction: column; }
+.wiz-top { display: flex; flex-wrap: wrap; gap: 12px 30px; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 2px solid var(--text); }
+.steps { list-style: none; display: flex; gap: 6px; margin: 0; padding: 0; flex-wrap: wrap; }
+.steps li { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); padding: 6px 10px; border: 1px solid var(--line); }
+.steps li.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.steps li.done { color: var(--text); border-color: var(--text); }
+.wiz-body { flex: 1; width: 100%; max-width: 960px; margin: 0 auto; padding: clamp(28px, 6vh, 70px) 24px 60px; }
+.facts { list-style: none; padding: 0; margin: 26px 0 30px; border-top: 1px solid var(--line); }
+.facts li { padding: 14px 0; border-bottom: 1px solid var(--line); font-size: 17px; }
+.facts b { font: 400 21px var(--display); text-transform: uppercase; letter-spacing: .5px; color: var(--accent); margin-right: 8px; }
+.choices { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); margin: 20px 0 6px; }
+.choice { text-align: left; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 6px; padding: 18px; border: 2px solid var(--line);
+  text-transform: none; letter-spacing: 0; font: 15px/1.45 var(--sans); }
+.choice b { font: 400 22px/1.12 var(--display); text-transform: uppercase; letter-spacing: .5px; }
+.choice span { color: var(--muted); }
+.choice[aria-pressed="true"] { border-color: var(--accent); box-shadow: 6px 6px 0 var(--accent); transform: translate(-2px, -2px); }
+.wiz-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+
+/* diálogo e aviso */
+dialog { background: var(--card); color: var(--text); border: 2px solid var(--text); box-shadow: 10px 10px 0 var(--accent); padding: 26px;
+  width: min(540px, calc(100% - 28px)); max-height: calc(100vh - 40px); overflow-y: auto; }
+dialog::backdrop { background: rgba(5, 5, 4, .8); }
+dialog h3 { font-size: 30px; margin-bottom: 10px; }
+.dlg-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 22px; }
+#toast { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); font: 600 13.5px var(--mono); padding: 12px 18px; max-width: calc(100% - 32px);
+  z-index: 20; display: none; background: var(--text); color: var(--bg); box-shadow: 4px 4px 0 var(--accent); }
+#toast.show { display: block; }
+#toast.err { background: var(--accent); color: var(--accent-ink); box-shadow: 4px 4px 0 var(--text); }
+
+/* avisos que valem em todas as abas: versão nova, Sigma Code esperando aprovação */
+.top-note { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding: 12px 16px; margin: 0 0 22px; background: var(--signal); color: var(--accent-ink); font-weight: 600; }
+.top-note p { margin: 0; flex: 1 1 300px; }
+.top-note.red { background: var(--accent); }
+.top-note .btn, .top-note button { border-color: var(--accent-ink); color: var(--accent-ink); }
+.top-note .btn:hover, .top-note button:hover { box-shadow: 4px 4px 0 var(--accent-ink); }
+.top-note :focus-visible { outline-color: var(--accent-ink); }
+/* detalhes técnicos: o erro cru só aparece para quem abrir */
+details.tech { margin: 8px 0 0; }
+details.tech summary { font-size: 11.5px; color: var(--muted); }
+details.tech p { font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; margin: 6px 0 0; color: var(--muted); }
+.note p:last-child { margin-bottom: 0; }
+.receive .addr { font-size: 15px; }
+.confirm-addr { font: 600 15px/1.5 var(--mono); word-break: break-all; padding: 14px 16px; border: 2px solid var(--text); margin: 18px 0 8px; }
+.confirm-addr .lbl { display: block; font: 600 11.5px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 4px; }
+
+/* Sigma Code */
+.code-log { display: flex; flex-direction: column; gap: 10px; }
+.step { border-left: 3px solid var(--line); padding: 4px 0 4px 12px; overflow-wrap: anywhere; min-width: 0; }
+.step .who { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 2px; }
+.step .body { white-space: pre-wrap; }
+.step.assistant { border-color: var(--text); }
+.step.tool { border-color: var(--signal); }
+.step.final { border-color: var(--ok); background: rgba(95, 224, 138, .07); padding: 10px 12px; }
+.step.error { border-color: var(--bad); background: rgba(255, 107, 91, .08); padding: 10px 12px; }
+.step.info { font: 600 12px/1.6 var(--mono); color: var(--muted); }
+.step pre, .approve pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code); border: 1px solid var(--line); padding: 10px; font: 13px/1.5 var(--mono); margin: 8px 0 0; max-height: 360px; overflow-y: auto; }
+/* cartão de comando: mostra TODAS as linhas, sem rolagem que esconda o resto (achado app-command-card-newline-hide) */
+.approve.cmd pre { max-height: none; overflow-y: visible; }
+.approve { border: 2px solid var(--signal); box-shadow: 6px 6px 0 var(--signal); margin: 22px 0; }
+.approve.cmd { border-color: var(--bad); box-shadow: 6px 6px 0 var(--bad); }
+.changed { margin: 8px 0 0; padding-left: 20px; font: 13px/1.6 var(--mono); overflow-wrap: anywhere; }
+
+@media (max-width: 860px) { .hero { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 700px) {
+  .stats.six { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stats.three { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 640px) {
+  .top { position: static; }
+  .top-row { padding: 10px 16px 4px; gap: 8px 12px; }
+  .top-bal span { display: none; }
+  .top-bal b { font-size: 19px; }
+  .stat { padding: 14px 12px; }
+  .stat > b { font-size: 28px; }
+  .stat > b.long { font-size: 22px; }
+  .live { order: 9; flex-basis: 100%; justify-content: center; }
+  .wrap { padding: 24px 16px 60px; }
+  .card, .tile { padding: 16px; }
+  .controls { grid-template-columns: minmax(0, 1fr); }
+  .chat-bar { grid-template-columns: minmax(0, 1fr); }
+  .chat-input { grid-template-columns: minmax(0, 1fr); }
+  .msg { max-width: 100%; }
+  .two { grid-template-columns: minmax(0, 1fr); }
+  .approve { box-shadow: 4px 4px 0 var(--signal); }
+  .approve.cmd { box-shadow: 4px 4px 0 var(--bad); }
+  .wiz-top { padding: 12px 16px; }
+  .wiz-body { padding: 26px 16px 48px; }
+  .steps li { padding: 4px 7px; font-size: 11px; }
+  dialog { padding: 20px; }
+  .band { padding: 24px 18px; }
+  .clockbox { box-shadow: 5px 5px 0 var(--text); }
+}
+</style>
+</head>
+<body>
+<noscript><p style="padding:24px">O painel do Sigma precisa de JavaScript ligado.</p></noscript>
+<div class="banner" id="conn-banner" hidden>O Sigma não está respondendo neste computador. Tentando de novo…</div>
+
+<!-- carregando -->
+<div class="screen" id="boot">
+  <div class="screen-box">
+    <div class="brand xl"><span>Σ</span> SIGMA</div>
+    <p class="mono muted" id="boot-msg">Conectando ao Sigma neste computador…</p>
+  </div>
+</div>
+
+<!-- sem sessão válida ou app desligado -->
+<div class="screen" id="fatal" hidden>
+  <div class="screen-box">
+    <div class="brand"><span>Σ</span> SIGMA</div>
+    <h1 class="mega" id="fatal-title"></h1>
+    <p class="lead" id="fatal-text"></p>
+  </div>
+</div>
+
+<!-- primeira execução: 3 passos -->
+<section class="wiz" id="wizard" hidden>
+  <header class="wiz-top">
+    <div class="brand"><span>Σ</span> SIGMA</div>
+    <ol class="steps" id="wiz-steps"><li data-s="1">01 · Por quê</li><li data-s="2">02 · Carteira</li><li data-s="3">03 · Pronto</li></ol>
+  </header>
+  <div class="wiz-body">
+    <div data-step="1">
+      <div class="kicker">Passo 1 de 3</div>
+      <h1 class="mega">Vão substituir você por um robô.</h1>
+      <p class="lead">Nós queremos que os donos desses robôs sejam <b>as pessoas</b>, não as Big Techs. O Sigma junta computadores comuns, como o seu, numa rede de inteligência artificial que é de todo mundo, e paga em SIG quem faz a rede funcionar.</p>
+      <ul class="facts">
+        <li><b>Ninguém ganhou SIG de graça.</b>Nem os criadores. Todo SIG nasce do trabalho dos computadores.</li>
+        <li><b>Um pouco a cada bloco.</b>A rede imprime 0,01% do que falta dos 100 milhões de SIG a cada 12 horas, aos pouquinhos, e divide entre quem minerou, conforme o trabalho de cada um.</li>
+        <li><b>Você não gerencia nada.</b>A rede decide sozinha quais modelos de IA ficam em cada computador.</li>
+      </ul>
+      <button class="primary big" id="wiz-next1">Começar</button>
+    </div>
+
+    <div data-step="2" hidden>
+      <div class="kicker">Passo 2 de 3</div>
+      <h1 class="mega">Para onde vão seus SIG?</h1>
+      <div id="wiz-choose">
+        <p class="lead">Tudo o que seu computador ganhar vai para uma carteira. Escolha um jeito:</p>
+        <div class="choices" id="wiz-choices"></div>
+        <form id="wiz-form" autocomplete="off" novalidate>
+          <div data-for="create"><p class="hint">Leva um segundo. Na próxima tela aparece a chave da carteira para você guardar.</p></div>
+          <div data-for="import_key" hidden>
+            <label for="wiz-key">Chave privada</label>
+            <input id="wiz-key" type="password" autocomplete="off" spellcheck="false" placeholder="64 caracteres, com ou sem 0x no começo">
+            <p class="hint">A chave fica só neste computador, protegida pelo sistema. Ela nunca é enviada para a rede.</p>
+            <p class="hint" data-key-tip></p>
+          </div>
+          <div data-for="address" hidden>
+            <label for="wiz-addr">Endereço da carteira</label>
+            <input id="wiz-addr" spellcheck="false" placeholder="sig… ou 0x…">
+          </div>
+          <p class="err" id="wiz-err" hidden></p>
+          <div class="wiz-actions"><button type="button" id="wiz-back">Voltar</button><button class="primary big" type="submit" id="wiz-go">Criar minha carteira</button></div>
+        </form>
+      </div>
+      <div id="wiz-key-panel" hidden>
+        <div class="warnbox">
+          <b>Guarde esta chave agora</b>
+          <p>Ela é a sua carteira: quem tiver a chave controla seus SIG. Se este computador quebrar e a chave não estiver guardada, os SIG se perdem para sempre. Anote num papel ou num gerenciador de senhas e nunca mande para ninguém. Ninguém do Sigma vai pedir sua chave.</p>
+        </div>
+        <label>Sua chave privada</label>
+        <div class="keybox" id="wiz-keybox"></div>
+        <div class="row mt"><button type="button" id="wiz-copykey">Copiar chave</button></div>
+        <label class="check mt"><input type="checkbox" id="wiz-saved"> Guardei minha chave</label>
+        <div class="wiz-actions"><button class="primary big" type="button" id="wiz-next2" disabled>Continuar</button></div>
+      </div>
+    </div>
+
+    <div data-step="3" hidden>
+      <div class="kicker">Passo 3 de 3</div>
+      <h1 class="mega" id="wiz-done-title">Pronto. <em>Seu computador já está minerando.</em></h1>
+      <div class="stats three">
+        <div class="stat"><span>Velocidade</span><b id="wiz-hash">—</b><small>contas por segundo</small></div>
+        <div class="stat"><span>A rede imprime</span><b id="wiz-rate">—</b><small id="wiz-mint">SIG por hora, um pouco a cada bloco</small></div>
+        <div class="stat"><span>Processador</span><b id="wiz-cpu">—</b><small>usado para minerar, com prioridade baixa</small></div>
+      </div>
+      <div class="confirm-addr" id="wiz-address-box"><span class="lbl" id="wiz-address-label">Sua carteira</span><span class="addr" id="wiz-address">—</span></div>
+      <div class="row" id="wiz-fix-row" hidden><p class="hint" style="margin:0" id="wiz-fix-text"></p><button type="button" class="small" id="wiz-fix">Corrigir</button></div>
+      <p class="lead mt" id="wiz-done-text">Não precisa fazer mais nada. Pode fechar esta janela: o Sigma continua trabalhando. Para voltar aqui, clique em <b>Abrir painel</b> na janelinha do Sigma.</p>
+      <p class="hint" id="wiz-usage"></p>
+      <div class="wiz-actions"><button class="primary big" type="button" id="wiz-done">Abrir o painel</button><button type="button" class="big" id="wiz-adjust">Ajustar agora</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- painel -->
+<div id="app" hidden>
+  <header class="top">
+    <div class="top-row">
+      <div class="brand"><span>Σ</span> SIGMA</div>
+      <div class="live" id="live"><i></i><span id="live-text">—</span></div>
+      <div class="spacer"></div>
+      <div class="top-bal"><span>Saldo</span><b id="top-balance">—</b></div>
+      <button class="small danger" type="button" id="quit-top" title="Parar tudo e fechar o Sigma">Desligar</button>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Seções do painel">
+      <button type="button" role="tab" data-tab="inicio">Início</button>
+      <button type="button" role="tab" data-tab="carteira">Carteira</button>
+      <button type="button" role="tab" data-tab="maquina">Meu computador</button>
+      <button type="button" role="tab" data-tab="ia">IA</button>
+      <button type="button" role="tab" data-tab="programar">Programar</button>
+      <button type="button" role="tab" data-tab="sites">Sites</button>
+      <button type="button" role="tab" data-tab="modelos">Modelos</button>
+      <button type="button" role="tab" data-tab="rede">Rede</button>
+      <button type="button" role="tab" data-tab="votacoes">Votações</button>
+      <button type="button" role="tab" data-tab="config">Configurações</button>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <div id="top-notes"></div>
+    <!-- INÍCIO -->
+    <section data-pane="inicio" role="tabpanel" aria-label="Início">
+      <div class="hero">
+        <div>
+          <div class="kicker">Seu computador agora</div>
+          <h1 class="mega" id="h-state">—</h1>
+          <p class="lead" id="h-lead"></p>
+          <p class="hint" id="h-usage"></p>
+          <div class="controls">
+            <button class="big" type="button" id="mine-toggle">Pausar mineração</button>
+            <div class="slider">
+              <div class="row between"><label for="cpu-a">Uso do processador</label><b class="val" data-val="cpu_percent">—</b></div>
+              <input type="range" id="cpu-a" data-set="cpu_percent" min="10" max="100" step="5">
+              <p class="hint" id="cpu-hint"></p>
+            </div>
+          </div>
+          <div id="h-alerts"></div>
+        </div>
+        <div class="clockbox">
+          <div class="label">A rede imprime agora</div>
+          <div class="flow" id="h-rate">—</div>
+          <p id="mint-line"></p>
+        </div>
+      </div>
+
+      <div class="stats six">
+        <div class="stat"><span>Velocidade</span><b id="st-hash">—</b><small>contas por segundo</small></div>
+        <div class="stat"><span>Seus pontos</span><b id="st-points">—</b><small id="st-points-sub"></small></div>
+        <div class="stat"><span>Sua fatia</span><b id="st-share">—</b><small>do que a rede imprime agora</small></div>
+        <div class="stat hot"><span>Você recebe</span><b id="st-est">—</b><small id="st-est-sub">SIG por hora, no ritmo de agora</small></div>
+        <div class="stat"><span>Ganho minerando</span><b id="st-total">—</b><small>SIG desde o começo</small></div>
+        <div class="stat"><span>Saldo</span><b id="st-balance">—</b><small>SIG na carteira</small></div>
+      </div>
+
+      <div class="strip">
+        <span>Janela <b id="win-n">—</b></span>
+        <span><b data-cd="window">—</b></span>
+        <span><b id="win-shares">—</b> provas achadas</span>
+        <span>dificuldade <b id="win-bits">—</b></span>
+      </div>
+      <p class="hint" id="win-help"></p>
+
+      <div class="band">
+        <h2>Vão substituir você por um robô.</h2>
+        <p>Queremos que os donos dos robôs sejam as pessoas, não as Big Techs. Cada computador ligado no Sigma é um pedaço de uma IA que é de todo mundo.</p>
+        <p id="band-links"></p>
+      </div>
+    </section>
+
+    <!-- CARTEIRA -->
+    <section data-pane="carteira" role="tabpanel" aria-label="Carteira" hidden>
+      <div class="wallet-top">
+        <div class="kicker">Sua carteira</div>
+        <div class="huge"><b id="w-balance">—</b><span>SIG</span></div>
+        <div class="addr-line"><span class="addr" id="w-addr">—</span><button class="small" type="button" data-copy="w-addr">Copiar</button></div>
+        <div class="addr-line"><span class="addr muted" id="w-eth">—</span><button class="small" type="button" data-copy="w-eth">Copiar</button></div>
+        <p class="hint">É o mesmo endereço, nos formatos Sigma e MetaMask. Para receber SIG, passe qualquer um dos dois.</p>
+      </div>
+      <div class="card receive" id="receive-card">
+        <h3>Carteira que recebe</h3>
+        <p>Tudo o que este computador ganhar vai para <span class="addr" id="rc-addr">—</span>.</p>
+        <p class="muted" id="rc-mode"></p>
+        <div class="row"><button type="button" class="primary" id="btn-import" hidden>Importar a chave desta carteira</button><button type="button" id="btn-swap">Trocar carteira</button></div>
+      </div>
+      <div class="cols mt">
+        <div class="card">
+          <h3>Enviar SIG</h3>
+          <form id="send-form" autocomplete="off" novalidate>
+            <label for="send-to">Para</label>
+            <input id="send-to" placeholder="sig… ou 0x…" spellcheck="false">
+            <label for="send-amount">Quantidade (SIG)</label>
+            <div class="input-btn"><input id="send-amount" inputmode="decimal" placeholder="0,00"><button type="button" id="send-max">Tudo</button></div>
+            <p class="err" id="send-err" hidden></p>
+            <div class="row mt"><button class="primary" type="submit" id="send-go">Enviar</button></div>
+            <p class="hint">Sem taxa. Entra num bloco em poucos segundos e não pode ser desfeito.</p>
+          </form>
+          <div id="send-off" hidden>
+            <p>Esta carteira está no modo <b>só endereço</b>: o Sigma minera e hospeda para ela, mas não guarda a chave, então não consegue gastar daqui.</p>
+            <p class="muted">Para enviar SIG daqui, importe a chave dela. Ou use a carteira do site com a MetaMask.</p>
+            <div class="row"><button type="button" class="primary" data-import-key>Importar a chave</button><span id="send-off-link"></span></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="row between"><h3>Histórico</h3>
+            <div class="seg" role="group" aria-label="Filtrar histórico"><button type="button" class="small on" data-hist="all">Tudo</button><button type="button" class="small" data-hist="mint">Mineração</button><button type="button" class="small" data-hist="credit">Ganhos e devoluções</button></div></div>
+          <p class="hint" id="mint-sum"></p>
+          <div id="history"></div>
+        </div>
+      </div>
+      <div class="card zone mt" id="export-box">
+        <h3>Exportar chave privada</h3>
+        <p class="muted">Para fazer backup ou usar esta carteira na MetaMask. Só abra quando ninguém estiver olhando a sua tela.</p>
+        <button class="danger" type="button" id="btn-export">Mostrar minha chave</button>
+      </div>
+    </section>
+
+    <!-- MEU COMPUTADOR -->
+    <section data-pane="maquina" role="tabpanel" aria-label="Meu computador" hidden>
+      <div class="kicker">Meu computador</div>
+      <h2 id="m-name">—</h2>
+      <div class="row"><span class="pill" id="m-online">—</span><span class="pill" id="m-engine">—</span></div>
+      <div id="m-alerts"></div>
+      <div class="stats three">
+        <div class="stat"><span>Ganhos servindo a rede</span><b id="m-earned">—</b><small>SIG por pedidos e aluguel</small></div>
+        <div class="stat"><span>Pedidos atendidos</span><b id="m-jobs">—</b><small id="m-jobs-sub">IA e computação</small></div>
+        <div class="stat"><span>Reputação</span><b id="m-rep">—</b><small>sobe com trabalho bem feito</small></div>
+      </div>
+      <div class="cols">
+        <div class="card">
+          <h3>O que ele oferece</h3>
+          <div class="opt"><div class="t">Minerar SIG</div><button type="button" class="switch" role="switch" data-set="mining_enabled" aria-label="Minerar SIG"></button>
+            <p class="hint">Usa o processador para ganhar SIG: a rede imprime um pouco a cada bloco para quem minerou.</p></div>
+          <div class="opt"><div class="t">Uso do processador</div><b class="v" data-val="cpu_percent">—</b>
+            <input type="range" data-set="cpu_percent" min="10" max="100" step="5" aria-label="Uso do processador"></div>
+          <div class="opt"><div class="t">IA para a rede</div><button type="button" class="switch" role="switch" data-set="ai_enabled" aria-label="IA para a rede"></button>
+            <p class="hint">A rede coloca modelos aqui (cada um tem de 0,5 a 5 GB, baixados pela sua internet) e manda pedidos de conversa. Você ganha por pedido atendido e aluguel por guardar cada modelo. Desligar tira os modelos da rede, mas os arquivos ficam guardados no disco.</p></div>
+          <div class="opt"><div class="t">Memória para IA</div><b class="v" data-val="ai_ram_gb">—</b>
+            <input type="range" data-set="ai_ram_gb" min="0" max="32" step="1" aria-label="Memória para IA"><p class="hint" id="ai-hint"></p></div>
+          <div class="opt"><div class="t">Computação para a rede</div><button type="button" class="switch" role="switch" data-set="compute_enabled" aria-label="Computação para a rede"></button>
+            <p class="hint">Tarefas de cálculo conferidas em mais de um computador. Você ganha por tarefa.</p></div>
+          <div class="opt"><div class="t">Disco para a rede</div><b class="v" data-val="disk_gb">—</b>
+            <input type="range" data-set="disk_gb" min="0" max="500" step="1" aria-label="Disco para a rede">
+            <p class="hint">Espaço para guardar modelos e sites. Você recebe aluguel por cada MB guardado. Quando falta espaço, sai primeiro o modelo guardado há mais tempo sem uso.</p></div>
+        </div>
+        <div class="card">
+          <h3>Hardware</h3>
+          <dl class="kv" id="m-hw"></dl>
+          <h3 class="mt">Motor de IA</h3>
+          <div id="m-engine-box"></div>
+        </div>
+      </div>
+      <div class="card mt">
+        <h3>Modelos que a rede colocou aqui</h3>
+        <p class="hint">Você não escolhe nem baixa nada: a rede decide o que fica aqui pela memória e pelo disco que você liberou.</p>
+        <div id="m-models"></div>
+      </div>
+      <div class="card mt">
+        <h3>Sites guardados aqui</h3>
+        <div id="m-sites"></div>
+      </div>
+      <p class="hint mono mt">Máquina <span id="m-addr">—</span> · os pagamentos vão para <span id="m-payout">—</span></p>
+    </section>
+
+    <!-- IA -->
+    <section data-pane="ia" role="tabpanel" aria-label="IA" hidden>
+      <div class="kicker">IA da rede</div>
+      <h2>Converse com uma IA que é de todos</h2>
+      <p class="lead">Cada resposta roda no computador de alguém da rede, que recebe em SIG pelo trabalho. Você paga só o que usar.</p>
+      <div id="ai-notes"></div>
+      <div class="chat-bar">
+        <div><label for="ai-model">Modelo</label><select id="ai-model"></select><p class="hint" id="ai-info"></p></div>
+        <div><label for="ai-len">Resposta</label><select id="ai-len"><option value="256">Curta</option><option value="512" selected>Média</option><option value="1024">Longa</option></select></div>
+      </div>
+      <div class="chat-log" id="chat-log" aria-live="polite"></div>
+      <!-- aviso fixo: quem responde lê a conversa (não dá para fechar) -->
+      <p class="note" id="ai-privacy">Cada pergunta vai cifrada para uma máquina da rede sorteada na hora, que precisa ler para responder, e leva junto a conversa inteira. Numa conversa longa, as máquinas de várias pessoas diferentes acabam lendo tudo o que você já escreveu: não mande senhas, documentos nem dados pessoais. Quem pediu, quando e quanto pagou continua público.</p>
+      <form class="chat-input" id="chat-form">
+        <textarea id="chat-text" rows="2" placeholder="Escreva sua mensagem. Enter envia, Shift+Enter pula linha."></textarea>
+        <button class="primary" type="submit" id="chat-send">Enviar</button>
+      </form>
+      <p class="hint" id="chat-max"></p>
+      <div class="row between hint chat-foot"><span id="chat-total">Esta conversa custou 0,00 SIG.</span><button type="button" class="link" id="chat-new">Nova conversa</button></div>
+    </section>
+
+    <!-- PROGRAMAR (Sigma Code) -->
+    <section data-pane="programar" role="tabpanel" aria-label="Programar" hidden>
+      <div class="kicker">Sigma Code</div>
+      <h2>Programe com uma IA da rede</h2>
+      <p class="lead">Diga o que você quer no seu projeto. O Sigma Code lê os arquivos, propõe mudanças e comandos, e nada é gravado nem executado sem você ver.</p>
+      <!-- texto fixo (SPEC 2.3): o que sai da pasta e para quem -->
+      <p class="note" id="code-fixed">Escolha a pasta do projeto. O Sigma Code só mexe dentro dela. Cada passo vai cifrado para uma máquina sorteada da rede e leva tudo o que o agente já leu: ao longo de uma tarefa, as máquinas de várias pessoas diferentes veem os seus arquivos. Arquivos de senha e chaves (.env, .key, .ssh) ficam de fora. Cada passo é pago em SIG.</p>
+      <div id="code-notes"></div>
+      <div id="code-pending"></div>
+      <form class="card" id="code-form" autocomplete="off" novalidate>
+        <label for="code-folder" style="margin-top:0">Pasta do projeto</label>
+        <div class="input-btn"><input id="code-folder" spellcheck="false" placeholder="ex.: C:\Users\voce\projetos\meu-site"><button type="button" id="code-pick">Escolher pasta</button></div>
+        <p class="hint" id="code-folder-hint">Não use em pastas com senhas, chaves ou documentos pessoais: cada passo do Sigma Code vai para uma máquina sorteada e, ao longo de uma tarefa, as máquinas de várias pessoas veem o que ele ler.</p>
+        <label for="code-model">Modelo</label>
+        <select id="code-model"></select>
+        <label for="code-task">Tarefa</label>
+        <textarea id="code-task" rows="4" maxlength="20000" placeholder="ex.: crie uma página index.html com um formulário de contato"></textarea>
+        <label class="check mt"><input type="checkbox" id="code-auto"> Aprovar alterações de arquivos sem perguntar</label>
+        <p class="hint">Volta desmarcada em toda tarefa nova. Comandos sempre pedem a sua aprovação.</p>
+        <p class="err" id="code-err" hidden></p>
+        <div class="row mt"><button class="primary" type="submit" id="code-go">Começar</button><button type="button" class="danger" id="code-stop">Parar</button></div>
+      </form>
+      <div class="card mt">
+        <div class="row between"><h3 style="margin:0">Conversa</h3><span class="mono" id="code-spent"></span></div>
+        <p class="hint" id="code-head"></p>
+        <div class="code-log mt" id="code-log" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- SITES -->
+    <section data-pane="sites" role="tabpanel" aria-label="Sites" hidden>
+      <div class="kicker">Sites</div>
+      <h2>Publique um site guardado pela rede</h2>
+      <p class="lead">Escolha a pasta do site, com um index.html. Ele fica no endereço da rede (<span class="mono" id="sites-base">…/site/nome/</span>), com cópias em computadores da rede pagas pelo orçamento do site. Por enquanto, quem visita recebe os arquivos pelo servidor da rede. Quando o orçamento acaba, o site sai do ar.</p>
+      <p class="hint">Sites da rede rodam isolados: não podem usar cookies nem localStorage.</p>
+      <div id="sites-notes"></div>
+      <div class="cols">
+        <form class="card" id="pub-form" autocomplete="off" novalidate>
+          <h3>Publicar uma pasta</h3>
+          <label class="drop" for="pub-folder"><b>Escolher pasta</b><span id="pub-summary">Nenhuma pasta escolhida</span></label>
+          <input type="file" id="pub-folder" webkitdirectory directory multiple hidden>
+          <label for="pub-name">Nome do site</label>
+          <input id="pub-name" placeholder="meu-site" spellcheck="false" maxlength="32">
+          <p class="hint">Endereço: <span class="mono" id="pub-url">…</span></p>
+          <div class="two">
+            <div><label for="pub-budget">Orçamento (SIG)</label><input id="pub-budget" inputmode="decimal" value="1"></div>
+            <div><label for="pub-replicas">Cópias na rede</label><select id="pub-replicas"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></div>
+          </div>
+          <p class="estimate" id="pub-estimate"></p>
+          <p class="err" id="pub-err" hidden></p>
+          <div class="row mt"><button class="primary" type="submit" id="pub-go">Publicar</button></div>
+          <div id="pub-result"></div>
+        </form>
+        <div>
+          <div class="card"><h3>Meus sites</h3><div id="my-sites"></div></div>
+          <div class="card mt"><h3>Guardados neste computador</h3><div id="hosted-sites"></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- MODELOS -->
+    <section data-pane="modelos" role="tabpanel" aria-label="Modelos" hidden>
+      <div class="kicker">Modelos</div>
+      <h2>IAs com padrinhos, não com donos</h2>
+      <p class="lead">Qualquer pessoa pode trazer um modelo aberto para a rede. Quem apadrinha paga o aluguel de quem guarda o modelo e recebe uma parte de cada uso. A rede decide sozinha onde cada modelo fica.</p>
+      <div id="models-notes"></div>
+      <h3 class="sec">Na rede agora</h3>
+      <div id="net-models"></div>
+      <h3 class="sec">Apadrinhar um modelo</h3>
+      <p class="muted">Do catálogo (modelos abertos, liberados para uso comercial) ou pelo link de um arquivo GGUF no Hugging Face.</p>
+      <p class="hint" id="models-price"></p>
+      <div class="tiles" id="catalog"></div>
+      <form class="card mt" id="hf-form" autocomplete="off" novalidate>
+        <label for="hf-url" style="margin-top:0">Link de um GGUF no Hugging Face</label>
+        <div class="input-btn"><input id="hf-url" placeholder="https://huggingface.co/…/resolve/main/modelo.gguf" spellcheck="false"><button class="primary" type="submit">Continuar</button></div>
+        <p class="hint">O Sigma confere o tamanho e a assinatura (SHA-256) do arquivo no Hugging Face antes de registrar.</p>
+        <p class="err" id="hf-err" hidden></p>
+      </form>
+      <h3 class="sec">Meus modelos</h3>
+      <div id="my-models"></div>
+    </section>
+
+    <!-- REDE -->
+    <section data-pane="rede" role="tabpanel" aria-label="Rede" hidden>
+      <div class="kicker">A rede</div>
+      <h2>100 milhões de SIG. Nenhum de graça.</h2>
+      <div class="supply">
+        <div class="row between supply-top"><span class="big-n"><b id="n-minted">—</b>SIG impressos</span><span class="mono muted">teto: <span id="n-cap">—</span> SIG</span></div>
+        <div class="bar big"><i id="n-bar"></i></div>
+        <p class="hint" id="n-pct"></p>
+      </div>
+      <div class="clockbox wide">
+        <div><div class="label">A rede imprime agora</div><div class="flow sm" id="n-rate">—</div></div>
+        <p id="n-next-line"></p>
+      </div>
+      <div class="stats">
+        <div class="stat"><span>Computadores na rede</span><b id="n-machines">—</b><small>online agora</small></div>
+        <div class="stat"><span>Mineradores</span><b id="n-miners">—</b><small>recebendo agora</small></div>
+        <div class="stat"><span>Velocidade da rede</span><b id="n-hash">—</b><small>contas por segundo</small></div>
+        <div class="stat"><span>Bloco</span><b id="n-height">—</b><small id="n-extra"></small></div>
+      </div>
+      <div class="card">
+        <h3>De 12 em 12 horas</h3>
+        <p class="hint" style="margin:0 0 14px">Só para acompanhar: a emissão sai em todo bloco, e aqui está a soma do que saiu em cada período de 12 horas.</p>
+        <div id="n-chart"></div>
+        <div class="table-wrap" id="n-epochs"></div>
+      </div>
+      <div class="card mt">
+        <h3>Como o SIG nasce</h3>
+        <ol class="rules" id="n-rules"></ol>
+      </div>
+    </section>
+
+    <!-- VOTAÇÕES -->
+    <section data-pane="votacoes" role="tabpanel" aria-label="Votações" hidden>
+      <div class="kicker">Votações</div>
+      <h2>Quem decide é a rede</h2>
+      <p class="lead">Qualquer pessoa propõe mudar uma regra ou tomar uma decisão. Quem tem SIG vota: <b>1 SIG = 1 voto</b>. O SIG do voto fica travado até o fim e volta inteiro.</p>
+      <div id="gov-notes"></div>
+      <h3 class="sec">Abertas agora</h3>
+      <div id="gov-open"></div>
+      <h3 class="sec">Propor uma votação</h3>
+      <form class="card" id="gov-form" autocomplete="off" novalidate>
+        <label style="margin-top:0">Tipo</label>
+        <div class="seg" role="group" aria-label="Tipo de votação"><button type="button" class="small on" data-gov-kind="text" aria-pressed="true">Uma decisão (texto)</button><button type="button" class="small" data-gov-kind="param" aria-pressed="false">Mudar uma regra</button></div>
+        <p class="hint" id="gov-kind-hint"></p>
+        <label for="gov-title">Título</label>
+        <input id="gov-title" maxlength="120" spellcheck="true" placeholder="ex.: Aluguel de disco um pouco mais caro">
+        <label for="gov-text">Explicação</label>
+        <textarea id="gov-text" rows="4" maxlength="2000" placeholder="Por que a rede deveria aprovar? Escreva com calma: todo mundo vai ler antes de votar."></textarea>
+        <div id="gov-param-box" hidden>
+          <label for="gov-param">Regra</label>
+          <select id="gov-param"></select>
+          <p class="hint" id="gov-param-hint"></p>
+          <label for="gov-value" id="gov-value-label">Valor novo</label>
+          <input id="gov-value" inputmode="decimal" spellcheck="false">
+        </div>
+        <p class="estimate" id="gov-deposit"></p>
+        <p class="err" id="gov-err" hidden></p>
+        <div class="row mt"><button class="primary" type="submit" id="gov-go">Propor</button></div>
+      </form>
+      <h3 class="sec">Encerradas</h3>
+      <div id="gov-closed"></div>
+      <div class="card mt">
+        <h3>Como funciona</h3>
+        <ol class="rules" id="gov-rules"></ol>
+      </div>
+    </section>
+
+    <!-- CONFIGURAÇÕES -->
+    <section data-pane="config" role="tabpanel" aria-label="Configurações" hidden>
+      <div class="kicker">Do seu jeito</div>
+      <h2>Configurações</h2>
+      <div class="cols">
+        <form class="card cfg" id="cfg-form" autocomplete="off" novalidate>
+          <h3>Este computador</h3>
+          <label for="cfg-name">Nome na rede</label>
+          <input id="cfg-name" maxlength="40" placeholder="ex.: PC da sala">
+          <p class="hint">Aparece para quem usa a rede. Não precisa ser seu nome.</p>
+          <div id="cfg-start-box">
+            <label class="check"><input type="checkbox" id="cfg-start"> Iniciar o Sigma junto com o computador</label>
+            <p class="hint">Ele abre sozinho, em segundo plano, quando você liga o PC.</p>
+          </div>
+          <h3>Mineração</h3>
+          <label class="check"><input type="checkbox" id="cfg-mine"> Minerar SIG</label>
+          <div class="row between"><label for="cfg-cpu">Uso do processador</label><b class="val" id="cfg-cpu-val">—</b></div>
+          <input type="range" id="cfg-cpu" min="10" max="100" step="5">
+          <label class="check"><input type="checkbox" id="cfg-battery"> Minerar também na bateria</label>
+          <p class="hint">Desmarcado, a mineração pausa quando o notebook sai da tomada e volta sozinha quando você liga o carregador.</p>
+          <h3>O que oferecer para a rede</h3>
+          <label class="check"><input type="checkbox" id="cfg-ai"> IA: guardar modelos e responder pedidos</label>
+          <p class="hint">Desligar a IA tira os modelos deste computador da rede, mas os arquivos baixados ficam guardados no disco. Se a rede colocar um deles aqui de novo, ele volta a funcionar em segundos, sem baixar tudo outra vez.</p>
+          <label for="cfg-ai-ram">Memória para IA (GB)</label>
+          <input id="cfg-ai-ram" inputmode="decimal" spellcheck="false">
+          <p class="hint" id="cfg-ai-ram-hint"></p>
+          <label class="check"><input type="checkbox" id="cfg-compute"> Computação: tarefas de cálculo</label>
+          <label for="cfg-disk">Disco para a rede (GB)</label>
+          <input id="cfg-disk" inputmode="decimal" spellcheck="false">
+          <p class="hint">Com 0 GB, este computador não guarda modelos nem sites da rede. Vale com casas decimais (ex.: 2,5). GB como o Windows mostra.</p>
+          <details class="adv"><summary>Avançado</summary>
+            <label for="cfg-node">Endereço do nó</label>
+            <input id="cfg-node" type="url" spellcheck="false" placeholder="https://…">
+            <p class="hint">É por ele que o Sigma conversa com a rede. Só mude se souber o que está fazendo.</p>
+          </details>
+          <p class="err" id="cfg-err" hidden></p>
+          <div class="save-bar"><span id="cfg-state" class="muted">Tudo salvo.</span><button type="button" id="cfg-reset">Descartar</button><button class="primary" type="submit" id="cfg-save">Salvar</button></div>
+        </form>
+        <div>
+          <div class="card">
+            <h3>Comunidade</h3>
+            <p class="muted">O Sigma é feito por gente como você. Leia, discuta e proponha.</p>
+            <div class="row" id="links"></div>
+          </div>
+          <div class="card zone mt">
+            <h3>Desligar</h3>
+            <p class="muted">Para a mineração e a hospedagem e fecha o Sigma neste computador. Seus SIG continuam na carteira.</p>
+            <button class="danger big" type="button" id="quit-big">Desligar o Sigma</button>
+          </div>
+          <details class="card mt" id="logs-box"><summary>Registro: o que o Sigma está fazendo</summary><pre id="logs"></pre></details>
+          <p class="hint mono mt">Sigma <span id="app-version">—</span></p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="foot"><span>Σ Sigma · feito por gente, para gente</span><span id="foot-links"></span></footer>
+</div>
+
+<dialog id="dlg" aria-labelledby="dlg-title">
+  <form id="dlg-form" novalidate>
+    <h3 id="dlg-title"></h3>
+    <p class="muted" id="dlg-text"></p>
+    <div id="dlg-body"></div>
+    <p class="err" id="dlg-err" hidden></p>
+    <div class="dlg-actions"><button type="button" id="dlg-cancel">Cancelar</button><button class="primary" type="submit" id="dlg-ok">Confirmar</button></div>
+  </form>
+</dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+// Painel do Sigma: conversa só com a API local do app (127.0.0.1), nunca direto com a rede.
+
+const UNIT = 1_000_000;                         // 1 SIG = 1.000.000 µSIG
+const HOST_PRICE = 5;                           // µSIG por MB de disco por janela: só se o nó não disser o preço da rede
+const RAM_PRICE = 2;                            // µSIG por MB de memória por janela (modelos): idem
+const AI_CONTEXT = 4096;                        // contexto dos modelos da rede (o app manda o valor certo em /api/models)
+const MIN_SITE_BUDGET = 10_000;                 // µSIG: orçamento mínimo de um site novo (regra da chain)
+const GIB = 2 ** 30;                            // o "GB" que o Windows mostra
+const MAX_FILE = 20 * 1024 * 1024;              // o nó recusa arquivos de site maiores que isso
+const SITE_RE = /^[a-z0-9][a-z0-9-]{2,31}$/;
+const MODEL_RE = /^[a-z0-9][a-z0-9.-]{2,47}$/;
+const ADDR_RE = /^(0x|sig)[0-9a-f]{40}$/i;
+const KEY_RE = /^(0x)?[0-9a-f]{64}$/i;
+const HF_RE = /^https:\/\/huggingface\.co\/\S+\.gguf(\?\S*)?$/i;
+
+// o token chega no fragmento (#t=…), que o navegador nunca manda pela rede; fica só na memória
+const HASH = new URLSearchParams(location.hash.slice(1));
+const TOKEN = HASH.get("t") || "";
+
+// ------------------------------------------------------------- formatação
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const N = (v) => Number(v) || 0;
+const num = (v, d = 0) => N(v).toLocaleString("pt-BR", {minimumFractionDigits: d, maximumFractionDigits: d});
+const COMPACT = new Intl.NumberFormat("pt-BR", {notation: "compact", maximumFractionDigits: 1});
+const big = (v) => N(v) >= 1e6 ? COMPACT.format(N(v)) : num(Math.round(N(v)));
+const short = (a) => a ? String(a).slice(0, 9) + "…" + String(a).slice(-4) : "—";
+const hex = (a) => String(a || "").toLowerCase().replace(/^(0x|sig)/, "");
+const same = (a, b) => !!a && !!b && hex(a) === hex(b);
+const toEth = (a) => a ? "0x" + hex(a) : "";
+const cap = (s) => { s = String(s || ""); return s.charAt(0).toUpperCase() + s.slice(1); };
+const byName = (a, b) => String(a.name).localeCompare(String(b.name));
+const hosts = (x) => Object.keys(x?.pinners || {}).length;
+const plural = (n, one, many) => `${num(n)} ${N(n) === 1 ? one : many}`;
+
+// µSIG -> SIG no formato brasileiro, com casas decimais conforme o tamanho do valor
+function sig(u, max) {
+  const v = N(u) / UNIT, a = Math.abs(v);
+  max = max ?? (a >= 1000 ? 2 : a >= 1 ? 4 : a > 0 ? 6 : 2);
+  return v.toLocaleString("pt-BR", {minimumFractionDigits: Math.min(2, max), maximumFractionDigits: max});
+}
+// o saldo pode ser desconhecido (nó fora do ar ou app abrindo): mostra "—", nunca "0,00" (achado app-swap-gate-unknown-balance)
+const balUnknown = (w) => !!w && w.balance_known === false;
+const balText = (w, max) => balUnknown(w) ? "—" : sig(w ? w.balance : 0, max);
+const sigNum = (s) => N(s).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 6});   // SIG decimal
+const pct = (x) => (N(x) * 100).toLocaleString("pt-BR", {maximumFractionDigits: N(x) && N(x) < 0.01 ? 3 : 1}) + "%";
+const bpsPct = (b) => (N(b) / 100).toLocaleString("pt-BR", {maximumFractionDigits: 2});
+// tamanhos como o Windows mostra (1 GB = 2^30 bytes), para os números baterem com os do computador
+function fmtBytes(b) {
+  b = N(b);
+  if (b >= GIB) return num(b / GIB, b < 100 * GIB ? 1 : 0) + " GB";
+  if (b >= 2 ** 20) return num(b / 2 ** 20) + " MB";
+  if (b >= 1024) return num(b / 1024) + " KB";
+  return num(b) + " B";
+}
+const fmtMB = (m) => fmtBytes(N(m) * 1e6);               // hardware e chain contam em MB decimais
+const gbOf = (mb) => N(mb) * 1e6 / GIB;
+const gib = (mb) => N(mb) ? num(gbOf(mb), gbOf(mb) < 100 ? 1 : 0) + " GB" : "—";
+const gbVal = (v) => num(v, Number.isInteger(N(v)) ? 0 : 1);   // "4" ou "1,5" (configurações em GB)
+const gbInput = (v) => String(N(v)).replace(".", ",");          // no campo: sem separador de milhar ("1000", "2,5")
+// contas por segundo: H/s abaixo de 1.000, depois kH/s ou MH/s com 1 casa (o mesmo da janelinha de controle)
+function rate(h) {
+  h = N(h);
+  if (h >= 1e6) return num(h / 1e6, 1) + " MH/s";
+  if (h >= 1e3) return num(h / 1e3, 1) + " kH/s";
+  return num(Math.round(h)) + " H/s";
+}
+const vnum = (v) => String(v || "").split(".").slice(0, 3).map((x) => parseInt(x, 10));
+// "2.10.0" > "2.9.1": compara como números; texto ilegível conta como mais velho
+function newer(a, b) {
+  const x = vnum(a), y = vnum(b);
+  if (!x.length || x.some(Number.isNaN)) return false;
+  if (!y.length || y.some(Number.isNaN)) return true;
+  for (let i = 0; i < 3; i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d > 0; }
+  return false;
+}
+
+function clock(sec, long) {
+  sec = Math.ceil(sec);
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  const p = (n) => String(n).padStart(2, "0");
+  if (d) return `${d}d ${p(h)}h${p(m)}`;
+  return long || h ? `${p(h)}:${p(m)}:${p(s)}` : `${m}:${p(s)}`;
+}
+function every(sec) {
+  sec = N(sec);
+  if (sec >= 3600 && sec % 3600 === 0) return plural(sec / 3600, "hora", "horas");
+  if (sec >= 60 && sec % 60 === 0) return plural(sec / 60, "minuto", "minutos");
+  return plural(sec, "segundo", "segundos");
+}
+function lasts(sec) {
+  if (!Number.isFinite(sec) || sec <= 0) return "—";
+  const d = sec / 86400;
+  if (d >= 730) return `~${num(d / 365)} anos`;
+  if (d >= 2) return `~${num(d)} dias`;
+  if (sec >= 7200) return `~${num(sec / 3600)} horas`;
+  return `~${num(Math.max(1, sec / 60))} min`;
+}
+function when(t) {
+  if (!t) return "";
+  const d = new Date(N(t) * 1000), now = new Date(), hm = d.toLocaleTimeString("pt-BR", {hour: "2-digit", minute: "2-digit"});
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86400000);
+  if (diff === 0) return `hoje, ${hm}`;
+  if (diff === 1) return `ontem, ${hm}`;
+  return d.toLocaleDateString("pt-BR", {day: "2-digit", month: "2-digit", year: diff > 300 ? "2-digit" : undefined}) + `, ${hm}`;
+}
+
+// aceita "1,5", "1.234,56", "1500" e "0.25"; devolve o valor em SIG
+function parseSig(txt, allowZero = false) {
+  let s = String(txt ?? "").replace(/\s|sig/gi, "");
+  if (/^,\d+$/.test(s)) s = "0" + s;
+  if (/^\d+(,\d+)?$/.test(s)) s = s.replace(",", ".");
+  else if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, "").replace(",", ".");   // "1.000" é mil, como no Brasil
+  else if (!/^\d*\.\d+$/.test(s)) throw new Error(s ? "Quantidade inválida. Use só números, por exemplo 1,5." : "Informe a quantidade em SIG.");
+  if ((s.split(".")[1] || "").length > 6) throw new Error("Use no máximo 6 casas decimais.");
+  const v = Number(s);
+  if (!(v > 0) && !(allowZero && v === 0)) throw new Error("A quantidade precisa ser maior que zero.");
+  return v;
+}
+function parsePct(txt, max, what) {
+  const raw = String(txt ?? "").replace("%", "").replace(",", ".").trim(), v = Number(raw);
+  if (raw === "" || !Number.isFinite(v) || v < 0 || v > max) throw new Error(`${what}: use um número de 0 a ${max}.`);
+  return Math.round(v * 100) / 100;
+}
+// GB digitado nas configurações: aceita "1,5" e "1.5"; o app confere o máximo deste computador
+function parseGB(txt, what) {
+  const raw = String(txt ?? "").replace(/\s|gb/gi, "").replace(",", "."), v = Number(raw);
+  if (raw === "" || !/^\d*\.?\d+$/.test(raw) || !Number.isFinite(v)) throw new Error(`${what}: use um número de GB, como 4 ou 2,5.`);
+  return Math.round(v * 100) / 100;
+}
+function checkBalance(v) {
+  const bal = N(S?.wallet?.balance);
+  if (Math.round(v * UNIT) > bal) throw new Error(`Saldo insuficiente: você tem ${sig(bal)} SIG.`);
+}
+const ADDRESS_ONLY = "Sua carteira está no modo só endereço.";
+function needKey() {
+  if (!S?.wallet?.can_spend) throw new Error(`${ADDRESS_ONLY} Para gastar daqui, importe a chave dela em Carteira › Importar a chave desta carteira.`);
+}
+// aviso de "só endereço" nas abas que gastam SIG, com o botão que abre a importação da chave
+const keyNote = (what) => `<div class="note"><p>${ADDRESS_ONLY} Para ${esc(what)} daqui, importe a chave dela.</p>`
+  + `<div class="row mt"><button type="button" class="small primary" data-import-key>Importar a chave</button></div></div>`;
+
+// ------------------------------------------------------------- DOM
+function setText(id, v) { const el = typeof id === "string" ? $(id) : id; v = String(v ?? ""); if (el && el.textContent !== v) el.textContent = v; }
+function setHTML(id, html) { const el = typeof id === "string" ? $(id) : id; if (el && el._h !== html) { el.innerHTML = html; el._h = html; } }
+function setVal(el, v) { v = String(v ?? ""); if (el.value !== v) el.value = v; }
+function stat(id, v) { setText(id, v); $(id)?.classList.toggle("long", String(v).length > 9); }
+function formErr(id, msg) { setText(id, msg ? cap(msg) : ""); $(id).hidden = !msg; }
+function paintRange(el) { const lo = N(el.min), hi = N(el.max) || 100; el.style.setProperty("--p", ((N(el.value) - lo) / Math.max(1, hi - lo) * 100) + "%"); }
+const digits = (t) => esc(t).replace(/\d/g, (d) => `<span class="d">${d}</span>`);
+function store(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} }
+function stored(k) { try { return localStorage.getItem(k); } catch { return null; } }
+
+function toast(msg, kind = "ok", ms = 4200) {
+  const t = $("toast");
+  t.textContent = cap(msg); t.className = "show " + kind;
+  clearTimeout(toast.h); toast.h = setTimeout(() => { t.className = ""; }, ms);
+}
+async function copy(text, done = "Copiado") {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const t = Object.assign(document.createElement("textarea"), {value: text});
+    document.body.append(t); t.select();
+    try { document.execCommand("copy"); } finally { t.remove(); }
+  }
+  toast(done);
+}
+
+// ------------------------------------------------------------- API local
+async function api(path, body, timeout = 0) {
+  const opt = {method: body === undefined ? "GET" : "POST", cache: "no-store", headers: {"X-Sigma-Token": TOKEN}};
+  if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+  const ctl = timeout ? new AbortController() : null, timer = ctl && setTimeout(() => ctl.abort(), timeout);
+  if (ctl) opt.signal = ctl.signal;
+  let r, data = null;
+  try { r = await fetch(path, opt); data = await r.json().catch(() => null); }
+  catch { throw Object.assign(new Error("o Sigma não respondeu neste computador"), {status: 0}); }
+  finally { clearTimeout(timer); }
+  if (r.status === 401 || r.status === 403) sessionLost();
+  // "code" diz o que aconteceu sem depender do texto (ex.: "canceled" quando a pessoa cancelou a pergunta)
+  if (!r.ok) throw Object.assign(new Error(data?.error || `erro ${r.status} no Sigma`), {status: r.status, code: data?.code || null});
+  return data || {};
+}
+
+// ------------------------------------------------------------- estado
+let S = null, tab = "inicio", wizard = null, setupOk = false, quitting = false, lost = false;
+let failures = 0, pollTimer = 0, polling = false, histFilter = "all", cfgDirty = false;
+const pending = {};      // ajustes recém-salvos: valem até o /api/state seguinte confirmar
+// dados pedidos só quando a aba precisa
+const lazy = {models: {path: "/api/models"}, sites: {path: "/api/sites"}, code: {path: "/api/code/state"},
+              gov: {path: "/api/governance"}};
+const chat = {messages: [], total: 0, busy: false, started: 0, model: "", pendingModel: "", canceling: false, trimmed: false,
+              id: "", quote: null, quoteTimer: 0};
+
+function settings() {
+  const s = {...(S?.settings || {})}, now = Date.now();
+  for (const [k, p] of Object.entries(pending)) {
+    if (p.busy || now < p.until) s[k] = p.value; else delete pending[k];
+  }
+  return s;
+}
+const winSec = () => N(S?.mining?.window_seconds) || 300;
+const epochSec = () => N(S?.mining?.epoch_seconds) || 43200;
+function supply() {
+  const s = S?.network?.supply || {}, m = S?.mining || {};
+  return {minted: s.minted ?? m.minted, cap: s.cap ?? m.cap, next_mint: s.next_mint ?? m.next_mint, epoch: s.epoch ?? m.epoch,
+          epoch_ends: s.epoch_ends ?? m.epoch_ends, miners_epoch: s.miners_epoch ?? m.miners_epoch, hashrate: s.hashrate ?? m.network_hashrate};
+}
+// épocas recentes: o app pode mandar em "epochs" (preferido) ou dentro de mining/network
+function epochsList() {
+  const l = [S?.epochs, S?.mining?.epochs, S?.network?.epochs, S?.network?.supply?.epochs].find(Array.isArray) || [];
+  return l.slice().sort((a, b) => N(b.epoch) - N(a.epoch));
+}
+// os preços de aluguel são da rede (µSIG por MB por janela, no /mining do nó): os mesmos para todas as máquinas
+const isInt = (v) => Number.isInteger(v);
+const hostPrice = () => isInt(S?.mining?.hosting_per_mb_window) ? S.mining.hosting_per_mb_window : HOST_PRICE;
+const ramPrice = () => isInt(S?.mining?.ram_per_mb_window) ? S.mining.ram_per_mb_window : RAM_PRICE;
+// multiplicador da demanda (em bps: 10000 = 1x), de 1x com a rede vazia até 1 + demand_max_bps/10000 com ela cheia
+const rentBps = (k) => { const v = S?.mining?.rent?.[k]; return isInt(v) && v > 0 ? v : 10000; };
+// memória que um modelo reserva: pesos + contexto (a mesma conta da chain e do app)
+function ramOf(size) { return Math.ceil(N(size) / 1e6 * 1.2) + 512; }
+// aluguel de UMA cópia por janela, igual ao app._rent_per_window / chain.copy_fee: disco × demanda de disco e, nos
+// modelos, memória × demanda de memória; arredonda para cima, mínimo de 1 µSIG. BigInt: a conta passa de 2^53.
+function copyFee(size, ramMb) {
+  const B = (v) => BigInt(Math.max(0, Math.round(N(v)))), D = 10_000_000_000n;
+  let cost = B(size) * B(hostPrice()) * B(rentBps("disk_bps"));
+  if (ramMb != null) cost += B(ramMb) * 1_000_000n * B(ramPrice()) * B(rentBps("ram_bps"));
+  return Math.max(1, Number((cost + D - 1n) / D));
+}
+// item da rede: modelo tem ram_mb (paga memória), site não
+const itemFee = (x) => copyFee(x?.size, x?.ram_mb != null ? x.ram_mb : null);
+const rent = (x) => hosts(x) * itemFee(x);
+const lifetime = (budget, r) => r ? lasts(N(budget) / r * winSec()) : "esperando computadores";
+// aluguel por dia de `reps` cópias; model = true soma a memória que o modelo reserva
+const perDay = (size, reps, model = false, ramMb = null) => reps * copyFee(size, model ? (ramMb ?? ramOf(size)) : null) * 86400 / winSec();
+const xTxt = (bps) => (N(bps) / 10000).toLocaleString("pt-BR", {maximumFractionDigits: 2}) + "x";
+// "a rede está 12% cheia: aluguel 1,04x" — o quanto cheia sai do multiplicador (mult = 1 + max × u²)
+function demandTxt(k) {
+  const m = S?.mining || {}, live = S?.node?.ok === true && isInt(m.rent?.[k]);
+  if (!live) return "sem a leitura da rede agora, a conta usa o aluguel sem demanda (1x)";
+  const bps = rentBps(k), max = N(m.demand_max_bps);
+  if (!(max > 0)) return `aluguel ${xTxt(bps)} (hoje a demanda não muda o preço)`;
+  const u = Math.min(1, Math.sqrt(Math.max(0, bps - 10000) / max));
+  return `a rede está ${pct(u)} cheia: aluguel ${xTxt(bps)} (vai de 1x, vazia, a ${xTxt(10000 + max)}, cheia)`;
+}
+// emissão contínua: SIG por hora no ritmo de agora (o nó manda; senão, a conta pelo período de 12 h)
+const nodeLive = () => S?.node?.ok === true;
+function mintPerHour() {
+  const m = S?.mining || {}, s = S?.network?.supply || {};
+  const h = m.mint_per_hour ?? s.mint_per_hour;
+  if (h != null) return N(h);
+  const per = m.mint_per_period ?? m.next_mint ?? s.next_mint;
+  return per != null ? N(per) * 3600 / epochSec() : null;
+}
+const perHourTxt = (v) => v == null || !nodeLive() ? "—" : sig(v, N(v) >= 1000 * UNIT ? 0 : 2);
+function nodeUrl() {
+  const u = String(S?.node?.url || S?.settings?.node || "").trim().replace(/\/+$/, "");
+  return /^https?:\/\/[\w.-]+(:\d+)?(\/[\w.\/-]*)?$/i.test(u) ? u : "";
+}
+function linkTo(path, label, cls = "") {
+  const u = nodeUrl();
+  return u ? `<a class="${cls}" href="${esc(u + path)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : "";
+}
+const siteUrl = (s) => /^https?:\/\//i.test(s?.url || "") ? s.url : nodeUrl() ? `${nodeUrl()}/site/${encodeURIComponent(s.name)}/` : "";
+
+function want(key, maxAge = 15000) {
+  const L = lazy[key];
+  if (!L.busy && Date.now() - (L.t || 0) > (L.data ? maxAge : 4000)) {
+    L.busy = true;
+    api(L.path, undefined, 20000).then((d) => { L.data = d; L.err = null; }, (e) => { L.err = e.message; })
+      .finally(() => { L.busy = false; L.t = Date.now(); if (S && !wizard && !lost && !quitting) PANES[tab](); });
+  }
+  return L.data;
+}
+function refresh(key) { lazy[key].t = 0; want(key); }
+// erro ao buscar dados de uma aba: frase de gente, e o texto cru (WinError, nó) só em "Detalhes técnicos"
+const LOAD_FAIL = "Não deu para carregar agora. O Sigma tenta de novo sozinho daqui a pouco.";
+const loadingHTML = (L) => L.err ? `<div class="note err"><p>${LOAD_FAIL}</p>${techHTML(L.err)}</div>` : `<p class="empty">Carregando…</p>`;
+
+// ------------------------------------------------------------- ciclo
+function schedule(ms) { clearTimeout(pollTimer); if (!quitting && !lost) pollTimer = setTimeout(poll, ms); }
+async function poll() {
+  if (polling) return;
+  polling = true; clearTimeout(pollTimer);
+  let st = null;
+  try {
+    st = await api("/api/state", undefined, 10000);
+  } catch (e) {
+    if (!lost && !quitting && ++failures >= 2) {
+      $("conn-banner").hidden = false;
+      if (!S) setText("boot-msg", "O Sigma não respondeu. Ele está aberto? Tentando de novo…");
+    }
+  } finally {
+    polling = false;
+    schedule(document.hidden ? 10000 : 2000);   // janela minimizada: consulta com menos frequência
+  }
+  if (!st) return;
+  // fora do try: um erro ao desenhar a tela não pode parecer "Sigma fora do ar"
+  S = st; failures = 0; $("conn-banner").hidden = true;
+  render();
+}
+function sessionLost() {
+  if (lost || quitting) return;
+  lost = true; clearTimeout(pollTimer);
+  fatal("Abra o painel pelo Sigma", "Este painel só funciona quando é aberto pelo próprio Sigma, que cria um acesso novo e seguro a cada vez. Clique em Abrir painel na janelinha do Sigma ou abra o Sigma de novo.");
+}
+function fatal(title, text) {
+  ["boot", "app", "wizard", "conn-banner"].forEach((id) => { $(id).hidden = true; });
+  $("fatal").hidden = false;
+  setText("fatal-title", title); setText("fatal-text", text);
+  document.title = "Sigma";
+  if ($("dlg").open) $("dlg").close();
+}
+
+function render() {
+  if (!S || lost || quitting) return;
+  $("boot").hidden = true;
+  if (wizard && S.setup_done && !setupOk && wizard.step < 3) wizard = null;   // configurado por fora (outra janela ou linha de comando)
+  if (!S.setup_done && !wizard && !setupOk) wizard = {step: 1, mode: "create"};
+  $("wizard").hidden = !wizard; $("app").hidden = !!wizard;
+  if (wizard) return renderWizard();
+  renderHeader();
+  PANES[tab]();
+  syncSettings();
+  tick();
+}
+
+// motivo da recusa dos relatórios em palavras de gente (o texto cru fica em "Detalhes técnicos")
+function reportReason(err) {
+  const e = String(err || ""), lim = /limite de ([\d.]+) relatórios de mineração por conexão/i.exec(e);
+  if (lim) return `Muitos computadores da mesma internet estão minerando ao mesmo tempo, e a rede só aceita ${lim[1]} relatórios por conexão a cada janela.`;
+  if (/relatórios de mineração recusados nesta janela/i.test(e))
+    return "A rede está recusando os relatórios que saem desta internet. Confira se a data, a hora e o fuso do computador estão certos.";
+  if (/já tem um relatório|já foi reportada/i.test(e))
+    return "Outro computador está minerando com a mesma identidade deste (acontece quando a pasta de dados do Sigma é copiada de um computador para outro), e a rede só conta um relatório de cada computador por janela.";
+  return "";
+}
+const techHTML = (raw) => raw ? `<details class="tech"><summary>Detalhes técnicos</summary><p>${esc(raw)}</p></details>` : "";
+
+function miningState() {
+  const m = S.mining || {}, c = settings(), ok = S.node?.ok;
+  if (ok == null) return {cls: "warn", title: "Conectando…", short: "Conectando à rede…",
+    lead: "Buscando os números da rede. Leva alguns segundos."};
+  if (ok === false) return {cls: "off", title: "Sem conexão", short: "Sem conexão com a rede",
+    lead: "O Sigma não consegue falar com a rede agora. Pode ser a sua internet ou o servidor da rede fora do ar. Ele tenta de novo sozinho; você não precisa fazer nada."};
+  if (!c.mining_enabled) return {cls: "idle", title: "Mineração pausada", short: "Mineração pausada",
+    lead: "Seu computador não está minerando agora. Os pontos que ele já fez ainda recebem SIG por alguns minutos."};
+  if (m.on_battery && !c.mine_on_battery) return {cls: "idle", title: "Pausada na bateria", short: "Pausada na bateria", battery: true,
+    lead: "Mineração pausada: o notebook está na bateria. Ela volta sozinha quando você ligar o carregador."};
+  if (m.paused) return {cls: "warn", title: "Pausa rápida", short: "Pausa rápida · atendendo IA",
+    lead: "Seu computador está respondendo um pedido de IA para alguém da rede. A mineração volta sozinha logo em seguida."};
+  // fazendo contas que a rede recusa: nunca mostrar "Minerando" (a pessoa ficaria dias sem ganhar nada)
+  if (m.running && N(m.hashrate) > 0 && N(m.fail_streak) >= 2) return {cls: "warn", title: "Minerando sem contar", short: "Relatórios recusados", refused: true,
+    lead: "Seu computador está fazendo as contas, mas a rede recusou os últimos relatórios, então esse trabalho não está virando pontos. O Sigma tenta de novo a cada janela."};
+  if (m.running && N(m.hashrate) > 0) return {cls: "on", title: "Minerando", short: "Minerando",
+    lead: "Seu computador está trabalhando para a rede. As contas que ele faz viram pontos, e os pontos recebem SIG a cada bloco."};
+  if (m.last_error) return {cls: "off", title: "Algo travou", short: "Problema na mineração",
+    lead: "A mineração parou por um problema e vai tentar de novo sozinha."};
+  return {cls: "warn", title: "Ligando…", short: "Ligando a mineração…", lead: "Preparando a mineração. Leva só alguns segundos."};
+}
+
+const safeUrl = (u) => /^https?:\/\/[^\s"'<>]+$/i.test(String(u || "")) ? String(u) : "";
+// avisos que aparecem em todas as abas
+function renderTopNotes() {
+  const notes = [], up = S.update || {};
+  const v = [up.version, S.network?.version].find((x) => x && newer(x, S.version));
+  if (v) {
+    const url = safeUrl(up.url) || (nodeUrl() ? nodeUrl() + "/baixar" : "");
+    notes.push(`<div class="top-note" role="status"><p>Saiu uma versão nova do Sigma (${esc(v)}). Baixe e abra: ela fecha esta e continua de onde parou.</p>`
+      + (url ? `<a class="btn small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Baixar a versão nova</a>` : "") + `</div>`);
+  }
+  if (S.code?.pending && tab !== "programar")
+    notes.push(`<div class="top-note red" role="alert"><p>O Sigma Code está esperando a sua aprovação para continuar.</p><button type="button" class="small" data-go="programar">Ver o pedido</button></div>`);
+  setHTML("top-notes", notes.join(""));
+}
+
+function renderHeader() {
+  const st = miningState(), m = S.mining || {};
+  $("live").className = "live " + st.cls;
+  setText("live-text", st.cls === "on" ? `Minerando · ${rate(m.hashrate)}` : st.short);
+  setText("top-balance", balUnknown(S.wallet) ? "—" : sig(S.wallet?.balance, 2) + " SIG");
+  const title = st.cls === "on" ? `Σ ${rate(m.hashrate)} · Sigma` : "Sigma";
+  if (document.title !== title) document.title = title;
+  document.querySelectorAll("#tabs [data-tab]").forEach((b) => {
+    const on = b.dataset.tab === tab;
+    b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1;
+  });
+  document.querySelectorAll("[data-pane]").forEach((p) => { p.hidden = p.dataset.pane !== tab; });
+  renderTopNotes();
+  setHTML("foot-links", [["/", "Manifesto"], ["/tutorial", "Como funciona"], ["/forum", "Fórum"], ["/baixar", "Baixar o Sigma"]]
+    .map(([p, l]) => linkTo(p, l)).join(""));
+}
+
+// contagens regressivas: rodam a cada segundo sem esperar o próximo /api/state. A emissão é contínua (v2.3): não há
+// mais contagem até a emissão; sobram a janela ("fecha em 0:42") e o fim de cada votação (data-end, "termina em 3d 04h12").
+// epoch = relógio grande (00:00:00 na hora), rel = "daqui a 05:12:09" dentro de frases
+function cdText(k, end, now) {
+  if (S.node?.ok !== true || !end) return "—";   // sem conexão a contagem para, em vez de dizer "agora" para sempre
+  const left = end - now;
+  if (k === "window") return left > 0 ? `fecha em ${clock(left)}` : "fechando agora";
+  if (k === "rel") return left > 0 ? `daqui a ${clock(left, true)}` : "agora mesmo";
+  if (k === "until") return left > 0 ? `termina em ${clock(left)}` : "terminando: o resultado sai num dos próximos blocos";
+  return clock(Math.max(0, left), true);
+}
+function tick() {
+  if (!S) return;
+  const now = Date.now() / 1000, m = S.mining || {}, epoch = N(m.epoch_ends || supply().epoch_ends);
+  const ends = {epoch, rel: epoch, window: N(m.window_ends)};
+  document.querySelectorAll("[data-cd]").forEach((el) => {
+    const txt = cdText(el.dataset.cd, el.dataset.end ? N(el.dataset.end) : ends[el.dataset.cd], now);
+    if (el.dataset.txt === txt) return;
+    el.dataset.txt = txt;
+    el.innerHTML = el.classList.contains("clock") ? digits(txt) : esc(txt);
+  });
+  if (chat.busy) setText("chat-elapsed", `${Math.floor((Date.now() - chat.started) / 1000)} s`);
+}
+
+// ------------------------------------------------------------- ajustes rápidos (chaves e controles deslizantes)
+const SAVED = {
+  mining_enabled: (v) => v ? "Mineração ligada" : "Mineração pausada",
+  ai_enabled: (v) => v ? "IA ligada: a rede pode colocar modelos aqui" : "IA desligada neste computador",
+  compute_enabled: (v) => v ? "Computação ligada" : "Computação desligada",
+  cpu_percent: (v) => `Processador: ${num(v)}%`,
+  ai_ram_gb: (v) => `Memória para IA: ${gbVal(v)} GB`,
+  disk_gb: (v) => `Disco para a rede: ${gbVal(v)} GB`,
+  mine_on_battery: (v) => v ? "A mineração continua também na bateria" : "Na bateria, a mineração pausa sozinha",
+};
+const fmtSetting = (k, v) => v == null || v === "" ? "—" : k === "cpu_percent" ? `${num(v)}%` : `${gbVal(v)} GB`;
+
+async function saveSetting(patch) {
+  for (const [k, v] of Object.entries(patch)) pending[k] = {value: v, busy: true, until: 0};
+  render();
+  try {
+    const r = await api("/api/settings", patch);
+    if (r.settings && S) S.settings = r.settings;
+    const [k, v] = Object.entries(patch)[0];
+    toast(SAVED[k] ? SAVED[k](v) : "Salvo");
+  } catch (e) {
+    for (const k in patch) delete pending[k];
+    toast("Não deu para salvar: " + e.message, "err", 6000);
+  } finally {
+    // segura o valor novo por um ciclo, para um /api/state antigo não "desfazer" a mudança na tela
+    for (const k in patch) if (pending[k]) { pending[k].busy = false; pending[k].until = Date.now() + 3000; }
+    render(); schedule(300);
+  }
+}
+
+// a máquina cede ai_ram_gb × 1.073,741824 MB decimais; um modelo usa tamanho × 1,2 + 512 MB (a regra da chain)
+function aiHint(gb) {
+  gb = N(gb);
+  if (gb < 2) return "Com menos de 2 GB, a rede não coloca modelos de IA aqui.";
+  const maxBytes = (gb * GIB / 1e6 - 512) / 1.2 * 1e6;
+  return `Cabem modelos de até ~${fmtBytes(maxBytes)}. A rede escolhe sozinha quais ficam aqui.`;
+}
+// o mesmo teto do app: a memória deste computador em GB do Windows, nunca menos de 1
+const ramTop = (hw) => N(S?.limits?.ai_ram_gb) || (N(hw?.ram_mb) ? Math.max(1, Math.floor(gbOf(hw.ram_mb))) : 32);
+
+function syncSettings() {
+  const c = settings(), hw = S.machine?.hw || {};
+  const ramMax = ramTop(hw);
+  const free = Math.floor(gbOf(hw.disk_free_mb ?? hw.disk_mb));
+  const diskMax = Math.min(4000, Math.max(5, N(c.disk_gb), free || 500));
+  document.querySelectorAll('input[data-set="ai_ram_gb"]').forEach((el) => { el.max = Math.max(ramMax, N(c.ai_ram_gb)); });
+  document.querySelectorAll('input[data-set="disk_gb"]').forEach((el) => { el.max = diskMax; });
+  document.querySelectorAll("[data-set]").forEach((el) => {
+    const v = c[el.dataset.set];
+    if (el.classList.contains("switch")) el.setAttribute("aria-checked", String(!!v));
+    else if (document.activeElement !== el && v != null) setVal(el, v);   // não mexe no controle que a pessoa está usando
+    if (el.type === "range") paintRange(el);
+  });
+  const live = (k) => document.querySelector(`input[data-set="${k}"]:focus`)?.value ?? c[k];
+  document.querySelectorAll("[data-val]").forEach((el) => setText(el, fmtSetting(el.dataset.val, live(el.dataset.val))));
+  setText("ai-hint", aiHint(live("ai_ram_gb")));
+}
+
+// ------------------------------------------------------------- carteira: as três escolhas (assistente e "Trocar carteira")
+const WALLET_CHOICES = [
+  ["create", "Criar uma carteira nova", "Recomendado. O Sigma cria a carteira e guarda a chave protegida neste computador."],
+  ["import_key", "Usar minha chave", "Tem uma carteira só para o Sigma? Cole a chave privada dela. Não use a chave da conta onde você guarda outras criptomoedas: ela fica salva neste computador."],
+  ["address", "Só colar um endereço", "O Sigma minera e hospeda para esse endereço sem guardar chave nenhuma. Mas daqui do app você não vai poder usar a IA, programar, publicar sites nem apadrinhar modelos: para gastar, só pela MetaMask no site."],
+];
+const KEY_TIP = "Dica: quer ver os SIG na MetaMask? Crie a carteira aqui e depois importe a chave dela na MetaMask. Se for importar daqui, use uma conta nova da MetaMask (Adicionar conta) só para o Sigma.";
+const choicesHTML = (mode) => WALLET_CHOICES.map(([m, t, d]) =>
+  `<button type="button" class="choice" data-mode="${m}" aria-pressed="${m === mode}"><b>${esc(t)}</b><span>${esc(d)}</span></button>`).join("");
+const KEY_HINT = "A chave privada tem 64 caracteres (números e letras de a até f), com ou sem 0x no começo.";
+const ADDR_HINT = "Endereço inválido. Ele começa com sig ou 0x e tem mais 40 caracteres.";
+
+// ------------------------------------------------------------- assistente (primeira execução)
+function usageText(c) {
+  const cpu = N(c.cpu_percent ?? 50) === 50 ? "metade do processador" : `${num(c.cpu_percent)}% do processador`;
+  if (c.ai_enabled === false) return `Por padrão, o Sigma usa ${cpu} para minerar. A IA está desligada, então a rede não manda modelos para cá. Mude isso quando quiser em Meu computador.`;
+  return `Por padrão, o Sigma usa ${cpu} para minerar e cede à IA da rede até ${gbVal(c.ai_ram_gb)} GB de memória e ${gbVal(c.disk_gb)} GB do disco. `
+    + "A rede pode mandar para cá modelos de IA de alguns GB. Se a sua internet é limitada (4G, por exemplo), desligue a IA. Mude isso quando quiser em Meu computador.";
+}
+function renderWizard() {
+  const w = wizard, m = S.mining || {};
+  document.querySelectorAll("#wizard [data-step]").forEach((el) => { el.hidden = Number(el.dataset.step) !== w.step; });
+  document.querySelectorAll("#wiz-steps li").forEach((li) => {
+    const s = Number(li.dataset.s);
+    li.className = s === w.step ? "on" : s < w.step ? "done" : "";
+  });
+  if (w.step === 2) {
+    document.querySelectorAll("#wiz-choices [data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === w.mode)));
+    document.querySelectorAll("#wiz-form [data-for]").forEach((el) => { el.hidden = el.dataset.for !== w.mode; });
+    setText("wiz-go", {create: "Criar minha carteira", import_key: "Importar chave", address: "Usar este endereço"}[w.mode]);
+    $("wiz-choose").hidden = !!w.key;
+    $("wiz-key-panel").hidden = !w.key;
+  }
+  if (w.step === 3) {
+    // passo 3 reflete a mineração de verdade: na bateria (battery_pause) não diz "já está minerando" (achado app-wizard-battery-text)
+    const c = settings(), battery = !!m.battery_pause, on = c.mining_enabled !== false && !battery, addr = w.address || S.wallet?.address;
+    setHTML("wiz-done-title", on ? "Pronto. <em>Seu computador já está minerando.</em>" : "Pronto. <em>Sua carteira está configurada.</em>");
+    setHTML("wiz-done-text", battery
+      ? "A mineração começa sozinha quando você ligar o carregador. Para minerar também na bateria, ligue a opção em <b>Configurações</b>."
+      : on
+      ? "Não precisa fazer mais nada. Pode fechar esta janela: o Sigma continua trabalhando. Para voltar aqui, clique em <b>Abrir painel</b> na janelinha do Sigma."
+      : "A mineração está desligada nas configurações. Ligue no painel quando quiser começar a ganhar SIG.");
+    stat("wiz-hash", battery ? "Pausada na bateria" : N(m.hashrate) > 0 ? rate(m.hashrate) : on ? "Ligando…" : "Pausada");
+    stat("wiz-cpu", `${num(c.cpu_percent ?? 50)}%`);
+    stat("wiz-rate", perHourTxt(mintPerHour()));
+    setText("wiz-mint", nodeLive() ? "SIG por hora, um pouco a cada bloco, para quem minerou" : "aparece quando o Sigma falar com a rede");
+    // endereço inteiro: um caractere trocado no meio não aparece num endereço encurtado
+    const typed = w.mode === "address" || w.mode === "import_key";
+    setText("wiz-address-label", typed ? "Confira: tudo o que este computador ganhar vai para" : "Sua carteira nova");
+    setText("wiz-address", toEth(addr) || "—");
+    $("wiz-fix-row").hidden = !typed;
+    setText("wiz-fix-text", "É o mesmo da sua MetaMask? Se não for, corrija agora.");
+    setText("wiz-usage", usageText(c));
+  }
+  tick();
+}
+
+async function doSetup(e) {
+  e.preventDefault();
+  const w = wizard, body = {mode: w.mode}, btn = $("wiz-go");
+  formErr("wiz-err", "");
+  try {
+    if (w.mode === "import_key") {
+      const k = $("wiz-key").value.trim();
+      if (!KEY_RE.test(k)) throw new Error(KEY_HINT);
+      body.private_key = k;
+    }
+    if (w.mode === "address") {
+      const a = $("wiz-addr").value.trim();
+      if (!ADDR_RE.test(a)) throw new Error(ADDR_HINT);
+      body.address = a;   // o app confere o checksum da MetaMask (maiúsculas e minúsculas) e explica se errou
+    }
+    btn.disabled = true;
+    const r = await api("/api/setup", body);
+    setupOk = true; w.address = r.address;
+    $("wiz-key").value = "";
+    if (r.private_key) {
+      // a chave aparece uma única vez, só no DOM, e some quando a pessoa avança
+      $("wiz-keybox").textContent = r.private_key;
+      $("wiz-saved").checked = false; $("wiz-next2").disabled = true; w.key = true;
+    } else w.step = 3;
+    renderWizard(); schedule(500);
+  } catch (x) { formErr("wiz-err", x.message); }
+  finally { btn.disabled = false; }
+}
+
+// ------------------------------------------------------------- Início
+const pct100 = (p) => Math.max(0, Math.min(100, N(p) <= 1 ? N(p) * 100 : N(p)));   // o host manda fração (0–1)
+// o que este computador cede para a IA da rede, dito logo na primeira tela (modelos têm alguns GB)
+function usageLine() {
+  const mc = S.machine || {}, models = mc.models || [], sites = (mc.sites || []).length;
+  const down = models.find((x) => M_DOWN.includes(String(x.status)));
+  if (down) return `Baixando o modelo ${down.name} para a rede: ${num(pct100(down.progress))}% de ${fmtBytes(down.size)}.`;
+  const n = models.filter((x) => M_DONE.includes(String(x.status))).length;
+  if (n || sites) return `Seu computador também guarda ${plural(n, "modelo", "modelos")} de IA e ${plural(sites, "site", "sites")} para a rede.`;
+  return settings().ai_enabled ? "A IA para a rede está ligada: quando a rede precisar, ela manda para cá modelos de IA de alguns GB, baixados pela sua internet." : "";
+}
+function renderInicio() {
+  const m = S.mining || {}, w = S.wallet || {}, c = settings(), st = miningState(), live = S.node?.ok === true;
+  setText("h-state", st.title); $("h-state").className = "mega " + st.cls;
+  setText("h-lead", st.lead);
+  setText("h-usage", usageLine());
+  setText("mine-toggle", c.mining_enabled ? "Pausar mineração" : "Ligar mineração");
+  $("mine-toggle").className = c.mining_enabled ? "big" : "primary big";
+  setText("cpu-hint", N(m.max_workers)
+    ? `${num(m.workers)} de ${num(m.max_workers)} núcleos minerando, sempre com prioridade baixa: o computador continua livre para você.`
+    : "O Sigma usa prioridade baixa: o computador continua livre para você.");
+  // erro cru (WinError, texto do nó) só dentro de "Detalhes técnicos": a explicação principal é a de cima
+  const alerts = [];
+  if (S.node?.ok === false) alerts.push(S.node.fix ? `<div class="note err"><p>${esc(S.node.fix)}</p></div>` : techHTML(S.node.error));
+  else if (st.refused) {
+    const why = reportReason(m.report_error);
+    alerts.push(`<div class="note err"><p><b>A rede recusou as provas das últimas janelas:</b> este computador está minerando sem ganhar pontos.</p>`
+      + (why ? `<p>Motivo: ${esc(why)}</p>` : "") + techHTML(m.report_error) + `</div>`);
+  } else if (st.battery) alerts.push(`<div class="note"><p>Para minerar também na bateria, ligue a opção em Configurações.</p>`
+      + `<div class="row"><button type="button" class="small" data-go="config">Abrir Configurações</button></div></div>`);
+  if (live && m.last_error && st.cls !== "on" && !st.refused) alerts.push(techHTML(m.last_error));
+  setHTML("h-alerts", alerts.join(""));
+
+  // emissão contínua (v2.3): sai um pouco em todo bloco, sem contagem; sem conexão, os números da rede viram "—"
+  const perHour = mintPerHour(), est = m.est_per_hour ?? m.est_reward, pend = N(m.my_pending_points);
+  setHTML("h-rate", `${esc(perHourTxt(perHour))}<small>SIG por hora</small>`);
+  // ainda conectando (abertura do app) não é falha: só a falta de conexão de verdade fala em "voltar"
+  setHTML("mint-line", S.node?.ok == null ? "Buscando o ritmo da rede…" : !live ? "O ritmo da rede volta a aparecer quando a conexão voltar."
+    : `A rede imprime agora <b>${esc(perHourTxt(perHour))} SIG por hora</b>, um pouco a cada bloco. `
+      + "Recebe quem tem pontos na última janela já fechada (uns 10 minutos atrás), na proporção das contas de cada um.");
+  stat("st-hash", rate(m.hashrate));
+  stat("st-points", live ? big(m.my_points) : "—");
+  setText("st-points-sub", !live ? "aparecem quando a conexão voltar" : st.refused ? "nenhum relatório aceito agora"
+    : N(m.total_points) ? `de ${big(m.total_points)} que recebem agora` + (pend ? ` · +${big(pend)} esperando a janela fechar` : "")
+    : pend ? `+${big(pend)} esperando a janela fechar` : c.mining_enabled ? "chegam quando a janela fechar" : "na base que recebe agora");
+  const share = m.my_share ?? (N(m.total_points) ? N(m.my_points) / N(m.total_points) : 0);
+  stat("st-share", live ? pct(share) : "—");
+  stat("st-est", live ? (N(est) ? "≈ " : "") + sig(est, N(est) >= 100 * UNIT || !N(est) ? 2 : undefined) : "—");
+  setText("st-est-sub", live ? "SIG por hora, no ritmo de agora" : "a estimativa volta quando a conexão voltar");
+  stat("st-total", sig(m.rewards_total, 2));
+  stat("st-balance", balText(w, 2));
+  setText("win-n", "#" + (m.window ?? "—"));
+  setText("win-shares", num(m.shares_window));
+  setText("win-bits", m.bits ?? "—");
+  setText("win-help", `A cada ${every(winSec())}, o Sigma manda para a rede as provas das contas que seu computador fez. Elas viram pontos e, quando a janela fecha, esses pontos passam a receber o que a rede imprime em cada bloco.`);
+  setHTML("band-links", linkTo("/", "Ler o manifesto →") + linkTo("/forum", "Entrar no fórum →"));
+}
+
+// ------------------------------------------------------------- Carteira
+const KIND = {
+  create_job: "Pedido de IA", cancel_job: "Cancelou um pedido de IA", deploy_site: "Publicou o site", fund_site: "Recarregou o site",
+  register_model: "Apadrinhou o modelo", fund_model: "Recarregou o modelo", update_model: "Alterou o modelo", retire_model: "Apagou o modelo",
+  register_machine: "Registrou a máquina", claim_job: "Pegou um pedido", submit_result: "Entregou um resultado", pin_site: "Guardou o site",
+  pin_model: "Guardou o modelo",
+};
+// o que a rede credita direto no saldo; o nó junta numa entrada só por tipo e por período de 12 h
+const CREDIT = {
+  rent: ["Ganhos servindo a rede · aluguel", " de "], job: ["Ganhos servindo a rede · pedidos atendidos"], royalty: ["Royalties", " de "],
+  change: ["Troco de pedidos de IA"], refund: ["Devolução de pedidos de IA"], budget: ["Devolução do orçamento", ": "],
+  vote: ["Votos devolvidos · votação encerrada"], deposit: ["Depósito devolvido · votação encerrada"],
+};
+// votos e depósitos levam o id da votação nas refs: mostra o título dela, se o painel já tiver lido as votações
+const govTitle = (id) => (lazy.gov.data?.proposals || []).find((p) => p && p.id === id)?.title;
+function creditLabel(h) {
+  const [base, join] = CREDIT[h.kind] || ["Crédito da rede"];
+  const refs = (Array.isArray(h.refs) && h.refs.length ? h.refs : h.name ? [h.name] : []).filter((x) => typeof x === "string");
+  const names = join && refs.length ? join + refs.slice(0, 3).join(", ") + (refs.length > 3 ? "…" : "") : "";
+  const titles = ["vote", "deposit"].includes(h.kind) ? refs.map(govTitle).filter((t) => typeof t === "string") : [];
+  const about = titles.length ? ": " + titles.slice(0, 2).join(", ") + (titles.length > 2 ? "…" : "") : "";
+  return `${base}${names}${about} · período #${h.epoch ?? "?"}`;
+}
+function histItem(h, me) {
+  const many = ["job", "change", "refund"].includes(h.kind) && N(h.count) > 1 ? plural(h.count, "pedido", "pedidos") : "";
+  const meta = esc([when(h.time), h.height ? `bloco #${num(h.height)}` : "", h.via === "metamask" ? "via MetaMask" : "", many].filter(Boolean).join(" · "));
+  const row = (cls, what, amt) => `<div class="item ${cls}"><div><div class="what">${what}</div><div class="meta">${meta}</div></div><div class="amt">${esc(amt)}</div></div>`;
+  // emissão contínua: o nó junta numa linha só tudo o que a mineração rendeu em cada período de 12 h
+  if (h.type === "mint") return row("mint", `<span class="tag red">Impresso</span>Mineração · período #${esc(h.epoch ?? "?")}`, `+${sig(h.amount)} SIG`);
+  if (h.type === "credit") return row("in", `<span class="tag ok">Rede</span>${esc(creditLabel(h))}`, `+${sig(h.amount)} SIG`);
+  const out = same(h.from, me), inn = same(h.to, me) && !out;
+  if (h.type === "transfer") return row(inn ? "in" : "out",
+    inn ? `Recebido de <span class="mono">${esc(short(h.from))}</span>` : `Enviado para <span class="mono">${esc(short(h.to))}</span>`,
+    `${inn ? "+" : "−"}${sig(h.amount)} SIG`);
+  const label = (KIND[h.type] || "Transação " + (h.type || "")) + (h.name ? " " + h.name : "");
+  return row("", esc(label), N(h.amount) ? `${h.type === "create_job" ? "reserva " : "−"}${sig(h.amount)} SIG` : "");
+}
+const HIST_EMPTY = {
+  all: "Nada por aqui ainda. Com o computador minerando, a primeira recompensa começa a entrar em uns 10 minutos, um pouco a cada bloco.",
+  mint: "Nenhuma recompensa ainda. Com o computador minerando, ela começa a entrar em uns 10 minutos, um pouco a cada bloco.",
+  credit: "Nada por aqui ainda. Aqui entram o que este computador ganha servindo a rede (pedidos e aluguel), royalties, trocos e devoluções, e os votos e depósitos que voltam no fim de cada votação.",
+};
+function renderCarteira() {
+  const w = S.wallet || {}, me = w.address, mc = S.machine || {};
+  stat("w-balance", balText(w));
+  setText("w-addr", me || "—");
+  setText("w-eth", w.eth_address || toEth(me) || "—");
+  // a carteira que recebe, com o endereço inteiro (um caractere trocado no meio não aparece encurtado)
+  setText("rc-addr", w.eth_address || toEth(me) || "—");
+  setText("rc-mode", w.can_spend ? "A chave dela está guardada, protegida, neste computador: dá para gastar daqui."
+    : "Modo só endereço: o Sigma não tem a chave desta carteira. Para usar a IA, programar, publicar sites ou apadrinhar modelos daqui, importe a chave dela.");
+  $("btn-import").hidden = !!w.can_spend;
+  $("send-form").hidden = !w.can_spend;
+  $("send-off").hidden = !!w.can_spend;
+  $("export-box").hidden = !w.can_spend;
+  setHTML("send-off-link", linkTo("/carteira", "Abrir a carteira do site", "btn"));
+  document.querySelectorAll("[data-hist]").forEach((b) => b.classList.toggle("on", b.dataset.hist === histFilter));
+  const all = (w.history || []).slice().sort((a, b) => N(b.height) - N(a.height) || N(b.time) - N(a.time));
+  const list = histFilter === "all" ? all : all.filter((h) => h.type === histFilter);
+  setText("mint-sum", `Recompensas de mineração até hoje: ${sig(S.mining?.rewards_total, 2)} SIG. `
+    + `Ganhos servindo a rede (pedidos de IA e aluguel): ${sig(mc.earned)} SIG.`);
+  setHTML("history", list.length ? `<div class="list">${list.slice(0, 100).map((h) => histItem(h, me)).join("")}</div>`
+    : `<p class="empty">${HIST_EMPTY[histFilter] || HIST_EMPTY.all}</p>`);
+}
+
+function sendFlow(e) {
+  e.preventDefault();
+  formErr("send-err", "");
+  try {
+    needKey();
+    const to = $("send-to").value.trim(), w = S.wallet || {};
+    if (!ADDR_RE.test(to)) throw new Error(ADDR_HINT);
+    if (same(to, w.address)) throw new Error("Esse é o seu próprio endereço.");
+    const amount = parseSig($("send-amount").value);
+    checkBalance(amount);
+    openDialog({
+      title: "Confirmar envio", ok: "Enviar agora",
+      html: `<p class="huge" style="margin:0"><b>${esc(sigNum(amount))}</b><span>SIG</span></p><p>para <span class="addr">${esc(to)}</span></p>`
+        + `<p class="hint">Confira o endereço com calma: uma transferência não pode ser desfeita.</p>`,
+      run: async () => {
+        const r = await api("/api/send", {to, amount});   // o app confere o checksum da MetaMask
+        $("send-form").reset();
+        toast(`Enviado! Transação ${String(r.txid || "").slice(0, 12)}…`, "ok", 6000);
+        schedule(400);
+      },
+    });
+  } catch (x) { formErr("send-err", x.message); }
+}
+
+function exportFlow() {
+  openDialog({
+    title: "Mostrar a chave privada?", ok: "Mostrar mesmo assim", danger: true,
+    html: `<div class="warnbox"><b>Cuidado</b><p>Quem tiver esta chave controla todos os seus SIG. Não mostre para ninguém, não mande por mensagem e não tire print. Ninguém do Sigma vai pedir sua chave.</p></div>`,
+    run: async () => {
+      const r = await api("/api/wallet/export?confirm=1");
+      setTimeout(() => showKey(r.private_key), 0);   // abre depois que este diálogo fechar
+    },
+  });
+}
+function showKey(k) {
+  openDialog({title: "Sua chave privada",
+    html: `<div class="keybox" id="exp-key"></div><div class="row mt"><button type="button" id="exp-copy">Copiar chave</button></div>`
+      + `<p class="hint">Na MetaMask: Adicionar conta, Importar conta e cole a chave.</p>`});
+  $("exp-key").textContent = k;   // textContent: nada do que vem da API vira HTML
+  $("exp-copy").onclick = () => copy(k, "Chave copiada. Cole só em lugar seguro.");
+}
+
+// "Importar a chave desta carteira" (modo só endereço): só aceita a chave da carteira que já recebe
+function importFlow() {
+  const w = S.wallet || {};
+  if (w.can_spend) return toast("O Sigma já tem a chave desta carteira.");
+  openDialog({
+    title: "Importar a chave desta carteira", ok: "Importar",
+    text: `Cole a chave privada da carteira ${w.eth_address || toEth(w.address)}. Com ela, o Sigma passa a gastar daqui: usar a IA, programar, publicar sites e apadrinhar modelos.`,
+    fields: [{k: "key", label: "Chave privada", type: "password", ph: "64 caracteres, com ou sem 0x no começo"}],
+    html: `<div class="warnbox"><b>Não use a chave da sua conta principal</b><p>A chave fica salva neste computador e controla tudo o que está na carteira, em qualquer rede. Se esta é a conta da MetaMask onde você guarda outras criptomoedas, não importe: use Trocar carteira e crie uma carteira só para o Sigma.</p></div>`
+      + `<p class="hint">A chave fica só neste computador, protegida pelo sistema. Ela nunca é enviada para a rede.</p>`,
+    run: async (v) => {
+      if (!KEY_RE.test(v.key)) throw new Error(KEY_HINT);
+      // expect_address: o app recusa a chave de outra carteira (para isso existe "Trocar carteira")
+      await api("/api/setup", {mode: "import_key", private_key: v.key, expect_address: w.address});
+      toast("Chave importada: agora dá para gastar daqui.", "ok", 6000);
+      schedule(300);
+    },
+  });
+}
+
+// "Trocar carteira": as mesmas três escolhas do assistente, depois a confirmação
+function swapFlow(mode = "create") {
+  const pick = (m) => {
+    mode = m;
+    document.querySelectorAll("#swap-choices [data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === m)));
+    document.querySelectorAll("[data-swap]").forEach((el) => { el.hidden = el.dataset.swap !== m; });
+    setText("dlg-ok", {create: "Continuar com uma carteira nova", import_key: "Continuar com esta chave", address: "Continuar com este endereço"}[m]);
+  };
+  openDialog({
+    title: "Trocar carteira", ok: "Continuar",
+    text: "Escolha para onde vai tudo o que este computador ganhar daqui para frente.",
+    html: `<div class="choices" id="swap-choices">${choicesHTML(mode)}</div>`
+      + `<div data-swap="import_key"${mode === "import_key" ? "" : " hidden"}><label for="swap-key">Chave privada</label><input id="swap-key" data-f="key" type="password" spellcheck="false" autocomplete="off" placeholder="64 caracteres, com ou sem 0x no começo"><p class="hint">${esc(KEY_TIP)}</p></div>`
+      + `<div data-swap="address"${mode === "address" ? "" : " hidden"}><label for="swap-addr">Endereço da carteira</label><input id="swap-addr" data-f="address" spellcheck="false" autocomplete="off" placeholder="sig… ou 0x…"><p class="hint">Copie e cole direto da MetaMask, sem digitar.</p></div>`,
+    onClick: (e) => { const b = e.target.closest("#swap-choices [data-mode]"); if (b) pick(b.dataset.mode); },
+    run: async (v) => {
+      const sel = {mode};
+      if (mode === "import_key") { if (!KEY_RE.test(v.key)) throw new Error(KEY_HINT); sel.key = v.key; }
+      if (mode === "address") {
+        if (!ADDR_RE.test(v.address)) throw new Error(ADDR_HINT);
+        if (same(v.address, S.wallet?.address)) throw new Error("Essa já é a carteira que recebe.");
+        sel.address = v.address;
+      }
+      setTimeout(() => swapConfirm(sel), 0);   // abre depois que este diálogo fechar
+    },
+  });
+  pick(mode);
+}
+function swapConfirm(sel) {
+  const w = S.wallet || {}, m = S.mining || {};
+  // a chave da carteira atual só some do painel: sempre que a carteira guarda chave (pode gastar), o portão exige
+  // mostrar/guardar antes — inclusive quando o saldo não é conhecido (nó fora do ar ou app abrindo), porque a chave
+  // é o único acesso a saldo, orçamentos de modelos/sites e royalties (achado app-swap-gate-unknown-balance)
+  const gate = !!w.can_spend;
+  let shown = false;
+  const dest = sel.mode === "create" ? "uma carteira nova, criada agora" : sel.mode === "address" ? sel.address : "a carteira desta chave";
+  const has = balUnknown(w)
+    ? "Não dá para saber agora quanto esta carteira tem — o Sigma está sem falar com a rede. A chave é o único acesso a ela: saldo, orçamentos de modelos e sites e royalties."
+    : (N(w.balance) > 0 || N(m.my_points))
+    ? `Ela tem ${esc(sig(w.balance))} SIG` + (N(m.my_points) || N(m.my_pending_points) ? " e ainda recebe pelos pontos que já foram feitos" : "") + "."
+    : "A chave é o único acesso a esta carteira: saldo, orçamentos de modelos e sites e royalties.";
+  openDialog({
+    title: "Trocar a carteira que recebe?", ok: "Trocar", danger: true,
+    text: "Daqui para frente, tudo o que este computador ganhar vai para a carteira nova. Os SIG que já estão na carteira atual continuam nela: nada é transferido. Os pontos que este computador já fez ficam com a carteira atual, que ainda recebe por eles por alguns minutos."
+      + (w.can_spend ? " A chave atual não é apagada: fica guardada, protegida, na pasta carteiras-antigas dos dados do Sigma, mas o painel não vai mais mostrá-la. Se esta carteira foi criada aqui, guarde a chave antes." : ""),
+    html: `<p>Carteira nova: <span class="addr">${esc(dest)}</span></p>`
+      + (gate ? `<div class="warnbox"><b>Guarde a chave desta carteira antes</b><p>${has} Depois da troca, o painel não mostra mais esta chave.</p>`
+        + `<div class="row mt"><button type="button" id="swap-show">Mostrar minha chave</button><button type="button" id="swap-copy" hidden>Copiar chave</button></div>`
+        + `<div class="keybox mt" id="swap-oldkey" hidden></div>`
+        + `<label class="check mt"><input type="checkbox" id="swap-saved" data-f="saved"> Já guardei a chave desta carteira</label></div>` : ""),
+    onInput: (v) => { if (gate) $("dlg-ok").disabled = !(shown || v.saved); },
+    onClick: async (e) => {
+      if (!e.target.closest("#swap-show")) return;
+      try {
+        const r = await api("/api/wallet/export?confirm=1");
+        $("swap-oldkey").textContent = r.private_key; $("swap-oldkey").hidden = false;   // textContent: nunca vira HTML
+        $("swap-copy").hidden = false; $("swap-copy").onclick = () => copy(r.private_key, "Chave copiada. Guarde em lugar seguro.");
+        shown = true; $("dlg-ok").disabled = false;
+      } catch (x) { formErr("dlg-err", x.message); }
+    },
+    run: async () => {
+      if (gate && !shown && !$("swap-saved")?.checked) throw new Error("Antes de trocar, mostre e guarde a chave desta carteira (ou marque que já guardou).");
+      const body = {mode: sel.mode};
+      if (gate) body.key_saved = true;   // o servidor recusa trocar uma carteira com chave guardada sem isto (SPEC §8)
+      if (sel.mode === "import_key") body.private_key = sel.key;
+      if (sel.mode === "address") body.address = sel.address;   // o app confere o checksum da MetaMask
+      const r = await api("/api/setup", body);
+      if (r.private_key) setTimeout(() => newKeyDialog(r.private_key), 0);
+      else toast(`Pronto: tudo o que este computador ganhar agora vai para ${short(r.address)}.`, "ok", 7000);
+      schedule(300);
+    },
+  });
+}
+// carteira criada pelo "Trocar carteira": a chave aparece uma vez, como no assistente
+function newKeyDialog(k) {
+  openDialog({
+    title: "Guarde a chave da carteira nova", ok: "Continuar",
+    html: `<div class="warnbox"><b>Guarde esta chave agora</b><p>Ela é a sua carteira: quem tiver a chave controla seus SIG. Anote num papel ou num gerenciador de senhas e nunca mande para ninguém.</p></div>`
+      + `<div class="keybox" id="new-key"></div><div class="row mt"><button type="button" id="new-copy">Copiar chave</button></div>`
+      + `<label class="check mt"><input type="checkbox" data-f="saved"> Guardei minha chave</label>`,
+    onInput: (v) => { $("dlg-ok").disabled = !v.saved; },
+    run: async () => { toast("Pronto: a carteira nova já recebe tudo o que este computador ganhar.", "ok", 6000); },
+  });
+  $("new-key").textContent = k;
+  $("new-copy").onclick = () => copy(k, "Chave copiada. Guarde em lugar seguro.");
+}
+
+// ------------------------------------------------------------- Meu computador
+// estados como o host.py escreve, e os nomes da SPEC em inglês por garantia
+const MSTATUS = {"na fila": "Na fila para baixar", baixando: "Baixando", conferindo: "Conferindo o arquivo", carregando: "Carregando na IA",
+  anunciando: "Avisando a rede", hospedando: "No ar, atendendo a rede", erro: "Deu erro", recusado: "Recusado", "IA desligada": "IA desligada",
+  assigned: "Na fila para baixar", downloading: "Baixando", verifying: "Conferindo o arquivo", loading: "Carregando na IA",
+  pinned: "No ar, atendendo a rede", ready: "No ar, atendendo a rede", error: "Deu erro", failed: "Deu erro"};
+const M_DONE = ["hospedando", "pinned", "ready"], M_DOWN = ["baixando", "downloading"], M_FAIL = ["erro", "error", "failed", "recusado"];
+const M_LOAD = ["carregando", "loading"], M_WAIT = ["na fila", "conferindo", "anunciando", "assigned", "verifying"];
+const ENGINE = {ollama: "Ollama", llamacpp: "llama.cpp", mock: "IA de teste", auto: "automático"};
+
+function modelsHere(list) {
+  if (!list.length) return `<p class="empty">${settings().ai_enabled
+    ? "Nenhum modelo por enquanto. A rede manda um para cá quando precisa de mais cópias e ele cabe na memória que você liberou."
+    : "A IA está desligada, então a rede não coloca modelos neste computador."}</p>`;
+  return list.map((m) => {
+    const st = String(m.status || ""), done = M_DONE.includes(st), fail = M_FAIL.includes(st);
+    const p = done ? 100 : pct100(m.progress);
+    const label = (MSTATUS[st] || st || "—") + (M_DOWN.includes(st) ? ` · ${num(p)}%` : "");
+    return `<div class="dl"><div class="row between"><b>${esc(m.name)}</b><span class="mono muted">${esc(fmtBytes(m.size))}</span></div>`
+      + `<div class="bar${done ? " done" : ""}"><i style="width:${(fail ? 0 : p).toFixed(1)}%"></i></div>`
+      + `<div class="meta${fail ? " bad" : ""}">${esc(label)}${m.error ? " · " + esc(m.error) : ""}</div></div>`;
+  }).join("");
+}
+// o que o motor de IA está fazendo, sem "preparando" amarelo para sempre: só baixar o motor e carregar são amarelos
+function engineState() {
+  const mc = S.machine || {}, eng = mc.engine || {}, models = mc.models || [], kind = ENGINE[eng.kind] || eng.kind || "motor de IA";
+  const st = (x) => String(x.status || "");
+  if (!settings().ai_enabled) return {pill: "IA: desligada", cls: "", text: "A IA está desligada neste computador: a rede não coloca modelos nem manda pedidos de conversa para cá."};
+  if (eng.installing) return {pill: `IA: baixando o motor · ${num(pct100(eng.install_progress))}%`, cls: "warn", text: eng.detail || "Baixando o motor de IA (llama.cpp). Leva alguns minutos, uma vez só."};
+  if (mc.engine_down) return {pill: "IA: motor sem responder", cls: "bad",
+    text: "O motor de IA parou de responder. Os modelos continuam na rede por até 2 minutos enquanto o Sigma tenta de novo sozinho."};
+  const loading = models.find((x) => M_LOAD.includes(st(x)));
+  if (loading) return {pill: `IA: carregando ${loading.name}`, cls: "warn", text: eng.detail || ""};
+  const up = models.filter((x) => M_DONE.includes(st(x)));
+  if (up.length && eng.ready) return {pill: `IA: ${kind} · pronta`, cls: "ok", text: eng.detail || ""};
+  if (!models.length) return {pill: "IA: esperando a rede", cls: "",
+    text: "A IA está ligada. Quando a rede colocar um modelo aqui, o Sigma baixa o motor e o modelo sozinho."};
+  const down = models.find((x) => M_DOWN.includes(st(x)));
+  if (down) return {pill: `IA: baixando ${down.name} · ${num(pct100(down.progress))}%`, cls: "", text: eng.detail || ""};
+  if (models.some((x) => M_WAIT.includes(st(x)))) return {pill: "IA: preparando um modelo", cls: "", text: eng.detail || ""};
+  if (eng.ready) return {pill: `IA: ${kind} · pronta`, cls: "ok", text: eng.detail || ""};
+  return {pill: "IA: com problema", cls: "bad", text: eng.detail || "O motor de IA não está respondendo. O Sigma tenta de novo sozinho."};
+}
+function renderMaquina() {
+  const mc = S.machine || {}, hw = mc.hw || {}, eng = mc.engine || {}, c = settings();
+  setText("m-name", c.name || mc.name || "Este computador");
+  const [txt, cls] = mc.online ? ["Na rede", "ok"] : mc.registered ? ["Fora do ar", "bad"] : ["Entrando na rede…", "warn"];
+  setText("m-online", txt); $("m-online").className = "pill " + cls;
+  const es = engineState(), kind = ENGINE[eng.kind] || eng.kind || "";
+  setText("m-engine", es.pill); $("m-engine").className = "pill " + es.cls;
+  stat("m-earned", sig(mc.earned));   // pedidos e aluguel rendem frações de SIG: 2 casas mostrariam 0,00
+  stat("m-jobs", num(mc.jobs_done));
+  setText("m-jobs-sub", N(mc.jobs_failed) ? `IA e computação · ${plural(mc.jobs_failed, "não deu certo", "não deram certo")} (o valor voltou para quem pediu)`
+    : N(mc.ai_queue) ? `IA e computação · ${plural(mc.ai_queue, "pedido", "pedidos")} na fila agora` : "IA e computação");
+  stat("m-rep", (N(mc.reputation) > 0 ? "+" : "") + num(mc.reputation));
+  const rows = [
+    ["Processador", hw.cpu_cores ? plural(hw.cpu_cores, "núcleo", "núcleos") : "—"],
+    ["Memória", gib(hw.ram_mb)],
+    ["Placa de vídeo", hw.gpu ? hw.gpu + (N(hw.vram_mb) ? ` · ${gib(hw.vram_mb)}` : "") : "nenhuma detectada (a IA usa o processador)"],
+    ["Disco livre", gib(hw.disk_free_mb ?? hw.disk_mb)],
+    ["Sistema", hw.os || "—"],
+  ];
+  setHTML("m-hw", rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join(""));
+  setHTML("m-engine-box", `<p><span class="pill ${es.cls}">${esc(es.pill)}</span>${kind ? ` <span class="muted">· ${esc(kind)}</span>` : ""}</p>`
+    + `<p class="hint">${esc(es.text || "O Sigma baixa e cuida do motor de IA sozinho. Se você já usa o Ollama, ele é aproveitado.")}</p>`);
+  setHTML("m-models", modelsHere(mc.models || []));
+  const sites = (mc.sites || []).map((s) => typeof s === "string" ? s : s?.name).filter(Boolean);
+  setHTML("m-sites", sites.length ? `<div class="row">${sites.map((n) => `<span class="tag">${esc(n)}</span>`).join("")}</div>`
+    : `<p class="empty">Nenhum por enquanto. Quando um site precisa de cópia e cabe no disco que você liberou, ele vem para cá.</p>`);
+  setText("m-addr", short(mc.address));
+  setText("m-payout", short(S.wallet?.address));
+  setHTML("m-alerts", mc.last_error ? `<p class="note err">${esc(cap(mc.last_error))}</p>` : "");
+}
+
+// ------------------------------------------------------------- IA
+// texto do modelo: escapa tudo e só então marca blocos de código, `código` e **negrito**
+function richText(raw) {
+  let text = String(raw ?? ""), think = "";
+  const t = /^\s*<think>([\s\S]*?)<\/think>\s*/i.exec(text);
+  if (t) { think = t[1].trim(); text = text.slice(t[0].length); }
+  const fmt = (s) => s.split(/```[\w+-]*\n?([\s\S]*?)```/g).map((p, i) => i % 2 ? `<pre>${esc(p)}</pre>`
+    : esc(p).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")).join("");
+  return (think ? `<details class="think"><summary>Raciocínio do modelo</summary>${fmt(think)}</details>` : "") + fmt(text);
+}
+function msgHTML(m) {
+  if (m.role === "user") return `<div class="msg me"><div class="who">Você</div><div class="body">${esc(m.content)}</div></div>`;
+  return `<div class="msg"><div class="who">${esc(m.model)}</div><div class="body">${richText(m.content)}</div>`
+    + `<div class="cost">custou ${esc(sig(m.cost))} SIG · respondido por ${esc(short(m.machine))}</div></div>`;
+}
+// modelos que dá para perguntar agora: o app manda o teto de preço de cada modelo com máquina que aceita pedido cifrado
+function liveModels(md) {
+  const list = md ? Object.values(md.network || {}) : [], prices = md?.ai?.prices;
+  const ok = (m) => prices ? N(prices[m.name]) > 0 : hosts(m) > 0;
+  return {list, live: list.filter(ok).sort(byName), waiting: list.filter((m) => !ok(m)).sort(byName)};
+}
+const ceilingOf = (name) => N(lazy.models.data?.ai?.prices?.[name]);
+const aiContext = () => N(lazy.models.data?.ai?.context) || AI_CONTEXT;
+// a mesma conta do cliente (client.estimate e fit_messages): ~3 caracteres por token, +8 por mensagem, +16 por conversa
+const estTokens = (msgs) => msgs.reduce((s, m) => s + Math.floor(String(m.content || "").length / 3) + 8, 0) + 16;
+function maxCost(text) {
+  const ceiling = ceilingOf(chat.model), ctx = aiContext();
+  if (!ceiling) return null;
+  const maxTok = Math.min(Number($("ai-len").value) || 512, Math.floor(ctx / 2));
+  const room = ctx - maxTok - 32;                 // o que passar disso fica de fora: a reserva nunca é maior
+  const est = Math.min(estTokens([...chat.messages, {role: "user", content: text}]), room);
+  return {ceiling, escrow: Math.max(1, Math.ceil((est + maxTok) * ceiling / 1000)),
+          tooLong: Math.floor(text.length / 3) + 8 > room - 16};
+}
+const costLine = (escrow, ceiling) => `Custo máximo desta pergunta: <b>${esc(sig(escrow))} SIG</b> (${esc(num(ceiling))} µSIG por mil tokens). Você paga só o que for usado; o resto volta para a carteira.`;
+// o custo máximo aparece antes de enviar: na hora pela mesma conta do cliente e, logo depois, confirmado pelo app
+function renderMaxCost() {
+  const text = $("chat-text").value.trim(), key = JSON.stringify([chat.model, $("ai-len").value, chat.messages.length, text]);
+  const qd = chat.quote && chat.quote.key === key ? chat.quote : null, c = chat.model ? maxCost(text) : null;
+  setHTML("chat-max", !chat.model ? "" : qd?.error ? `<span class="warn">${esc(cap(qd.error))}</span>`
+    : qd && !qd.price ? `<span class="warn">Nenhum computador com este modelo aceita pedidos cifrados agora: tente daqui a pouco.</span>`
+    : qd ? costLine(qd.max_cost, qd.price)
+    : !c ? "" : c.tooLong ? `<span class="warn">Sua mensagem é longa demais para os modelos da rede: divida o texto em partes menores.</span>`
+    : costLine(c.escrow, c.ceiling));
+  clearTimeout(chat.quoteTimer);
+  if (chat.model && !qd && !chat.busy) chat.quoteTimer = setTimeout(() => askQuote(key, text), 350);
+}
+async function askQuote(key, text) {
+  const model = chat.model, messages = [...chat.messages.map(({role, content}) => ({role, content})), {role: "user", content: text || "?"}];
+  try {
+    const r = await api("/api/ai/quote", {model, messages, max_tokens: Number($("ai-len").value) || 512}, 15000);
+    chat.quote = {key, model, price: N(r.price), max_cost: N(r.max_cost)};
+  } catch (x) {
+    if (!x.status || x.status === 404) return;   // app sem a rota (ou fora do ar): fica a conta local
+    chat.quote = {key, error: x.message};
+  }
+  if (tab === "ia") renderMaxCost();
+}
+function chatRender() {
+  const log = $("chat-log");
+  if (!chat.messages.length && !chat.busy) {
+    const md = lazy.models.data, live = md && liveModels(md).live.length;
+    setHTML(log, `<div class="chat-empty">${!md ? (lazy.models.err ? `${LOAD_FAIL}${techHTML(lazy.models.err)}` : "Carregando os modelos da rede…")
+      : live ? "<b>Pergunte o que quiser</b>Cada resposta mostra quanto custou e qual computador da rede respondeu."
+      : '<b>Nenhum modelo no ar agora</b>Modelos entram na rede quando alguém apadrinha e os computadores baixam. <button type="button" class="link" data-go="modelos">Ver modelos</button>'}</div>`);
+    return;
+  }
+  const html = chat.messages.map(msgHTML).join("") + (chat.busy
+    ? `<div class="msg"><div class="who">${esc(chat.pendingModel)}</div><div class="body"><span class="dots"><i></i><i></i><i></i></span> pensando… <span id="chat-elapsed">0 s</span> `
+      + `<button type="button" class="small" data-chat-cancel${chat.canceling ? " disabled" : ""}>${chat.canceling ? "Cancelando…" : "Cancelar"}</button></div></div>` : "");
+  if (log._h === html) return;          // nada novo: não mexe na rolagem de quem está lendo
+  setHTML(log, html);
+  log.scrollTop = log.scrollHeight;
+}
+function renderIA() {
+  const md = want("models"), w = S.wallet || {};
+  const {list, live, waiting} = liveModels(md);
+  if (!live.some((m) => m.name === chat.model)) chat.model = live[0]?.name || "";
+  setHTML("ai-model", (live.map((m) => `<option value="${esc(m.name)}"${m.name === chat.model ? " selected" : ""}>${esc(m.name)} · ${plural(hosts(m), "computador", "computadores")}</option>`).join("")
+    || `<option value="">${md ? "nenhum modelo no ar" : "carregando…"}</option>`)
+    + (waiting.length ? `<optgroup label="Esperando computadores">${waiting.map((m) => `<option disabled>${esc(m.name)}</option>`).join("")}</optgroup>` : ""));
+  const cur = list.find((m) => m.name === chat.model);
+  setHTML("ai-info", cur ? [cur.license, fmtBytes(cur.size), cur.description].filter(Boolean).map(esc).join(" · ") : "");
+  const notes = [];
+  if (!w.can_spend) notes.push(keyNote("usar a IA"));
+  else if (!balUnknown(w) && !N(w.balance)) notes.push(`<p class="note">Você ainda não tem SIG para pagar as respostas. Deixe o computador minerando: os primeiros SIG começam a entrar em uns 10 minutos, um pouco a cada bloco.</p>`);
+  if (chat.trimmed) notes.push(`<p class="note">A conversa ficou longa demais para este modelo: as mensagens mais antigas ficaram de fora. Para recomeçar, clique em Nova conversa.</p>`);
+  setHTML("ai-notes", notes.join(""));
+  $("chat-send").disabled = chat.busy || !chat.model || !w.can_spend;
+  setText("chat-total", `Esta conversa custou ${sig(chat.total)} SIG.`);
+  renderMaxCost();
+  chatRender();
+}
+async function chatSend(e) {
+  e?.preventDefault();
+  const text = $("chat-text").value.trim(), model = chat.model;
+  if (!text || chat.busy) return;
+  if (!model) return toast("Escolha um modelo que esteja no ar", "err");
+  const ceiling = ceilingOf(model);
+  clearTimeout(chat.quoteTimer);
+  chat.messages.push({role: "user", content: text});
+  $("chat-text").value = "";
+  Object.assign(chat, {busy: true, started: Date.now(), pendingModel: model, canceling: false});
+  renderIA();
+  try {
+    chat.id = "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);   // o Cancelar vale só para esta pergunta
+    const body = {model, id: chat.id, max_tokens: Number($("ai-len").value) || 512, messages: chat.messages.map(({role, content}) => ({role, content}))};
+    const shown = (chat.quote?.model === model && chat.quote.price) || ceiling;
+    if (shown) body.max_price = shown;   // o teto que o painel mostrou: a pergunta nunca reserva mais do que isso
+    const r = await api("/api/ai/chat", body);
+    chat.messages.push({role: "assistant", content: r.text, cost: r.cost, machine: r.machine, model});
+    chat.total += N(r.cost);
+    if (N(r.trimmed) > 0) chat.trimmed = true;   // mensagens antigas ficaram de fora para caber no modelo
+    schedule(500);
+  } catch (x) {
+    chat.messages.pop();            // devolve a pergunta para tentar de novo
+    $("chat-text").value = text;
+    if (x.code === "canceled") toast(x.message || "Pedido cancelado. O valor reservado voltou para a sua carteira.", "ok", 6000);
+    // frases completas do app ("Nenhum computador respondeu a tempo…") vão como estão; as curtas ganham o contexto
+    else toast(/^[A-ZÁÉÍÓÚÂÊÔÃÕÇ]/.test(x.message) ? x.message : "A IA não respondeu: " + x.message, "err", 9000);
+  } finally {
+    chat.busy = false; chat.canceling = false;
+    renderIA();
+    $("chat-text").focus();
+  }
+}
+// "Cancelar" ao lado do "pensando…": se nenhum computador pegou a pergunta, ela é cancelada e o valor volta
+async function chatCancel() {
+  if (!chat.busy || chat.canceling) return;
+  chat.canceling = true; chatRender();
+  try {
+    const body = chat.id ? {id: chat.id} : {};
+    let r = await api("/api/ai/cancel", body);
+    // clique logo depois de enviar: a pergunta pode ainda não ter chegado ao app; pede de novo
+    for (let i = 0; i < 3 && !r.running && chat.busy; i++) r = await api("/api/ai/cancel", body);
+    if (r.claimed) {   // alguém já está respondendo: o valor só volta sozinho se ele não entregar
+      chat.canceling = false; chatRender();
+      toast(r.message || "Um computador já está respondendo. Espere mais um pouco: se ele não entregar, o valor reservado volta para você sozinho.", "ok", 9000);
+    }
+  } catch (x) {
+    chat.canceling = false; chatRender();
+    toast("Não deu para cancelar: " + x.message, "err", 6000);
+  }
+}
+
+// ------------------------------------------------------------- Programar (Sigma Code)
+// quem responde é o computador de outra pessoa: nada é gravado nem executado sem a pessoa aprovar aqui.
+// Tudo o que vem do agente (texto, argumentos, saídas, prévias, comandos) passa por esc()/richText.
+let codeModel = "";
+const CODE_TOOL = {read_file: "Leu o arquivo", list_dir: "Olhou a pasta", write_file: "Gravou o arquivo", create_file: "Criou o arquivo",
+  edit_file: "Editou o arquivo", run_command: "Rodou o comando"};
+// o alvo mostrado vem do backend: p.target/step.target (caminho resolvido por sigmacode.visible(), ou o comando em
+// run_command). Nunca de uma chave livre dos args, que o estranho que responde controla (achado app-approval-card-spoof).
+function toolTarget(tool, args, target) {
+  if (typeof target === "string" && target) return target;
+  args = args && typeof args === "object" ? args : {};   // fallback p/ backend antigo: a chave certa pela ferramenta
+  const v = tool === "run_command" ? args.command : tool === "list_dir" ? (args.dir ?? args.path ?? ".") : args.path;
+  return typeof v === "string" ? v : v == null ? "" : JSON.stringify(v);
+}
+function stepHTML(s) {
+  const kind = String(s.kind || "info");
+  if (kind === "assistant") return `<div class="step assistant"><div class="who">Sigma Code</div><div class="body">${richText(s.text)}</div></div>`;
+  if (kind === "final") return `<div class="step final"><div class="who">Pronto</div><div class="body">${richText(s.text)}</div></div>`;
+  if (kind === "error") return `<div class="step error"><div class="who">Parou com erro</div><div class="body">${esc(cap(s.text))}</div></div>`;
+  if (kind === "tool") {
+    const tool = String(s.tool || ""), what = toolTarget(tool, s.args, s.target);
+    return `<div class="step tool"><div class="who">${esc(CODE_TOOL[tool] || "Ferramenta " + tool)}${s.refused ? ' <span class="tag bad">recusado</span>' : ""}</div>`
+      + (what ? `<div class="body mono">${esc(what)}</div>` : "")
+      + (s.output ? `<details><summary>Resultado</summary><pre>${esc(s.output)}</pre></details>` : "") + `</div>`;
+  }
+  return `<div class="step info">${esc(s.text)}</div>`;
+}
+// cartão de aprovação (SPEC 2.3): comando sempre pergunta; arquivo pergunta se a caixa não foi marcada
+function pendingHTML(p) {
+  const changed = (Array.isArray(p.changed) ? p.changed : []).filter((x) => typeof x === "string");
+  const list = `<p class="hint">Arquivos alterados nesta tarefa:</p>`
+    + (changed.length ? `<ul class="changed">${changed.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : `<p class="hint">nenhum até agora</p>`);
+  const btn = (ok, label, cls) => `<button type="button" class="${cls}" data-code-answer="${ok ? 1 : 0}" data-id="${esc(p.id)}">${label}</button>`;
+  const target = toolTarget(p.tool, p.args, p.target);   // do backend; nunca de chaves livres dos args
+  if (p.reason === "command") {
+    // mostra TODAS as linhas (sem max-height) e quantas são; mais de uma linha avisa no título (app-command-card-newline-hide)
+    const prev = String(p.preview || target || ""), lines = prev ? prev.split("\n").length : 1;
+    const many = lines > 1 ? `<b>Este comando tem ${lines} linhas: role até o fim antes de decidir.</b> ` : "";
+    return `<div class="card approve cmd" role="alert"><p>${many}<b>Executar este comando no seu computador? Ele foi escrito pela IA de outra pessoa da rede. Só execute se você entende o que ele faz.</b></p>`
+      + `<pre>${esc(prev)}</pre>`
+      + `<p class="hint">Comando de ${lines} linha${lines === 1 ? "" : "s"}.</p>${list}`
+      + `<div class="row mt">${btn(true, "Executar", "danger")}${btn(false, "Não executar", "primary")}</div></div>`;
+  }
+  return `<div class="card approve" role="alert"><p><b>A IA quer alterar ${esc(target || "um arquivo")}. Confira as mudanças antes de aplicar.</b></p>`
+    + `<pre>${esc(p.preview)}</pre>${list}`
+    + `<div class="row mt">${btn(true, "Aplicar", "primary")}${btn(false, "Recusar", "")}</div></div>`;
+}
+function renderCode() {
+  const cs = want("code", 1500), md = want("models"), w = S.wallet || {};
+  const running = !!(cs ? cs.running : S.code?.running);
+  setHTML("code-notes", w.can_spend ? "" : keyNote("programar"));
+  const {live} = liveModels(md);
+  if (!live.some((m) => m.name === codeModel)) codeModel = (live.find((m) => /coder|code/i.test(m.name)) || live[0])?.name || "";   // padrão: um de código
+  setHTML("code-model", live.map((m) => `<option value="${esc(m.name)}"${m.name === codeModel ? " selected" : ""}>${esc(m.name)}${/coder|code/i.test(m.name) ? " · de código" : ""}</option>`).join("")
+    || `<option value="">${md ? "nenhum modelo no ar" : "carregando…"}</option>`);
+  $("code-pick").hidden = !S.features?.pick_folder;   // sem a janelinha não há seletor: digita-se o caminho
+  setText("code-folder-hint", (S.features?.pick_folder ? "" : "Digite o caminho completo da pasta. ")
+    + "Não use em pastas com senhas, chaves ou documentos pessoais: cada passo do Sigma Code vai para uma máquina sorteada e, ao longo de uma tarefa, as máquinas de várias pessoas veem o que ele ler.");
+  ["code-folder", "code-task", "code-model", "code-auto", "code-pick"].forEach((id) => { $(id).disabled = running; });
+  $("code-go").disabled = running || !w.can_spend || !codeModel;
+  $("code-stop").disabled = !running;
+  setHTML("code-pending", cs?.pending ? pendingHTML(cs.pending) : "");
+  setText("code-spent", cs?.task ? `Total desta tarefa: ${sig(cs.spent)} SIG` : "");
+  setText("code-head", cs?.task ? `${running ? "Trabalhando" : "Última tarefa"} em ${cs.folder} com ${cs.model}`
+    + (cs.auto_files ? " · alterações de arquivos aprovadas sem perguntar" : " · cada alteração de arquivo pede a sua aprovação") + `. Tarefa: ${cs.task}` : "");
+  const steps = Array.isArray(cs?.steps) ? cs.steps : [];
+  if (running && cs?.folder && !$("code-folder").value) $("code-folder").value = cs.folder;
+  setHTML("code-log", steps.length ? steps.map(stepHTML).join("")
+      + (cs.pending ? `<div class="step info">Esperando a sua aprovação · <button type="button" class="link" data-scroll="code-pending">ver o pedido</button></div>`
+        : running ? `<div class="step info"><span class="dots"><i></i><i></i><i></i></span> trabalhando…</div>` : "")
+    : `<div class="empty">${!cs ? (lazy.code.err ? `${LOAD_FAIL}${techHTML(lazy.code.err)}` : "Carregando…")
+      : "Nenhuma tarefa ainda. Escolha a pasta, escreva o que você quer e clique em Começar."}</div>`);
+}
+function codeGot(r) { lazy.code.data = r; lazy.code.t = Date.now(); lazy.code.err = null; }
+async function codeStart(e) {
+  e.preventDefault();
+  formErr("code-err", "");
+  const btn = $("code-go");
+  try {
+    needKey();
+    const folder = $("code-folder").value.trim(), task = $("code-task").value.trim();
+    if (!folder) throw new Error("Escolha a pasta do projeto.");
+    if (!task) throw new Error("Escreva o que o Sigma Code deve fazer.");
+    const body = {folder, task, auto_files: $("code-auto").checked};
+    if (codeModel) body.model = codeModel;
+    btn.disabled = true;
+    codeGot(await api("/api/code/start", body));
+    $("code-auto").checked = false;   // desmarcada em toda tarefa nova: a próxima volta a perguntar
+    $("code-task").value = "";
+    store("sigma.code.folder", folder);
+    schedule(300);
+  } catch (x) { formErr("code-err", x.message); }
+  finally { btn.disabled = false; renderCode(); }
+}
+async function codeAnswer(id, ok) {
+  document.querySelectorAll("[data-code-answer]").forEach((b) => { b.disabled = true; });
+  try {
+    codeGot(await api("/api/code/answer", {id, ok}));
+    toast(ok ? "Aprovado" : "Recusado: o Sigma Code segue sem isso");
+  } catch (x) { toast(x.message, "err", 6000); refresh("code"); }
+  finally { renderCode(); }
+}
+async function codeStop() {
+  try { codeGot(await api("/api/code/stop", {})); toast("Parando depois do passo atual"); }
+  catch (x) { toast(x.message, "err", 6000); }
+  finally { renderCode(); }
+}
+async function codePick() {
+  const btn = $("code-pick");
+  btn.disabled = true; formErr("code-err", "");
+  try {
+    const r = await api("/api/code/pick-folder", {});   // seletor nativo na janelinha do Sigma (sem prazo: a pessoa pode demorar)
+    if (r.folder) { $("code-folder").value = r.folder; store("sigma.code.folder", r.folder); }
+  } catch (x) { formErr("code-err", x.message); }
+  finally { btn.disabled = false; }
+}
+
+// ------------------------------------------------------------- Sites
+let pubFiles = [], pubSkipped = 0;
+const relPath = (f) => (f.webkitRelativePath || f.name).split("/").slice(1).join("/") || f.name;
+const junk = (p) => /(^|\/)(\.git|\.svn|\.hg)\//.test(p) || /(^|\/)(\.DS_Store|Thumbs\.db|desktop\.ini)$/i.test(p);
+const slug = (s) => String(s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+function b64(buf) {
+  const u8 = new Uint8Array(buf);
+  let s = "";
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function pickFolder(e) {
+  const all = [...e.target.files];
+  pubFiles = all.filter((f) => !junk(relPath(f)));
+  pubSkipped = all.length - pubFiles.length;
+  const root = (all[0]?.webkitRelativePath || "").split("/")[0];
+  if (root && !$("pub-name").value.trim()) {
+    const s = slug(root);
+    $("pub-name").value = s.length >= 3 ? s : s ? s + "-site" : "";
+  }
+  formErr("pub-err", ""); setHTML("pub-result", "");
+  pubPreview();
+}
+function pubPreview() {
+  const total = pubFiles.reduce((s, f) => s + f.size, 0), index = pubFiles.some((f) => relPath(f) === "index.html");
+  setHTML("pub-summary", !pubFiles.length ? "Nenhuma pasta escolhida" : `${esc(plural(pubFiles.length, "arquivo", "arquivos"))} · ${esc(fmtBytes(total))}`
+    + (index ? " · index.html ✓" : ' · <span class="bad">falta um index.html na raiz</span>')
+    + (pubSkipped ? ` · ${num(pubSkipped)} ignorados (.git, Thumbs.db…)` : ""));
+  const name = $("pub-name").value.trim().toLowerCase() || "meu-site";
+  setText("pub-url", `${nodeUrl() || "…"}/site/${name}/`);
+  const reps = Number($("pub-replicas").value) || 2;
+  let budget = 0;
+  try { budget = parseSig($("pub-budget").value, true); } catch {}
+  const day = perDay(total, reps);   // site: só disco (não fica carregado na memória)
+  const price = `${num(hostPrice())} µSIG por MB de disco a cada ${every(winSec())}, por cópia; ${demandTxt("disk_bps")}.`;
+  setText("pub-estimate", !pubFiles.length ? `Escolha a pasta para ver quanto custa manter o site no ar. Aluguel da rede: ${price}`
+    : `Aluguel estimado: ${sig(day)} SIG por dia com ${plural(reps, "cópia", "cópias")}. Com esse orçamento, o site fica no ar por ${lasts(budget * UNIT / day * 86400)}, se a demanda não mudar. `
+      + `Aluguel da rede: ${price}`);
+  setText("pub-go", budget ? `Publicar · ${sigNum(budget)} SIG` : "Publicar");
+}
+async function publish(e) {
+  e.preventDefault();
+  const btn = $("pub-go");
+  formErr("pub-err", "");
+  try {
+    needKey();
+    const name = $("pub-name").value.trim().toLowerCase();
+    if (!SITE_RE.test(name)) throw new Error("Nome do site: de 3 a 32 caracteres, só letras minúsculas, números e hífen.");
+    if (!pubFiles.length) throw new Error("Escolha a pasta do site.");
+    if (pubFiles.length > 500) throw new Error("Um site pode ter no máximo 500 arquivos.");
+    const huge = pubFiles.find((f) => f.size > MAX_FILE);
+    if (huge) throw new Error(`O arquivo ${relPath(huge)} passa de 20 MB.`);
+    const mine = (lazy.sites.data?.mine || []).some((s) => s.name === name);   // republicar o próprio site pode ter orçamento zero
+    const budget = parseSig($("pub-budget").value, mine);
+    if (!mine && budget * UNIT < MIN_SITE_BUDGET) throw new Error(`Um site novo precisa de pelo menos ${sig(MIN_SITE_BUDGET)} SIG de orçamento.`);
+    checkBalance(budget);
+    btn.disabled = true;
+    const files = [];
+    for (const [i, f] of pubFiles.entries()) {
+      setText(btn, `Lendo ${i + 1} de ${pubFiles.length}…`);
+      files.push({path: relPath(f), data_b64: b64(await f.arrayBuffer())});
+    }
+    setText(btn, "Enviando para a rede…");
+    const r = await api("/api/sites/publish", {name, budget, replicas: Number($("pub-replicas").value) || 2, files});
+    const url = /^https?:\/\//i.test(r.url || "") ? r.url : siteUrl({name});
+    setHTML("pub-result", `<p class="note ok"><b>Publicado!</b> Em instantes ele abre em `
+      + (url ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(url)}</a>` : esc(name)) + `</p>`);
+    toast("Site publicado");
+    refresh("sites"); schedule(500);
+  } catch (x) { formErr("pub-err", x.message); }
+  finally { btn.disabled = false; pubPreview(); }
+}
+function siteTile(s) {
+  const active = s.status === "active", url = siteUrl(s);
+  return `<div class="tile"><div class="row between"><h4>${esc(s.name)}</h4><span class="tag ${active ? "ok" : "bad"}">${active ? "no ar" : "expirado"}</span></div>`
+    + `<dl class="kv"><dt>Orçamento</dt><dd>${esc(sig(s.budget))} SIG</dd><dt>Dura</dt><dd>${active ? esc(lifetime(s.budget, rent(s))) : "—"}</dd>`
+    + `<dt>Cópias</dt><dd>${hosts(s)} de ${esc(num(s.replicas))}</dd><dt>Tamanho</dt><dd>${esc(fmtBytes(s.size))}</dd></dl>`
+    + `<div class="row">${url ? `<a class="btn small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Abrir</a>` : ""}`
+    + `<button type="button" class="small primary" data-site-fund="${esc(s.name)}">Recarregar</button></div></div>`;
+}
+function renderSites() {
+  const sd = want("sites"), w = S.wallet || {};
+  setHTML("sites-notes", w.can_spend ? "" : keyNote("publicar"));
+  setText("sites-base", `${nodeUrl() || "…"}/site/nome/`);   // o site fica no endereço do nó da rede
+  $("pub-go").disabled = !w.can_spend;
+  const mine = sd?.mine || [];
+  setHTML("my-sites", !sd ? loadingHTML(lazy.sites) : mine.length ? `<div class="tiles">${mine.slice().sort(byName).map(siteTile).join("")}</div>`
+    : `<p class="empty">Você ainda não publicou nenhum site.</p>`);
+  const hosted = (sd?.hosted || S.machine?.sites || []).map((s) => typeof s === "string" ? s : s?.name).filter(Boolean);
+  setHTML("hosted-sites", hosted.length ? `<div class="row">${hosted.map((n) => `<span class="tag">${esc(n)}</span>`).join("")}</div>`
+    : `<p class="empty">Nenhum por enquanto. A rede manda sites para cá conforme o disco que você liberou.</p>`);
+  if (!pubFiles.length) pubPreview();
+}
+function siteFund(name) {
+  openDialog({
+    title: "Recarregar " + name, ok: "Recarregar",
+    text: "O orçamento paga o aluguel dos computadores que guardam o site. Quando acaba, o site sai do ar.",
+    fields: [{k: "amount", label: "Quantidade (SIG)", mode: "decimal", ph: "ex.: 1,5"}],
+    run: async (v) => {
+      needKey();
+      const amount = parseSig(v.amount);
+      checkBalance(amount);
+      await api("/api/sites/fund", {name, amount});
+      toast(`Site ${name} recarregado com ${sigNum(amount)} SIG`);
+      refresh("sites"); schedule(400);
+    },
+  });
+}
+
+// ------------------------------------------------------------- Modelos
+function modelTile(m, mine) {
+  const h = hosts(m), a = Object.keys(m.assigned || {}).length;
+  const status = h ? '<span class="tag ok">no ar</span>' : a ? '<span class="tag warn">baixando</span>' : '<span class="tag">esperando computadores</span>';
+  const act = (k, label, cls = "") => `<button type="button" class="small ${cls}" data-mact="${k}" data-name="${esc(m.name)}">${label}</button>`;
+  return `<div class="tile"><div class="row between"><h4>${esc(m.name)}</h4>${status}</div>`
+    + (m.description ? `<p class="desc">${esc(m.description)}</p>` : "")
+    + `<dl class="kv"><dt>Cópias</dt><dd>${h} no ar de ${esc(num(m.replicas))}${a ? ` · ${a} baixando` : ""}</dd>`
+    + `<dt>Tamanho</dt><dd>${esc(fmtBytes(m.size))}${m.ram_mb ? ` · usa ${esc(fmtMB(m.ram_mb))} de memória` : ""}</dd>`
+    + `<dt>Licença</dt><dd>${esc(m.license || "—")}</dd>`
+    + `<dt>Padrinho</dt><dd>${same(m.sponsor, S.wallet?.address) ? "você" : `<span class="mono">${esc(short(m.sponsor))}</span>`}</dd>`
+    + `<dt>Royalty</dt><dd>${esc(bpsPct(m.royalty_bps))}%${N(m.reinvest_bps) ? ` · ${esc(bpsPct(m.reinvest_bps))}% reinvestido` : ""}</dd>`
+    + `<dt>Uso</dt><dd>${esc(big(m.tokens))} tokens · ${esc(plural(m.jobs, "pedido", "pedidos"))}</dd>`
+    + `<dt>Orçamento</dt><dd>${esc(sig(m.budget))} SIG · dura ${esc(lifetime(m.budget, rent(m)))}</dd>`
+    + (mine ? `<dt>Royalties</dt><dd class="ok">${esc(sig(m.royalties))} SIG recebidos</dd>` : "") + `</dl>`
+    + `<div class="row">${mine ? act("fund", "Recarregar", "primary") + act("royalty", "Royalty") + act("transfer", "Passar adiante") + act("retire", "Apagar", "danger")
+      : h ? `<button type="button" class="small" data-chat="${esc(m.name)}">Conversar</button>` : ""}</div></div>`;
+}
+function catalogTile(it, onNet) {
+  const size = N(it.size ?? it.bytes), ram = N(it.ram_mb) || Math.ceil(size / 1e6 * 1.2) + 512, net = onNet.get(it.sha256);
+  return `<div class="tile"><div class="row between"><h4>${esc(it.title || it.name || it.id)}</h4>${net ? `<span class="tag ok" title="na rede como ${esc(net)}">já na rede</span>` : ""}</div>`
+    + (it.description ? `<p class="desc">${esc(it.description)}</p>` : "")
+    + `<dl class="kv"><dt>Tamanho</dt><dd>${esc(fmtBytes(size))}</dd><dt>Memória</dt><dd>${esc(fmtMB(ram))} para rodar</dd>`
+    + `<dt>Licença</dt><dd>${esc(it.license || "—")}</dd><dt>Custo</dt><dd>~${esc(sig(perDay(size, 2, true, ram)))} SIG por dia com 2 cópias</dd></dl>`
+    + `<div class="row"><button type="button" class="small primary" data-sponsor="${esc(it.id)}">Apadrinhar</button></div></div>`;
+}
+function renderModelos() {
+  const md = want("models"), me = S.wallet?.address;
+  setHTML("models-notes", S.wallet?.can_spend ? "" : keyNote("apadrinhar"));
+  setText("models-price", `Aluguel da rede, para cada computador que guarda uma cópia, a cada ${every(winSec())}: ${num(hostPrice())} µSIG por MB de disco `
+    + `e ${num(ramPrice())} µSIG por MB de memória que o modelo ocupa (o tamanho × 1,2 + 512 MB). `
+    + `Memória: ${demandTxt("ram_bps")}. Disco: ${demandTxt("disk_bps")}. O preço é o mesmo para todas as máquinas e segue a demanda da rede.`);
+  if (!md) { [["net-models"], ["my-models"]].forEach(([id]) => setHTML(id, loadingHTML(lazy.models))); setHTML("catalog", ""); return; }
+  const list = Object.values(md.network || {}).sort(byName);
+  setHTML("net-models", list.length ? `<div class="tiles">${list.map((m) => modelTile(m, false)).join("")}</div>`
+    : `<p class="empty">Nenhum modelo na rede ainda. Que tal ser a primeira pessoa a apadrinhar um?</p>`);
+  const mine = list.filter((m) => same(m.sponsor, me));
+  setHTML("my-models", mine.length ? `<div class="tiles">${mine.map((m) => modelTile(m, true)).join("")}</div>`
+    : `<p class="empty">Você ainda não apadrinhou nenhum modelo.</p>`);
+  const onNet = new Map(list.map((m) => [m.sha256, m.name]));
+  setHTML("catalog", (md.catalog || []).map((it) => catalogTile(it, onNet)).join("") || `<p class="empty">Catálogo vazio.</p>`);
+}
+function nameFromUrl(u) {
+  let file = "";
+  try { file = decodeURIComponent(String(u).split("?")[0].split("/").pop() || ""); } catch {}
+  const s = file.replace(/\.gguf$/i, "").toLowerCase().replace(/[^a-z0-9.-]+/g, "-").replace(/-+/g, "-").replace(/^[-.]+|[-.]+$/g, "").slice(0, 48);
+  return s.length >= 3 ? s : "";
+}
+function sponsorDialog(it) {
+  const fromUrl = !it.id, size = N(it.size ?? it.bytes);
+  const ram = N(it.ram_mb) || (size ? ramOf(size) : null);
+  const budget0 = size ? Math.max(1, Math.ceil(perDay(size, 2, true, ram) * 7 / UNIT)) : 10;   // sugestão: uma semana de aluguel
+  openDialog({
+    title: fromUrl ? "Apadrinhar pelo link" : `Apadrinhar ${it.title || it.name || it.id}`, ok: "Apadrinhar",
+    text: "Você paga o aluguel de quem guarda o modelo e recebe uma parte de cada uso. A rede decide sozinha em quais computadores ele fica.",
+    fields: [
+      {k: "name", label: "Nome na rede", value: fromUrl ? nameFromUrl(it.url) : String(it.id).toLowerCase(), hint: "De 3 a 48 caracteres: letras minúsculas, números, ponto ou hífen."},
+      {k: "budget", label: "Orçamento (SIG)", value: String(budget0), mode: "decimal", hint: "Paga o aluguel. Quando acaba, o modelo sai da rede."},
+      {k: "royalty", label: "Seu royalty (%)", value: "10", mode: "decimal", hint: "Parte de cada pagamento pelo modelo que vai para você. No máximo 50%."},
+      {k: "reinvest", label: "Reinvestir do royalty (%)", value: "0", mode: "decimal", hint: "Quanto do seu royalty volta para o orçamento, para o modelo se manter sozinho."},
+      {k: "replicas", label: "Cópias na rede", type: "select", value: "2", options: [1, 2, 3, 4, 5].map((n) => [n, plural(n, "cópia", "cópias")])},
+    ],
+    html: '<p class="estimate" id="dlg-live"></p>',
+    onInput: (v) => {
+      let b = 0;
+      try { b = parseSig(v.budget); } catch {}
+      const day = perDay(size, Number(v.replicas) || 2, true, ram);
+      setText("dlg-live", size ? `Aluguel estimado: ${sig(day)} SIG por dia (disco e memória; ${demandTxt("ram_bps")}). Esse orçamento dura ${lasts(b * UNIT / day * 86400)}, se a demanda não mudar.`
+        : "Antes de registrar, o Sigma confere no Hugging Face o tamanho, a assinatura do arquivo e se a licença permite uso comercial.");
+    },
+    run: async (v) => {
+      needKey();
+      const name = v.name.toLowerCase();
+      // pelo link, o nome pode ficar vazio: o Sigma sugere um a partir do arquivo
+      if ((name || !fromUrl) && !MODEL_RE.test(name)) throw new Error("Nome: de 3 a 48 caracteres, só letras minúsculas, números, ponto ou hífen.");
+      const budget = parseSig(v.budget);
+      checkBalance(budget);
+      const body = {budget, royalty: parsePct(v.royalty, 50, "Royalty"), reinvest: parsePct(v.reinvest, 100, "Reinvestimento"), replicas: Number(v.replicas) || 2};
+      if (name) body.name = name;
+      if (fromUrl) body.url = it.url; else body.catalog_id = it.id;
+      const r = await api("/api/models/sponsor", body);
+      toast(`Pronto! ${r.name || name} entrou na rede. Os computadores começam a baixar em instantes.`, "ok", 6500);
+      refresh("models"); schedule(400);
+    },
+  });
+}
+function modelAction(act, name) {
+  const m = lazy.models.data?.network?.[name];
+  if (!m) return toast("Esse modelo não está mais na rede.", "err");
+  const done = (msg) => { toast(msg); refresh("models"); schedule(400); };
+  if (act === "fund") openDialog({title: "Recarregar " + name, ok: "Recarregar",
+    text: `O orçamento paga o aluguel de quem guarda o modelo. Hoje ele tem ${sig(m.budget)} SIG e dura ${lifetime(m.budget, rent(m))}.`,
+    fields: [{k: "amount", label: "Quantidade (SIG)", mode: "decimal", ph: "ex.: 10"}],
+    run: async (v) => { needKey(); const amount = parseSig(v.amount); checkBalance(amount); await api("/api/models/fund", {name, amount}); done(`Modelo ${name} recarregado com ${sigNum(amount)} SIG`); }});
+  if (act === "royalty") openDialog({title: "Royalty de " + name, ok: "Salvar",
+    text: "Royalty é a parte de cada pagamento pelo modelo que vai para você. Reinvestir devolve parte dele ao orçamento.",
+    fields: [{k: "royalty", label: "Royalty (%)", value: bpsPct(m.royalty_bps), mode: "decimal", hint: "De 0 a 50%."},
+             {k: "reinvest", label: "Reinvestir do royalty (%)", value: bpsPct(m.reinvest_bps), mode: "decimal", hint: "De 0 a 100%."}],
+    run: async (v) => {
+      needKey();
+      await api("/api/models/update", {name, royalty: parsePct(v.royalty, 50, "Royalty"), reinvest: parsePct(v.reinvest, 100, "Reinvestimento")});
+      done("Royalty atualizado");
+    }});
+  if (act === "transfer") openDialog({title: `Passar ${name} adiante`, ok: "Passar adiante", danger: true,
+    text: "A outra carteira passa a ser a madrinha ou o padrinho do modelo: controla o orçamento e recebe os royalties. Não dá para desfazer.",
+    fields: [{k: "to", label: "Nova carteira", ph: "sig… ou 0x…", hint: "Copie e cole direto da MetaMask, sem digitar."}],
+    run: async (v) => {
+      needKey();
+      if (!ADDR_RE.test(v.to)) throw new Error(ADDR_HINT);
+      await api("/api/models/update", {name, new_sponsor: v.to});   // o app confere o checksum da MetaMask
+      done(`Agora o modelo ${name} é de ${short(v.to)}`);
+    }});
+  if (act === "retire") openDialog({title: `Apagar ${name} da rede?`, ok: "Apagar da rede", danger: true,
+    text: `Os computadores apagam o modelo e o que sobrou do orçamento (${sig(m.budget)} SIG) volta para você. Não dá para desfazer.`,
+    run: async () => { needKey(); await api("/api/models/retire", {name}); done(`O modelo ${name} saiu da rede`); }});
+}
+
+// ------------------------------------------------------------- Rede
+function myRewards() {
+  const r = {};
+  for (const h of S.wallet?.history || []) if (h.type === "mint") r[h.epoch] = N(r[h.epoch]) + N(h.amount);
+  return r;
+}
+const minersOf = (e) => Array.isArray(e.miners) ? e.miners.length : N(e.miners);
+const topReward = (e) => N((e.top || []).find((t) => Array.isArray(t) && same(t[0], S.wallet?.address))?.[1]);
+function chartHTML(eps, mine) {
+  const list = eps.slice(0, 24).reverse(), W = 600, H = 150, gap = list.length > 16 ? 3 : 6;
+  const max = Math.max(1, ...list.map((e) => N(e.mint))), bw = (W - gap * (list.length - 1)) / list.length;
+  let anyMine = false;
+  const bars = list.map((e, i) => {
+    const h = Math.max(2, N(e.mint) / max * (H - 6)), x = (i * (bw + gap)).toFixed(2), my = N(mine[e.epoch]) || topReward(e);
+    const mh = my ? Math.max(2, my / max * (H - 6)) : 0;
+    anyMine ||= !!my;
+    const tip = `Período #${e.epoch}: ${sig(e.mint, 2)} SIG para ${plural(minersOf(e), "minerador", "mineradores")}` + (my ? ` · você: ${sig(my)} SIG` : "");
+    return `<g><title>${esc(tip)}</title><rect x="${x}" y="${(H - h).toFixed(2)}" width="${bw.toFixed(2)}" height="${h.toFixed(2)}"/>`
+      + (mh ? `<rect class="me" x="${x}" y="${(H - mh).toFixed(2)}" width="${bw.toFixed(2)}" height="${mh.toFixed(2)}"/>` : "") + `</g>`;
+  }).join("");
+  return `<div class="chart"><div class="chart-head"><span>SIG impressos em cada período de 12 horas</span><span>máx. ${esc(sig(max, 0))}</span></div>`
+    + `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="SIG impressos nos últimos ${list.length} períodos de 12 horas">${bars}<line x1="0" y1="${H - 1}" x2="${W}" y2="${H - 1}"/></svg>`
+    + `<div class="chart-foot"><span>#${esc(list[0].epoch)}</span>${anyMine ? '<span class="legend"><i></i>sua parte</span>' : ""}<span>#${esc(list[list.length - 1].epoch)}</span></div></div>`;
+}
+function renderRede() {
+  const sup = supply(), net = S.network || {};
+  const minted = N(sup.minted), capv = N(sup.cap) || 100e6 * UNIT, p = Math.min(100, minted / capv * 100);
+  setText("n-minted", sig(minted, 0));
+  setText("n-cap", sig(capv, 0));
+  $("n-bar").style.width = (minted ? Math.max(p, 0.4) : 0).toFixed(2) + "%";
+  setText("n-pct", `${p.toLocaleString("pt-BR", {maximumFractionDigits: p < 1 ? 3 : 1})}% do total · faltam ${sig(capv - minted, 0)} SIG`);
+  // emissão contínua (v2.3): o ritmo de agora, sem contagem regressiva; sem conexão, "—"
+  const m = S.mining || {}, on = nodeLive(), perHour = mintPerHour();
+  const per = m.mint_per_period ?? sup.next_mint, bps = isInt(m.mint_bps) ? m.mint_bps : 1;
+  setHTML("n-rate", `${esc(perHourTxt(perHour))}<small>SIG por hora</small>`);
+  setHTML("n-next-line", S.node?.ok == null ? "Buscando o ritmo da rede…" : !on ? "O ritmo da rede volta a aparecer quando a conexão voltar."
+    : `Um pouco em cada bloco: <b>${esc(bpsPct(bps))}% do que falta</b> dos 100 milhões a cada 12 horas (≈ ${esc(sig(per, 0))} SIG em 12 horas, no ritmo de agora). `
+      + "Vai para quem tem pontos na última janela já fechada, na proporção das contas de cada um.");
+  stat("n-machines", num(net.machines));
+  stat("n-miners", on ? num(sup.miners_epoch) : "—");
+  stat("n-hash", rate(sup.hashrate));
+  stat("n-height", num(net.height));
+  setText("n-extra", `${plural(net.models, "modelo", "modelos")} · ${plural(net.sites, "site", "sites")}`);
+  const eps = epochsList(), mine = myRewards();
+  setHTML("n-chart", eps.length ? chartHTML(eps, mine)
+    : `<p class="empty">Os números aparecem aqui quando fechar o primeiro período de 12 horas com mineração.</p>`);
+  setHTML("n-epochs", eps.length ? `<table><tr><th>Período</th><th>Fechou</th><th>Impresso</th><th>Mineradores</th><th>Você recebeu</th></tr>`
+    + eps.slice(0, 8).map((e) => {
+      const my = N(mine[e.epoch]) || topReward(e);
+      return `<tr><td>#${esc(e.epoch)}</td><td>${esc(when(e.end) || "—")}</td><td>${esc(sig(e.mint, 2))}</td><td>${esc(num(minersOf(e)))}</td>`
+        + `<td class="${my ? "hot" : "muted"}">${my ? "+" + esc(sig(my)) : "—"}</td></tr>`;
+    }).join("") + `</table>` : "");
+  setHTML("n-rules", [
+    "Todo SIG nasce da mineração. Não houve pré-venda, reserva para os criadores nem SIG de boas-vindas.",
+    `A rede imprime ${bpsPct(bps)}% do que ainda falta dos 100 milhões a cada ${every(epochSec())}, mas não de uma vez: cada bloco leva um pedacinho, do tamanho do tempo que passou desde o bloco anterior.`,
+    "Como a conta é sempre sobre o que falta, o ritmo vai diminuindo devagar, para sempre, sem nunca passar dos 100 milhões.",
+    `O trabalho é provado a cada ${every(winSec())}: cada computador manda as provas das contas que fez, e elas viram pontos.`,
+    "Quem recebe são os pontos da última janela já fechada (de uns 10 minutos atrás), na proporção das contas de cada um. Sem ninguém minerando, nada é impresso.",
+    "Fora a mineração, o SIG só circula: quem usa IA, sites e computação paga quem hospeda. Nada é queimado nem cobrado como taxa.",
+  ].map((t) => `<li>${esc(t)}</li>`).join(""));
+}
+
+// ------------------------------------------------------------- Votações
+// Títulos e textos das votações são escritos por estranhos: tudo o que vem de /api/governance passa por esc() ou
+// setText. Os valores das regras vêm como o nó guarda (inteiros); o depósito está em µSIG e aparece em SIG.
+const GOV_PARAMS = {
+  mint_bps: {label: "Emissão: quanto do que falta sai a cada 12 horas", unit: "em centésimos de 1%: 1 = 0,01%",
+             fmt: (v) => `${bpsPct(v)}% do que falta a cada 12 horas`},
+  hosting_per_mb_window: {label: "Aluguel de disco, a cada janela", unit: "µSIG por MB", fmt: (v) => `${num(v)} µSIG por MB`},
+  ram_per_mb_window: {label: "Aluguel de memória dos modelos, a cada janela", unit: "µSIG por MB", fmt: (v) => `${num(v)} µSIG por MB`},
+  demand_max_bps: {label: "Quanto a demanda pode subir o aluguel", unit: "em centésimos de 1%: 30.000 = até 4x",
+                   fmt: (v) => `aluguel de 1x até ${xTxt(10000 + N(v))} com a rede cheia`},
+  min_share_bits: {label: "Dificuldade mínima das provas de mineração", unit: "em bits", fmt: (v) => `${num(v)} bits`},
+  proposal_deposit: {label: "Depósito para abrir uma votação", unit: "em SIG", sig: true, fmt: (v) => `${sig(v)} SIG`},
+  quorum_bps: {label: "Quórum: quanto do SIG que existe precisa votar", unit: "em centésimos de 1%: 100 = 1%",
+               fmt: (v) => `${bpsPct(v)}% do SIG que existe`},
+};
+const govMeta = (k) => GOV_PARAMS[k] || {label: String(k), unit: "número inteiro", fmt: (v) => num(v)};
+let govKind = "text";
+const govData = () => lazy.gov.data || null;
+const govDeposit = () => N(govData()?.deposit ?? S?.mining?.proposal_deposit) || 10 * UNIT;
+const govQuorumBps = () => govData()?.quorum_bps ?? S?.mining?.quorum_bps ?? 100;
+const govDays = () => Math.max(1, Math.round(N(govData()?.vote_seconds || 10 * 86400) / 86400));
+const govProps = () => (Array.isArray(govData()?.proposals) ? govData().proposals : []).filter((p) => p && typeof p === "object");
+function changeHTML(p) {
+  if (p.kind !== "param") return "";
+  const g = govMeta(p.param);
+  return `<p class="change">${esc(g.label)}: ${esc(g.fmt(p.old))} → <b>${esc(g.fmt(p.value))}</b></p>`;
+}
+function govTextHTML(t) {
+  t = String(t ?? "").trim();
+  if (!t) return "";
+  if (t.length <= 320) return `<p class="gov-text">${esc(t)}</p>`;
+  return `<p class="gov-text">${esc(t.slice(0, 280))}…</p><details><summary>Ler a explicação inteira</summary><p class="gov-text mt">${esc(t)}</p></details>`;
+}
+function votesHTML(p) {
+  const y = N(p.yes), n = N(p.no), t = y + n, q = N(p.quorum ?? p.quorum_now), yp = t ? y / t * 100 : 0;
+  const reached = t >= q, qp = q ? Math.min(100, t / q * 100) : 100;
+  const share = (v) => t ? ` · ${num(v / t * 100, 0)}%` : "";
+  return `<div class="votes" role="img" aria-label="${esc(`Sim ${sig(y)} SIG, não ${sig(n)} SIG`)}"><i class="y" style="width:${yp.toFixed(1)}%"></i><i class="n" style="width:${(t ? 100 - yp : 0).toFixed(1)}%"></i></div>`
+    + `<dl class="kv"><dt>Sim</dt><dd class="ok">${esc(sig(y))} SIG${esc(share(y))}</dd><dt>Não</dt><dd class="bad">${esc(sig(n))} SIG${esc(share(n))}</dd>`
+    + `<dt>Quórum</dt><dd>${esc(sig(t))} de ${esc(sig(q))} SIG${reached ? ' · <span class="ok">atingido</span>' : ` · ${esc(num(qp, 0))}%`}</dd></dl>`
+    + `<div class="bar${reached ? " done" : ""}" role="img" aria-label="${esc(`Quórum: ${num(qp, 0)}%`)}"><i style="width:${qp.toFixed(1)}%"></i></div>`;
+}
+function proposalTile(p, me, can) {
+  const open = p.status === "open", approved = p.status === "approved";
+  const kind = p.kind === "param" ? '<span class="tag warn">regra</span>' : '<span class="tag">decisão</span>';
+  const st = open ? '<span class="tag ok">aberta</span>' : approved ? '<span class="tag ok">aprovada</span>' : '<span class="tag bad">rejeitada</span>';
+  let result = "";
+  if (!open) {
+    const why = approved ? (p.kind === "param" ? (p.applied ? "Aprovada: a regra mudou na hora." : "Aprovada.") : "Aprovada: a decisão ficou registrada na rede.")
+      : N(p.yes) <= N(p.no) ? "Rejeitada: não teve mais sim que não." : "Rejeitada: os votos não chegaram ao quórum.";
+    result = `<p class="${approved ? "ok" : "bad"}" style="margin:0"><b>${esc(why)}</b></p>`;
+  }
+  const who = same(p.proposer, me) ? "você" : `<span class="mono">${esc(short(p.proposer))}</span>`;
+  const left = open ? `<b data-cd="until" data-end="${esc(N(p.ends))}"></b>` : esc("terminou " + (when(p.closed || p.ends) || "—"));
+  return `<div class="tile"><div class="row between"><div class="row">${kind}${st}</div><span class="mono muted">${left}</span></div>`
+    + `<h4>${esc(p.title)}</h4>${changeHTML(p)}${govTextHTML(p.text)}${result}${votesHTML(p)}`
+    + `<p class="hint" style="margin:0">Proposta por ${who} · ${esc(plural(p.voters, "carteira votou", "carteiras votaram"))} · depósito de ${esc(sig(p.deposit))} SIG ${open ? "(volta no fim)" : "(devolvido)"}</p>`
+    + (open ? `<div class="row"><button type="button" class="small primary" data-vote="${esc(p.id)}"${can ? "" : " disabled"}>Votar</button></div>` : "")
+    + `</div>`;
+}
+function fillGovForm(g) {
+  document.querySelectorAll("[data-gov-kind]").forEach((b) => {
+    const on = b.dataset.govKind === govKind;
+    b.classList.toggle("on", on); b.setAttribute("aria-pressed", String(on));
+  });
+  $("gov-param-box").hidden = govKind !== "param";
+  setText("gov-kind-hint", govKind === "param" ? "Se for aprovada, a regra muda na hora, sozinha, para todo mundo."
+    : "Uma decisão da rede, por escrito (por exemplo, um rumo para o projeto). Se for aprovada, fica registrada; nenhuma regra muda sozinha.");
+  const gov = g?.governable && typeof g.governable === "object" ? g.governable : {}, keys = Object.keys(gov), sel = $("gov-param");
+  if (document.activeElement !== sel) {
+    const cur = sel.value;
+    setHTML(sel, keys.map((k) => `<option value="${esc(k)}">${esc(govMeta(k).label)}</option>`).join("")
+      || `<option value="">${g ? "nenhuma regra pode ser votada agora" : "carregando…"}</option>`);
+    if (keys.includes(cur)) sel.value = cur;
+  }
+  const k = sel.value, info = gov[k], meta = govMeta(k);
+  setText("gov-param-hint", info ? `Agora: ${meta.fmt(info.now)}. Dá para votar de ${meta.fmt(info.min)} a ${meta.fmt(info.max)}.` : "");
+  setText("gov-value-label", `Valor novo (${meta.unit})`);
+  $("gov-value").placeholder = info ? (meta.sig ? sigNum(N(info.now) / UNIT) : String(N(info.now))) : "";
+  setText("gov-deposit", `Para abrir a votação, você deixa um depósito de ${sig(govDeposit())} SIG. Ele volta inteiro para a sua carteira no fim dos ${govDays()} dias, aprovada ou não.`);
+  setText("gov-go", `Propor · depósito de ${sigNum(govDeposit() / UNIT)} SIG`);
+}
+function renderVotacoes() {
+  const g = want("gov"), w = S.wallet || {}, can = !!w.can_spend, me = w.address;
+  setHTML("gov-notes", (can ? "" : keyNote("votar e propor"))
+    + (g && N(g.locked) ? `<p class="hint">Travados agora em votações abertas: ${esc(sig(g.locked))} SIG (votos e depósitos, que voltam no fim).</p>` : ""));
+  $("gov-go").disabled = !can;
+  fillGovForm(g);
+  setHTML("gov-rules", [
+    `Qualquer carteira propõe uma votação. Para abrir, deixa um depósito de ${sig(govDeposit())} SIG, que volta inteiro no fim.`,
+    `Cada votação fica aberta por ${govDays()} dias. Podem estar abertas até ${num(g?.max_open || 20)} ao mesmo tempo.`,
+    "1 SIG = 1 voto. Os SIG do voto ficam travados até o fim e voltam inteiros, ganhe o sim ou o não. Cada carteira vota uma vez em cada votação.",
+    `É aprovada se tiver mais sim que não e se a soma dos votos chegar ao quórum: ${bpsPct(govQuorumBps())}% do SIG que existe.`,
+    "Votação de regra aprovada muda a regra na hora, para todo mundo. Votação de texto registra a decisão da rede.",
+    "O teto de 100 milhões de SIG e o tempo das janelas não podem ser votados.",
+  ].map((t) => `<li>${esc(t)}</li>`).join(""));
+  if (!g) { setHTML("gov-open", loadingHTML(lazy.gov)); setHTML("gov-closed", ""); return tick(); }
+  const props = govProps();
+  const open = props.filter((p) => p.status === "open").sort((a, b) => N(a.ends) - N(b.ends));
+  const closed = props.filter((p) => p.status !== "open").sort((a, b) => N(b.closed || b.ends) - N(a.closed || a.ends));
+  setHTML("gov-open", (lazy.gov.err ? `<div class="note err"><p>${LOAD_FAIL}</p>${techHTML(lazy.gov.err)}</div>` : "")
+    + (open.length ? `<div class="tiles">${open.map((p) => proposalTile(p, me, can)).join("")}</div>`
+      : `<p class="empty">Nenhuma votação aberta agora. Que tal propor uma?</p>`));
+  setHTML("gov-closed", closed.length ? `<div class="tiles">${closed.slice(0, 30).map((p) => proposalTile(p, me, can)).join("")}</div>`
+    : `<p class="empty">Nenhuma votação terminou ainda.</p>`);
+  tick();
+}
+// valor novo da regra: inteiro como o nó guarda ("30.000" vale 30000); o depósito é digitado em SIG
+function govValue(k, info, raw) {
+  const meta = govMeta(k);
+  let v;
+  if (meta.sig) v = Math.round(parseSig(raw) * UNIT);
+  else {
+    const s = String(raw ?? "").replace(/\s/g, "").replace(/\.(?=\d{3}(\D|$))/g, "");
+    if (!/^\d+$/.test(s)) throw new Error(`Valor novo: use um número inteiro (${meta.unit}).`);
+    v = Number(s);
+  }
+  if (v < N(info.min) || v > N(info.max)) throw new Error(`Valor novo: escolha de ${meta.fmt(info.min)} a ${meta.fmt(info.max)}.`);
+  if (v === N(info.now)) throw new Error("Esse já é o valor de agora: escolha outro.");
+  return v;
+}
+function proposeFlow(e) {
+  e.preventDefault();
+  formErr("gov-err", "");
+  try {
+    needKey();
+    const g = govData();
+    if (!g) throw new Error("Espere carregar as votações da rede.");
+    const title = $("gov-title").value.trim(), text = $("gov-text").value.trim(), body = {title, text};
+    if (title.length < 3 || title.length > 120) throw new Error("Título: de 3 a 120 caracteres.");
+    if (text.length > 2000) throw new Error("Explicação: no máximo 2.000 caracteres.");
+    let change = "";
+    if (govKind === "param") {
+      const k = $("gov-param").value, info = g.governable?.[k];
+      if (!info) throw new Error("Escolha a regra que você quer mudar.");
+      body.param = k; body.value = govValue(k, info, $("gov-value").value);
+      change = changeHTML({kind: "param", param: k, old: info.now, value: body.value});
+    }
+    const dep = govDeposit(), w = S.wallet || {};
+    if (!balUnknown(w) && N(w.balance) < dep) throw new Error(`O depósito para abrir uma votação é de ${sig(dep)} SIG, e você tem ${sig(w.balance)} SIG.`);
+    openDialog({
+      title: "Abrir esta votação?", ok: "Abrir a votação", safe: true,
+      text: `Ela fica aberta por ${govDays()} dias. O depósito de ${sig(dep)} SIG sai da sua carteira agora e volta inteiro no fim, aprovada ou não.`,
+      html: `<p><b>${esc(title)}</b></p>${change}${text ? `<p class="gov-text">${esc(text)}</p>` : ""}`,
+      run: async () => {
+        await api("/api/governance/propose", body);
+        $("gov-form").reset(); govKind = "text";
+        toast("Votação aberta. Ela aparece na lista em instantes.", "ok", 6000);
+        refresh("gov"); schedule(400);
+      },
+    });
+  } catch (x) { formErr("gov-err", x.message); }
+}
+function voteFlow(id) {
+  const p = govProps().find((x) => x.id === id);
+  if (!p || p.status !== "open") return toast("Essa votação não está mais aberta.", "err");
+  try { needKey(); } catch (x) { return toast(x.message, "err", 7000); }
+  let choice = "";
+  const pick = (c) => {
+    choice = c;
+    document.querySelectorAll("#vote-choices [data-choice]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.choice === c)));
+  };
+  openDialog({
+    title: "Votar", ok: "Continuar",
+    text: String(p.title ?? ""),   // setText: o título de um estranho nunca vira HTML
+    html: changeHTML(p)
+      + `<div class="choices" id="vote-choices"><button type="button" class="choice" data-choice="sim" aria-pressed="false"><b>Sim</b><span>Quero que seja aprovada.</span></button>`
+      + `<button type="button" class="choice" data-choice="nao" aria-pressed="false"><b>Não</b><span>Quero que seja rejeitada.</span></button></div>`
+      + `<label for="vote-amount">Quantos SIG usar no voto</label><div class="input-btn"><input id="vote-amount" data-f="amount" inputmode="decimal" placeholder="ex.: 10" autocomplete="off" spellcheck="false"><button type="button" id="vote-max">Tudo</button></div>`
+      + `<p class="hint">Você tem ${esc(balText(S.wallet))} SIG. 1 SIG = 1 voto.</p>`
+      + `<div class="note"><p><b>Os SIG do voto ficam travados até o fim da votação</b> (${esc(when(p.ends) || "daqui a alguns dias")}) e voltam inteiros para a sua carteira, ganhe o sim ou o não. `
+      + `Até lá, você não consegue gastar esses SIG. Cada carteira vota uma vez em cada votação, e o voto não pode ser mudado.</p></div>`,
+    onClick: (e) => {
+      const b = e.target.closest("#vote-choices [data-choice]");
+      if (b) return pick(b.dataset.choice);
+      if (e.target.closest("#vote-max")) $("vote-amount").value = (N(S?.wallet?.balance) / UNIT).toLocaleString("pt-BR", {useGrouping: false, maximumFractionDigits: 6});
+    },
+    run: async (v) => {
+      if (!choice) throw new Error("Escolha sim ou não.");
+      const amount = parseSig(v.amount);
+      checkBalance(amount);
+      setTimeout(() => voteConfirm(p, choice, amount), 0);   // abre depois que este diálogo fechar
+    },
+  });
+}
+function voteConfirm(p, choice, amount) {
+  openDialog({
+    title: "Confirmar seu voto", ok: "Votar agora", safe: true,   // foco em Cancelar: um Enter distraído não trava SIG
+    text: "Confira com calma: depois de votar, não dá para mudar o voto nem destravar os SIG antes do fim.",
+    html: `<p><b>${esc(p.title)}</b></p>`
+      + `<div class="confirm-addr"><span class="lbl">Seu voto</span>${choice === "sim" ? "Sim" : "Não"} · ${esc(sigNum(amount))} SIG</div>`
+      + `<p class="hint">Travados até ${esc(when(p.ends) || "o fim da votação")}. Depois voltam inteiros para a sua carteira.</p>`,
+    run: async () => {
+      await api("/api/governance/vote", {proposal_id: p.id, choice, amount: String(amount)});
+      toast(`Voto registrado: ${sigNum(amount)} SIG travados até o fim da votação.`, "ok", 6500);
+      refresh("gov"); schedule(400);
+    },
+  });
+}
+
+// ------------------------------------------------------------- Configurações
+function fillConfig() {
+  const c = settings();
+  setVal($("cfg-name"), c.name ?? "");
+  setVal($("cfg-node"), c.node ?? S.node?.url ?? "");
+  $("cfg-start").checked = !!c.start_with_system;
+  $("cfg-mine").checked = !!c.mining_enabled;
+  $("cfg-battery").checked = !!c.mine_on_battery;
+  setVal($("cfg-cpu"), c.cpu_percent ?? 50); paintRange($("cfg-cpu"));
+  setText("cfg-cpu-val", `${num($("cfg-cpu").value)}%`);
+  $("cfg-ai").checked = !!c.ai_enabled;
+  setVal($("cfg-ai-ram"), c.ai_ram_gb == null ? "" : gbInput(c.ai_ram_gb));
+  $("cfg-compute").checked = !!c.compute_enabled;
+  setVal($("cfg-disk"), c.disk_gb == null ? "" : gbInput(c.disk_gb));
+  setDirty(false);
+}
+function setDirty(v) {
+  cfgDirty = v;
+  setText("cfg-state", v ? "Você tem mudanças não salvas." : "Tudo salvo.");
+  $("cfg-state").className = v ? "warn" : "muted";
+}
+function cfgPatch() {
+  const c = settings(), p = {};
+  const put = (k, v) => { if (v !== c[k]) p[k] = v; };
+  const name = $("cfg-name").value.trim();
+  if (!name || name.length > 40) throw new Error("Dê um nome para este computador, com até 40 caracteres.");
+  put("name", name);
+  if (S?.features?.autostart !== false) put("start_with_system", $("cfg-start").checked);   // só onde o sistema deixa
+  put("mining_enabled", $("cfg-mine").checked);
+  put("mine_on_battery", $("cfg-battery").checked);
+  put("cpu_percent", Number($("cfg-cpu").value));
+  put("ai_enabled", $("cfg-ai").checked);
+  put("compute_enabled", $("cfg-compute").checked);
+  const ram = parseGB($("cfg-ai-ram").value, "Memória para IA"), disk = parseGB($("cfg-disk").value, "Disco para a rede");
+  const top = ramTop(S?.machine?.hw);
+  if (ram > top) throw new Error(`Memória para IA: escolha de 0 a ${num(top)} GB (a memória deste computador).`);
+  const diskTop = N(S?.limits?.disk_gb) || 100000;
+  if (disk > diskTop) throw new Error(`Disco para a rede: escolha de 0 a ${num(diskTop)} GB.`);
+  put("ai_ram_gb", ram); put("disk_gb", disk);
+  const node = $("cfg-node").value.trim().replace(/\/+$/, "");
+  if (!/^https?:\/\/\S+$/i.test(node)) throw new Error("O endereço do nó começa com https:// ou http://.");
+  if (node !== String(c.node || "").replace(/\/+$/, "")) p.node = node;
+  return p;
+}
+async function saveConfig(e) {
+  e.preventDefault();
+  formErr("cfg-err", "");
+  const btn = $("cfg-save");
+  try {
+    const patch = cfgPatch();
+    if (!Object.keys(patch).length) { setDirty(false); return toast("Nada mudou"); }
+    btn.disabled = true;
+    const r = await api("/api/settings", patch);
+    if (S) S.settings = r.settings || {...S.settings, ...patch};
+    fillConfig(); toast("Configurações salvas"); schedule(400);
+  } catch (x) { formErr("cfg-err", x.message); }
+  finally { btn.disabled = false; }
+}
+function renderConfig() {
+  if (!cfgDirty) fillConfig();
+  $("cfg-start-box").hidden = S.features?.autostart === false;   // "iniciar com o computador": por enquanto só no Windows
+  setText("cfg-ai-ram-hint", `Este computador tem ${gib(S.machine?.hw?.ram_mb)} de memória. ${aiHint(settings().ai_ram_gb)}`);
+  setHTML("links", [["/", "Manifesto"], ["/tutorial", "Como funciona"], ["/forum", "Fórum"], ["/carteira", "Carteira do site"], ["/baixar", "Baixar o Sigma"]]
+    .map(([p, l]) => linkTo(p, l, "btn small")).join("") || '<p class="muted">Configure o endereço do nó para ver os links.</p>');
+  if ($("logs-box").open) setText("logs", (S.logs || []).slice(-300).join("\n") || "Nada registrado ainda.");
+  setText("app-version", S.version || "—");
+}
+function quitFlow() {
+  openDialog({title: "Desligar o Sigma?", ok: "Desligar", danger: true,
+    text: "A mineração e a hospedagem param até você abrir o Sigma de novo. Seus SIG continuam na sua carteira.",
+    run: async () => {
+      quitting = true; clearTimeout(pollTimer);
+      try { await api("/api/quit", {}); }
+      catch (e) { if (e.status) { quitting = false; schedule(1000); throw e; } }   // sem status: o app fechou antes de responder
+      fatal("Sigma desligado", "A mineração e a hospedagem pararam. Pode fechar esta janela. Para voltar, é só abrir o Sigma de novo.");
+      setTimeout(() => window.close(), 1500);
+    }});
+}
+
+// ------------------------------------------------------------- diálogo genérico
+let dlgRun = null;
+function fieldHTML(f) {
+  const id = "f-" + f.k;
+  const input = f.type === "select"
+    ? `<select id="${id}" data-f="${f.k}">${f.options.map(([v, l]) => `<option value="${esc(v)}"${String(v) === String(f.value) ? " selected" : ""}>${esc(l)}</option>`).join("")}</select>`
+    : `<input id="${id}" data-f="${f.k}"${f.type === "password" ? ' type="password"' : ""} value="${esc(f.value ?? "")}"${f.mode ? ` inputmode="${f.mode}"` : ""} placeholder="${esc(f.ph || "")}" autocomplete="off" spellcheck="false">`;
+  return `<label for="${id}">${esc(f.label)}</label>${input}${f.hint ? `<p class="hint">${esc(f.hint)}</p>` : ""}`;
+}
+// safe: true deixa o foco em Cancelar mesmo sem ser perigoso (confirmações que travam SIG, como votar)
+function openDialog({title, text = "", fields = [], html = "", ok = "Confirmar", danger = false, safe = false, run = null, onInput = null, onClick = null}) {
+  const d = $("dlg"), body = $("dlg-body"), okb = $("dlg-ok");
+  if (d.open) d.close();
+  setText("dlg-title", title);
+  setText("dlg-text", text); $("dlg-text").hidden = !text;
+  body.innerHTML = fields.map(fieldHTML).join("") + html;
+  formErr("dlg-err", "");
+  okb.hidden = !run; okb.textContent = ok; okb.className = danger ? "danger-fill" : "primary"; okb.disabled = false;
+  setText("dlg-cancel", run ? "Cancelar" : "Fechar");
+  const values = () => Object.fromEntries([...body.querySelectorAll("[data-f]")].map((i) => [i.dataset.f, i.type === "checkbox" ? i.checked : i.value.trim()]));
+  body.oninput = body.onchange = onInput ? () => onInput(values()) : null;
+  body.onclick = onClick;
+  dlgRun = run && (async () => {
+    okb.disabled = true; formErr("dlg-err", "");
+    try { await run(values()); d.close(); }
+    catch (e) { formErr("dlg-err", e.message); }
+    finally { okb.disabled = false; }
+  });
+  d.showModal();
+  onInput?.(values());
+  // em ações perigosas o foco fica em Cancelar, para um Enter distraído não confirmar
+  const first = [...body.querySelectorAll("input:not([type=checkbox]), select, textarea")].find((el) => el.offsetParent !== null);
+  (first || (run && !danger && !safe ? okb : $("dlg-cancel"))).focus();
+}
+
+// ------------------------------------------------------------- navegação e eventos
+const PANES = {inicio: renderInicio, carteira: renderCarteira, maquina: renderMaquina, ia: renderIA, programar: renderCode,
+               sites: renderSites, modelos: renderModelos, rede: renderRede, votacoes: renderVotacoes, config: renderConfig};
+function go(t) {
+  if (!PANES[t]) return;
+  if (t !== tab) window.scrollTo(0, 0);
+  tab = t; store("sigma.tab", t);
+  render();
+  $("tabs").querySelector(`[data-tab="${t}"]`)?.scrollIntoView({block: "nearest", inline: "nearest"});
+}
+
+function bind() {
+  document.addEventListener("click", (e) => {
+    const el = (s) => e.target.closest(s);
+    let t;
+    if ((t = el("[data-tab]")) || (t = el("[data-go]"))) return go(t.dataset.tab || t.dataset.go);
+    if ((t = el(".switch[data-set]"))) return saveSetting({[t.dataset.set]: !settings()[t.dataset.set]});
+    if ((t = el("[data-copy]"))) return copy($(t.dataset.copy).textContent, "Endereço copiado");
+    if ((t = el("[data-mact]"))) return modelAction(t.dataset.mact, t.dataset.name);
+    if ((t = el("[data-site-fund]"))) return siteFund(t.dataset.siteFund);
+    if ((t = el("[data-sponsor]"))) { const it = (lazy.models.data?.catalog || []).find((x) => String(x.id) === t.dataset.sponsor); return it && sponsorDialog(it); }
+    if ((t = el("[data-chat]"))) { chat.model = t.dataset.chat; return go("ia"); }
+    if ((t = el("[data-hist]"))) { histFilter = t.dataset.hist; return renderCarteira(); }
+    if ((t = el("[data-import-key]"))) return importFlow();
+    if ((t = el("[data-chat-cancel]"))) return chatCancel();
+    if ((t = el("[data-code-answer]"))) return codeAnswer(t.dataset.id, t.dataset.codeAnswer === "1");
+    if ((t = el("[data-scroll]"))) return $(t.dataset.scroll)?.scrollIntoView({block: "center"});
+    if ((t = el("[data-vote]"))) return voteFlow(t.dataset.vote);
+    if ((t = el("[data-gov-kind]"))) { govKind = t.dataset.govKind === "param" ? "param" : "text"; formErr("gov-err", ""); return renderVotacoes(); }
+  });
+  document.addEventListener("input", (e) => {
+    const r = e.target;
+    if (r.type !== "range") return;
+    paintRange(r);
+    if (r.dataset.set) {
+      document.querySelectorAll(`[data-val="${r.dataset.set}"]`).forEach((v) => setText(v, fmtSetting(r.dataset.set, r.value)));
+      if (r.dataset.set === "ai_ram_gb") setText("ai-hint", aiHint(r.value));
+    }
+  });
+  document.addEventListener("change", (e) => {
+    const r = e.target;
+    if (r.type === "range" && r.dataset.set) saveSetting({[r.dataset.set]: Number(r.value)});
+  });
+  $("tabs").addEventListener("keydown", (e) => {
+    const keys = Object.keys(PANES), i = keys.indexOf(tab);
+    const j = {ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: keys.length - 1}[e.key];
+    if (j === undefined) return;
+    e.preventDefault();
+    const next = keys[(j + keys.length) % keys.length];
+    go(next); $("tabs").querySelector(`[data-tab="${next}"]`).focus();
+  });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && !lost && !quitting) poll(); });
+
+  // assistente
+  $("wiz-next1").onclick = () => { wizard.step = 2; renderWizard(); };
+  $("wiz-choices").onclick = (e) => {
+    const b = e.target.closest("[data-mode]");
+    if (!b) return;
+    wizard.mode = b.dataset.mode; formErr("wiz-err", ""); renderWizard();
+    $("wiz-form").querySelector(`[data-for="${wizard.mode}"] input`)?.focus();
+  };
+  $("wiz-back").onclick = () => { wizard.step = 1; renderWizard(); };
+  $("wiz-form").onsubmit = doSetup;
+  $("wiz-saved").onchange = (e) => { $("wiz-next2").disabled = !e.target.checked; };
+  $("wiz-copykey").onclick = () => copy($("wiz-keybox").textContent, "Chave copiada. Guarde em lugar seguro.");
+  $("wiz-next2").onclick = () => { $("wiz-keybox").textContent = ""; wizard.key = false; wizard.step = 3; renderWizard(); };
+  $("wiz-done").onclick = () => { wizard = null; go("inicio"); };
+  $("wiz-adjust").onclick = () => { wizard = null; go("maquina"); };
+  $("wiz-fix").onclick = () => {   // volta para a escolha: um novo /api/setup troca o endereço
+    wizard.step = 2; wizard.key = false; formErr("wiz-err", ""); renderWizard();
+    $("wiz-form").querySelector(`[data-for="${wizard.mode}"] input`)?.focus();
+  };
+
+  // painel
+  $("mine-toggle").onclick = () => saveSetting({mining_enabled: !settings().mining_enabled});
+  $("quit-top").onclick = $("quit-big").onclick = quitFlow;
+  $("send-form").onsubmit = sendFlow;
+  $("send-max").onclick = () => { $("send-amount").value = (N(S?.wallet?.balance) / UNIT).toLocaleString("pt-BR", {useGrouping: false, maximumFractionDigits: 6}); };
+  $("btn-export").onclick = exportFlow;
+  $("btn-import").onclick = importFlow;
+  $("btn-swap").onclick = () => swapFlow();
+  $("ai-model").onchange = (e) => { chat.model = e.target.value; renderIA(); };
+  $("chat-form").onsubmit = chatSend;
+  $("chat-text").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend(); } });
+  $("chat-new").onclick = () => {
+    if (chat.busy) return toast("Espere a resposta chegar ou clique em Cancelar ao lado do “pensando…”.");
+    chat.messages = []; chat.total = 0; chat.trimmed = false; chat.quote = null; renderIA(); $("chat-text").focus();
+  };
+  $("chat-text").addEventListener("input", renderMaxCost);
+  $("ai-len").onchange = renderMaxCost;
+  $("code-form").onsubmit = codeStart;
+  $("code-stop").onclick = codeStop;
+  $("code-pick").onclick = codePick;
+  $("code-model").onchange = (e) => { codeModel = e.target.value; };
+  $("pub-folder").onchange = pickFolder;
+  ["pub-name", "pub-budget", "pub-replicas"].forEach((id) => { $(id).addEventListener("input", pubPreview); $(id).addEventListener("change", pubPreview); });
+  $("pub-form").onsubmit = publish;
+  $("hf-form").onsubmit = (e) => {
+    e.preventDefault(); formErr("hf-err", "");
+    const url = $("hf-url").value.trim();
+    if (!HF_RE.test(url)) return formErr("hf-err", "Use o link de um arquivo .gguf no Hugging Face, por exemplo https://huggingface.co/Qwen/…/resolve/main/arquivo.gguf");
+    sponsorDialog({url});
+  };
+  $("gov-form").onsubmit = proposeFlow;
+  $("gov-param").onchange = () => { $("gov-value").value = ""; renderVotacoes(); };
+  $("cfg-form").oninput = (e) => {
+    if (e.target.id === "cfg-cpu") { paintRange(e.target); setText("cfg-cpu-val", `${num(e.target.value)}%`); }
+    setDirty(true);
+  };
+  $("cfg-form").onchange = () => setDirty(true);
+  $("cfg-form").onsubmit = saveConfig;
+  $("cfg-reset").onclick = () => { formErr("cfg-err", ""); setDirty(false); fillConfig(); };
+  $("logs-box").addEventListener("toggle", () => { if (S) renderConfig(); });
+
+  // diálogo
+  $("dlg-form").onsubmit = (e) => { e.preventDefault(); dlgRun?.(); };
+  $("dlg-cancel").onclick = () => $("dlg").close();
+  $("dlg").addEventListener("close", () => {
+    if ($("dlg").open) return;           // outro diálogo já abriu no lugar
+    $("dlg-body").innerHTML = ""; $("dlg-body").onclick = null; dlgRun = null;   // apaga do DOM o que foi mostrado (ex.: a chave)
+  });
+}
+
+function init() {
+  $("wiz-choices").innerHTML = choicesHTML("create");
+  document.querySelectorAll("[data-key-tip]").forEach((el) => { el.textContent = KEY_TIP; });
+  $("code-folder").value = stored("sigma.code.folder") || "";
+  $("code-auto").checked = false;   // começa sempre desmarcada
+  bind();
+  const t = HASH.get("tab") || stored("sigma.tab");
+  if (PANES[t]) tab = t;
+  if (!TOKEN) return sessionLost();
+  poll();
+  setInterval(tick, 1000);
+}
+init();
+</script>
+</body>
+</html>

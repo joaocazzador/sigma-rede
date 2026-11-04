@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23ff3b1f'/%3E%3Ctext x='32' y='50' font-size='50' font-weight='900' text-anchor='middle' font-family='Arial Black,Arial,sans-serif' fill='%230b0b0a'%3E%CE%A3%3C/text%3E%3C/svg%3E">
+<title>Como funciona o Sigma</title>
+<meta name="description" content="Como funciona o Sigma, sem jargão: a luta, os 3 passos, como o SIG nasce, o que o app faz sozinho, IA, Sigma Code, sites, padrinhos de modelos, carteira, MetaMask, votações e o que ainda falta.">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Sigma">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:url" content="https://sigma.195-35-29-232.sslip.io/tutorial">
+<meta property="og:title" content="Como funciona o Sigma">
+<meta property="og:description" content="A rede de IA feita de computadores comuns, explicada sem jargão: como o SIG nasce, o que o app faz no seu computador, como a rede vota as próprias regras e o que ainda falta.">
+<meta property="og:image" content="https://sigma.195-35-29-232.sslip.io/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Σ vermelho sobre fundo preto e a frase: Vão substituir você por um robô.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0b0b0a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="/sigma.css">
+<style>
+.doc-head { border-bottom: 2px solid var(--text); position: relative; overflow: hidden; }
+.doc-head .halftone { position: absolute; right: -60px; top: -30px; width: 45%; height: 140%; opacity: .35; pointer-events: none;
+                      -webkit-mask-image: radial-gradient(closest-side, #000, transparent); mask-image: radial-gradient(closest-side, #000, transparent); }
+.doc-head .inner { padding-top: clamp(32px, 5vw, 68px); padding-bottom: clamp(28px, 4vw, 52px); position: relative; }
+/* .86 só porque "Como funciona" não tem acento: texto com acento precisa de 1,12 ou mais */
+.doc-head h1 { font-size: clamp(54px, 9vw, 124px); line-height: .86; margin: 12px 0 18px; }
+.doc-head h1 span { color: var(--accent); }
+.doc-head .lead { color: var(--muted); margin: 0; }
+
+.doc { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: clamp(24px, 4vw, 60px); padding-top: 38px; padding-bottom: 80px; }
+@media (max-width: 860px) { .doc { grid-template-columns: 1fr; } .toc { position: static !important; max-height: none !important; } }
+.toc { position: sticky; top: 72px; align-self: start; border: 2px solid var(--text); background: var(--card); padding: 10px 0;
+       max-height: calc(100vh - 96px); overflow-y: auto; }
+.toc b { display: block; font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); padding: 4px 16px 8px; }
+.toc a { display: flex; gap: 10px; padding: 6px 16px; color: var(--muted); text-decoration: none; font-size: 14px; line-height: 1.35; }
+.toc a span { font: 600 12px/1.6 var(--mono); color: var(--accent); min-width: 20px; }
+.toc a:hover, .toc a.on { color: var(--text); background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+
+article { min-width: 0; }
+article > section { margin-bottom: 56px; scroll-margin-top: 80px; }
+article h2 { display: flex; gap: 14px; align-items: baseline; margin: 0 0 18px; padding-top: 18px; border-top: 2px solid var(--text); }
+article h2 .n { color: transparent; -webkit-text-stroke: 1.5px var(--accent); }
+article h3 { margin: 30px 0 8px; font-size: 24px; }
+article p, article li { max-width: 72ch; }
+article .lead { color: var(--text); }
+ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 16px 0; }
+ol.steps > li { counter-increment: s; position: relative; padding: 3px 0 14px 48px; }
+ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 32px; height: 32px; display: grid; place-items: center;
+                        background: var(--accent); color: var(--accent-ink); font: 400 18px/1 var(--display); }
+ul.ticks { list-style: none; padding: 0; margin: 14px 0; }
+ul.ticks > li { position: relative; padding: 9px 0 9px 28px; border-top: 1px solid var(--line); }
+ul.ticks > li:last-child { border-bottom: 1px solid var(--line); }
+ul.ticks > li::before { content: ""; position: absolute; left: 2px; top: 18px; width: 12px; height: 12px; background: var(--accent); }
+.eg { margin: 16px 0; }
+.eg tr.total td { font-weight: 700; border-top: 2px solid var(--text); }
+.timeline { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 2px solid var(--text); margin: 18px 0; }
+@media (max-width: 700px) { .timeline { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.timeline div { background: var(--bg); padding: 14px 16px; }
+.timeline span { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.timeline b { display: block; font: 400 30px/1.15 var(--display); margin: 4px 0 2px; }
+.timeline small { color: var(--muted); font-size: 13px; }
+dl.gloss { display: grid; grid-template-columns: minmax(130px, 210px) minmax(0, 1fr); margin: 0; border-top: 1px solid var(--line); }
+dl.gloss dt, dl.gloss dd { margin: 0; padding: 10px 0; border-bottom: 1px solid var(--line); }
+dl.gloss dt { font-weight: 700; padding-right: 16px; }
+dl.gloss dd { color: var(--muted); }
+@media (max-width: 560px) { dl.gloss { grid-template-columns: 1fr; } dl.gloss dt { border-bottom: 0; padding-bottom: 0; } }
+.next { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-top: 18px; }
+</style>
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+<nav class="nav" aria-label="Principal">
+  <a class="brand" href="/"><span>Σ</span> SIGMA</a>
+  <div class="links">
+    <a class="link" href="/">Manifesto</a>
+    <a class="link" href="/baixar">Baixar</a>
+    <a class="link on" href="/tutorial" aria-current="page">Como funciona</a>
+    <a class="link" href="/forum">Fórum</a>
+    <a class="link" href="/carteira">Carteira</a>
+  </div>
+  <div class="spacer"></div>
+</nav>
+
+<header class="doc-head">
+  <div class="halftone" aria-hidden="true"></div>
+  <div class="inner">
+    <div class="eyebrow">Guia do Sigma</div>
+    <h1>Como <span>funciona</span>.</h1>
+    <p class="lead">Tudo o que você precisa saber, sem jargão, inclusive o que ainda não está pronto. Leia na ordem ou pule
+      direto para o que interessa.</p>
+  </div>
+</header>
+
+<div class="inner doc">
+  <nav class="toc" aria-label="Neste guia">
+    <b>Neste guia</b>
+    <a href="#luta"><span>01</span>A luta</a>
+    <a href="#passos"><span>02</span>Em 3 passos</a>
+    <a href="#emissao"><span>03</span>Como o SIG nasce</a>
+    <a href="#app"><span>04</span>O que o app faz sozinho</a>
+    <a href="#ia"><span>05</span>Usar a IA da rede</a>
+    <a href="#sites"><span>06</span>Publicar um site</a>
+    <a href="#padrinho"><span>07</span>Apadrinhar um modelo</a>
+    <a href="#carteira"><span>08</span>Carteira e MetaMask</a>
+    <a href="#forum"><span>09</span>O fórum</a>
+    <a href="#votacoes"><span>10</span>Votações: a rede decide</a>
+    <a href="#limites"><span>11</span>O que ainda estamos construindo</a>
+    <a href="#glossario"><span>12</span>Glossário</a>
+    <a href="#faq"><span>13</span>Perguntas frequentes</a>
+  </nav>
+
+  <article id="conteudo">
+    <section id="luta">
+      <h2><span class="n">01</span> A luta</h2>
+      <p class="lead">Vão substituir você por um robô. Não é ficção: a inteligência artificial já escreve, traduz, desenha,
+         atende clientes e programa. A cada mês, faz mais coisas, e mais barato.</p>
+      <p>A pergunta que importa não é se isso vai acontecer. É <b>quem vai ser dono dos robôs</b>. Hoje, a resposta é meia
+         dúzia de empresas gigantes, as Big Techs. Elas têm os data centers, os modelos e as regras. Se ficar assim, o valor
+         do trabalho que os robôs fazem, o nosso trabalho, vai todo para elas.</p>
+      <p>O Sigma é a nossa resposta: uma rede onde os robôs rodam nos computadores das pessoas. O seu, o meu, o do vizinho.
+         Quem empresta a máquina recebe por isso. As regras estão no código, abertas, valem igual para todo mundo e quem
+         participa vota para mudá-las. Ainda
+         não chegamos lá por inteiro: hoje um servidor do projeto assina os blocos e entrega os sites. Dividir esse poder é
+         a próxima etapa da luta.</p>
+      <div class="callout"><b>Este projeto depende de gente.</b> Não tem investidor nem data center por trás do Sigma: a rede é
+         exatamente do tamanho das pessoas que participam. <a href="/#ajude">Veja como ajudar.</a></div>
+    </section>
+
+    <section id="passos">
+      <h2><span class="n">02</span> Em 3 passos</h2>
+      <ol class="steps">
+        <li><b>Baixe o Sigma.</b> Um programa só, na página <a href="/baixar">Baixar</a>. No Windows, dois cliques. No Linux e
+            no macOS, um comando (com Python 3.11 ou mais novo).</li>
+        <li><b>Informe sua carteira.</b> Crie uma carteira nova, use a chave de uma carteira só para o Sigma ou cole só o seu
+            endereço.</li>
+        <li><b>Pronto.</b> Seu computador já está minerando. Pode minimizar e esquecer: o Sigma trabalha sozinho.</li>
+      </ol>
+      <p>Você não precisa baixar modelo de IA, instalar motor de IA nem configurar nada. A própria rede decide o que cada
+         computador hospeda, e o app cuida do resto.</p>
+      <div class="next"><a class="btn primary" href="/baixar">Baixar o Sigma <span class="arrow" aria-hidden="true">→</span></a></div>
+    </section>
+
+    <section id="emissao">
+      <h2><span class="n">03</span> Como o SIG nasce</h2>
+      <p>O SIG é a moeda da rede. Ele só nasce de um jeito: <b>minerando</b>. A rede começou com todos os saldos zerados, sem
+         reserva para os criadores, sem venda antecipada e sem SIG de boas-vindas.</p>
+      <h3>A regra</h3>
+      <p>A cada <b>12 horas</b>, a rede imprime <b>0,01% do que ainda falta</b> para chegar a 100 milhões de SIG. Não existe
+         hora marcada para a distribuição: o SIG sai aos poucos, <b>um pouco em cada bloco</b>, na medida do tempo que passou
+         desde o bloco anterior. Saiam muitos blocos ou poucos, a soma em 12 horas é a mesma.</p>
+      <p>Cada pedacinho é dividido entre quem minerou na <b>última janela de 5 minutos já fechada</b>, na proporção do
+         trabalho de cada um. Por isso o pagamento anda uns 10 minutos atrás do trabalho: quem liga o computador começa a
+         receber em uns 10 minutos, e quem desliga ainda recebe pelas últimas janelas.</p>
+      <h3>Como o seu computador mostra que trabalhou</h3>
+      <p>Minerar é fazer contas difíceis de achar e fáceis de conferir: a prova de trabalho. A cada 5 minutos (uma
+         <b>janela</b>), o seu computador manda para a rede as melhores contas que achou. Cada uma vale <b>pontos</b>: em
+         média, um ponto por conta feita. O seu endereço entra em cada conta, por isso ninguém consegue roubar o trabalho do
+         seu computador.</p>
+      <p>Cada computador minera com a sua própria identidade. Por isso, vários computadores podem minerar para a mesma
+         carteira: cada um conta separado, e os pontos de todos somam.</p>
+      <h3>Um exemplo com números</h3>
+      <p>Imagine o começo da rede. Faltam 100.000.000 SIG, então nas primeiras 12 horas saem 0,01% disso: <b>10.000 SIG</b>,
+         uns <b>833 SIG por hora</b>. Três pessoas mineram o tempo todo, e o trabalho delas se divide assim:</p>
+      <div class="table-wrap eg"><table>
+        <tr><th>Quem</th><th>Computador</th><th class="num">Fatia dos pontos</th><th class="num">Por hora</th><th class="num">Em 12 horas</th></tr>
+        <tr><td>Ana</td><td>notebook</td><td class="num">10%</td><td class="num">83,33 SIG</td><td class="num">1.000 SIG</td></tr>
+        <tr><td>Beto</td><td>PC de jogos</td><td class="num">30%</td><td class="num">250 SIG</td><td class="num">3.000 SIG</td></tr>
+        <tr><td>Carla</td><td>servidor</td><td class="num">60%</td><td class="num">500 SIG</td><td class="num">6.000 SIG</td></tr>
+        <tr class="total"><td>Total</td><td></td><td class="num">100%</td><td class="num">833,33 SIG</td><td class="num">10.000 SIG</td></tr>
+      </table></div>
+      <p>Nas 12 horas seguintes faltam 99.990.000, e saem 0,01% disso: 9.999 SIG. Depois, 9.998. Sempre um pouco menos,
+         porque a conta é sobre o que falta. Se mais gente minerar, a fatia de cada um diminui; se menos gente minerar,
+         aumenta. O total que sai não muda.</p>
+      <h3>O que isso dá ao longo do tempo</h3>
+      <div class="timeline">
+        <div><span>1 ano</span><b>7 mi</b><small>impressos, cerca de 7%</small></div>
+        <div><span>9,5 anos</span><b>50 mi</b><small>metade de tudo</small></div>
+        <div><span>20 anos</span><b>76,8 mi</b><small>a cada 12 horas saem uns 2.300</small></div>
+        <div><span>Sempre</span><b>Circula</b><small>de quem usa para quem hospeda</small></div>
+      </div>
+      <div class="callout">Tempo sem ninguém minerando não imprime nada: o que não saiu continua esperando quem minerar
+         depois. Na <a href="/">página inicial</a> você acompanha ao vivo quanto SIG está saindo por hora, quanto já foi
+         impresso e o poder da rede. A taxa de 0,01% é a regra de hoje: a rede pode votar para mudá-la, de 0 a 0,5%
+         (<a href="#votacoes">veja as votações</a>). O teto de 100 milhões não se vota.</div>
+      <div class="callout warn"><b>O SIG não é investimento e não tem preço de mercado.</b> Ninguém aqui promete que ele vai
+         valer mais amanhã. Ele serve para pagar e receber dentro da rede: IA, sites e computação.</div>
+    </section>
+
+    <section id="app">
+      <span id="provedor"></span>
+      <h2><span class="n">04</span> O que o app faz sozinho</h2>
+      <p>Depois que você informa a carteira, o Sigma faz tudo sem perguntar:</p>
+      <ul class="ticks">
+        <li><b>Registra o seu computador na rede.</b> Ele cria uma chave só da máquina, que você nunca precisa ver, e conta para
+            a rede quanto processador, memória e disco ela oferece. O que ela ganha vai sempre para a sua carteira.</li>
+        <li><b>Minera.</b> Usa o processador com prioridade baixa e manda um relatório por janela de 5 minutos. No notebook,
+            pausa quando sai da tomada e volta sozinho quando você liga o carregador.</li>
+        <li><b>Avisa que está ligado.</b> Um sinal por janela. Se o computador ficar uns 15 minutos sem sinal, a rede passa o que
+            ele hospedava para outras máquinas.</li>
+        <li><b>Recebe modelos de IA.</b> A rede atribui modelos ao seu computador conforme a memória e o disco que você
+            liberou (por padrão, até 40% da memória e 20 GB de disco). Cada modelo tem de 0,5 a 5 GB. O app baixa o arquivo
+            (e continua de onde parou se a internet cair), confere o SHA-256 e o formato, carrega e avisa a rede que está
+            pronto. O arquivo fica guardado enquanto o modelo existir na rede, então normalmente é baixado uma vez só; quando
+            o modelo sai da rede, o app apaga. Internet limitada, como 4G? Desligue “IA para a rede” no painel.</li>
+        <li><b>Prepara o motor de IA.</b> Se você já usa o Ollama, ele aproveita. Senão, quando a rede colocar o primeiro
+            modelo aqui, baixa o llama.cpp oficial, confere o SHA-256, roda com prioridade baixa e usa a placa de vídeo
+            quando dá.</li>
+        <li><b>Hospeda sites.</b> Guarda cópias dos sites da rede enquanto couber no espaço que você liberou.</li>
+        <li><b>Atende pedidos.</b> Responde pedidos de IA para os modelos que hospeda, pausando a mineração enquanto isso, e faz
+            cálculos para a rede, se você deixar. Não grava as perguntas nem as respostas.</li>
+        <li><b>Recebe.</b> Cada aluguel de site, cada aluguel de modelo e cada pedido atendido paga a sua carteira.</li>
+        <li><b>Mostra as votações.</b> Na aba Votações, você vê o que a rede está decidindo. Votar é sempre escolha sua: o
+            app nunca trava SIG num voto sem você mandar.</li>
+      </ul>
+      <h3>Você no controle</h3>
+      <p>No painel do Sigma, você escolhe quanto de processador ceder para a mineração, se quer IA no seu computador, quanta
+         memória ela pode usar e quanto disco a rede pode ocupar. Em Configurações, também decide se o Sigma abre junto com
+         o computador (“Iniciar o Sigma junto com o computador”, no Windows) e se minera na bateria (“Minerar também na
+         bateria”). Dá para mudar tudo a qualquer hora, e para desligar é só clicar em <b>Desligar</b>.</p>
+      <h3>Trapaça não compensa</h3>
+      <p>Nos cálculos, a mesma tarefa vai para várias máquinas. Quem entrega um resultado diferente da maioria não recebe e
+         perde reputação. Na IA, a máquina escolhida que não responde a tempo leva uma falta: com três faltas, ela perde o
+         modelo, e o pedido vai para outra máquina sem você pagar nada.</p>
+    </section>
+
+    <section id="ia">
+      <h2><span class="n">05</span> Usar a IA da rede</h2>
+      <p>A IA do Sigma roda nos computadores da rede, com modelos abertos. Você paga em SIG, só pelo que usar.</p>
+      <ol class="steps">
+        <li>Abra a aba <b>IA</b> no painel do Sigma.</li>
+        <li>Escolha um dos modelos que estão no ar e escreva.</li>
+        <li>O app sorteia uma das máquinas que têm o modelo, cifra a sua pergunta para ela e espera a resposta. Você paga
+            pelos tokens usados na pergunta e na resposta. Se ninguém responder a tempo, o app tenta outra máquina, e o
+            valor reservado volta para a sua carteira.</li>
+      </ol>
+      <p>Preço padrão de hoje: <b>0,002 SIG a cada mil tokens</b> (mil tokens são umas 600 a 700 palavras em português). Uma
+         conversa curta custa milésimos de SIG. Quem pergunta paga, e o pagamento vai <b>100% para a máquina que
+         respondeu</b>, menos o royalty que o padrinho do modelo escolheu (de 0 a 50%), que vai para ele. A rede não cobra
+         taxa e não queima nada.</p>
+      <div class="callout warn"><b>Sua pergunta vai cifrada, mas alguém precisa ler.</b> Cada pergunta é sorteada para uma
+         das máquinas que têm o modelo e vai cifrada para a chave dela, com a conversa inteira junto; ela abre, lê para
+         responder, como em qualquer serviço de IA, e a resposta volta cifrada para a sua chave. Como o sorteio se repete a
+         cada pergunta, numa conversa longa várias máquinas de pessoas diferentes leem tudo o que você já escreveu. O
+         servidor e o resto da rede veem só bytes embaralhados. Continua público: que você fez um pedido, de qual carteira,
+         para qual modelo e máquina, quantos tokens, quanto custou e quando. O app oficial não guarda o que lê, mas quem
+         controla a máquina pode mudar o programa e guardar. Não mande senha, documento nem segredo.</div>
+
+      <h3 id="sigma-code">Sigma Code: programar com a IA da rede</h3>
+      <p>O Sigma Code é um agente de programação aberto que pensa com os modelos da rede. Ele fica na aba
+         <b>Programar</b> do painel, usa a sua carteira do app e não precisa de terminal.</p>
+      <ol class="steps">
+        <li>Escolha a pasta do projeto, uma pasta só dele (o painel recusa a Área de Trabalho, os Downloads e os
+            Documentos inteiros). O Sigma Code só mexe dentro dela.</li>
+        <li>Escolha o modelo (o painel sugere um de código) e escreva a tarefa.</li>
+        <li>Acompanhe a conversa ao vivo. Antes de rodar qualquer comando, o painel pergunta: “Executar este comando no seu
+            computador?”. Só aceite se você entende o que ele faz. Cada mudança em arquivo também espera você clicar em
+            <b>Aplicar</b>, a não ser que você marque “Aprovar alterações de arquivos sem perguntar” (essa caixa começa
+            desmarcada em toda tarefa nova; comandos sempre pedem aprovação).</li>
+      </ol>
+      <div class="callout warn"><b>Quem responde é o computador de outra pessoa.</b> Cada passo do Sigma Code é sorteado
+         para uma máquina e leva tudo o que o agente já leu da pasta: ao longo de uma tarefa, várias máquinas de outras
+         pessoas acabam vendo os seus arquivos. Arquivos de senha e chaves (<code>.env</code>,
+         <code>.key</code>, <code>.ssh</code> e parecidos) ficam de fora, mas não use em pastas com documentos pessoais.
+         Cada passo é pago em SIG.</div>
+      <p class="muted">Para quem prefere o terminal: <code>python -m sigma.cli ask "sua pergunta"</code> e
+         <code>python -m sigma.sigmacode</code>. Na linha de comando, <code>--yes-files</code> libera gravar e editar
+         arquivos sem perguntar e <code>--yes</code> libera os comandos: use só em pastas de teste.</p>
+    </section>
+
+    <section id="sites">
+      <h2><span class="n">06</span> Publicar um site</h2>
+      <p>Um site na rede Sigma fica guardado em vários computadores, e cada um recebe aluguel por isso. Por enquanto, quem
+         visita recebe os arquivos pelo servidor da rede.</p>
+      <ol class="steps">
+        <li>No painel do Sigma, abra a aba <b>Sites</b>. Ou, aqui no site: <a href="/carteira">Carteira</a> → Meus sites.</li>
+        <li>Escolha a pasta do site, com um <code>index.html</code> (até 500 arquivos, cada um com até 20 MB).</li>
+        <li>Dê um nome (de 3 a 32 caracteres: letras minúsculas sem acento, números ou hífen), um orçamento em SIG (pelo
+            menos 0,01 SIG para um site novo) e em quantas máquinas ele deve ter cópia (de 1 a 5).</li>
+        <li>Em segundos, o site está em <code><span class="origin"></span>/site/seu-nome/</code>.</li>
+      </ol>
+      <div class="callout"><b>Sites da rede rodam isolados: não podem usar cookies nem localStorage.</b> É o que protege a
+         carteira e o fórum de quem visita. Páginas, imagens, formulários e JavaScript funcionam normalmente.</div>
+      <div class="callout warn"><b>Páginas em /site/ não são do Sigma.</b> Endereços com /site/ são sites publicados por
+         qualquer pessoa da rede, não pelo projeto. O Sigma oficial só se baixa no endereço oficial,
+         <span class="official">sigma.195-35-29-232.sslip.io</span>/baixar. Nenhuma página em /site/ é do Sigma, e nenhuma
+         delas vai pedir a sua chave.</div>
+      <h3>Quanto custa</h3>
+      <p>Cada máquina que guarda o site recebe um aluguel a cada 5 minutos, tirado do orçamento. O preço é da rede, igual para
+         todas as máquinas, e segue o espaço que o site ocupa e a procura: <b>5 µSIG por MB a cada 5 minutos</b>, vezes a
+         demanda da rede, que vai de 1x (rede vazia) até 4x (rede cheia). Um site de 2 MB em 2 máquinas custa cerca de
+         <b>0,006 SIG por dia</b> com a rede vazia (1 SIG mantém o site no ar por quase 6 meses) e até 0,023 SIG por dia com
+         a rede cheia (1 SIG dura uns 43 dias). Esse aluguel vai inteiro para as máquinas: a rede não fica com nada.</p>
+      <p>Ao entregar o site, a rede confere a impressão digital (hash) de cada arquivo: nenhuma máquina consegue trocar o
+         conteúdo. Quando o orçamento acaba, o site sai do ar. Recarregue em até 7 dias para ele voltar com o mesmo nome:
+         depois disso a rede apaga o site, devolve o que sobrou do orçamento e o nome fica livre para qualquer pessoa usar.</p>
+    </section>
+
+    <section id="padrinho">
+      <h2><span class="n">07</span> Apadrinhar um modelo</h2>
+      <p>Qualquer pessoa pode trazer um modelo de IA aberto para a rede e virar o <b>padrinho</b> dele. O padrinho paga a
+         hospedagem e, em troca, recebe uma parte de cada uso.</p>
+      <h3>Como apadrinhar</h3>
+      <ol class="steps">
+        <li>No painel do Sigma, abra a aba <b>Modelos</b>.</li>
+        <li>Escolha um modelo do catálogo (Qwen, SmolLM2, DeepSeek R1 Distill, Phi-3.5, Mistral 7B e outros, todos com
+            licença que permite uso comercial) ou cole o link de um arquivo GGUF do Hugging Face.</li>
+        <li>Defina o orçamento, o royalty (até 50%), quanto do royalty reinvestir na hospedagem e em quantas máquinas o modelo
+            deve ter cópia (de 1 a 5).</li>
+      </ol>
+      <h3>A rede decide onde o modelo fica</h3>
+      <p>Você não escolhe computador, e ninguém escolhe à mão. A cada 5 minutos, a rede sorteia, de um jeito que qualquer um
+         pode conferir, quais máquinas com memória e disco livres vão receber o modelo. O app dessas pessoas baixa o
+         arquivo, confere o SHA-256 e o formato e começa a responder. Se uma máquina não ficar pronta no prazo (meia hora ou
+         mais, conforme o tamanho do arquivo), a vez passa para outra.</p>
+      <p>Se ninguém conseguir carregar o modelo, porque o arquivo não confere com o que você registrou ou não é um modelo
+         válido, depois de três tentativas a rede apaga o modelo e devolve o orçamento para você.</p>
+      <h3>Quanto custa e quanto volta</h3>
+      <p>Cada máquina que hospeda o modelo recebe um aluguel a cada 5 minutos, tirado do orçamento. O aluguel segue o que o
+         modelo usa: o <b>disco</b> que o arquivo ocupa (5 µSIG por MB a cada 5 minutos) e a <b>memória</b> que ele deixa
+         reservada no computador de alguém (2 µSIG por MB a cada 5 minutos). Os dois são multiplicados pela demanda da
+         rede: 1x com a rede vazia, até 4x com ela cheia. Assim, quando falta memória, quem empresta a sua ganha mais.</p>
+      <p>Um modelo de 1,1 GB (que reserva uns 1,8 GB de memória) em 2 máquinas custa cerca de <b>5,3 SIG por dia</b> com a
+         rede vazia: 100 SIG mantêm o modelo por uns 19 dias. Com a rede cheia, até 21 SIG por dia. O painel e a
+         <a href="/carteira">Carteira</a> mostram o preço de agora.</p>
+      <p>Cada pergunta ao modelo é paga por quem pergunta, por token, para a máquina que respondeu. O royalty que você
+         escolheu sai desse pagamento e vai para você; o resto fica com a máquina. Se você reinvestir uma parte do royalty,
+         ela volta direto para o orçamento: um modelo muito usado pode se pagar sozinho.</p>
+      <p>Se o orçamento acabar, o modelo é apagado da rede e os pedidos pendentes são devolvidos. Um modelo que passa uma
+         semana sem nenhuma máquina também é apagado, e o que sobrou volta para você. Você pode recarregar, mudar o royalty,
+         passar o apadrinhamento para outra carteira ou apagar o modelo (o que sobrou do orçamento volta para você), pelo
+         painel ou em <a href="/carteira">Carteira</a> → Meus modelos.</p>
+      <div class="callout warn">Só apadrinhe modelos cuja licença permita redistribuir e usar comercialmente, como Apache-2.0 ou
+         MIT: as máquinas da rede copiam o arquivo, e as pessoas pagam para usar. O app recusa licenças de uso não comercial,
+         só para pesquisa ou não declaradas, mas quem apadrinha responde pela licença do modelo que trouxe.</div>
+    </section>
+
+    <section id="carteira">
+      <h2><span class="n">08</span> Carteira e MetaMask</h2>
+      <p>Sua carteira é um par de chaves. A <b>chave privada</b> é o segredo que assina os pagamentos: fica só com você. O
+         <b>endereço</b> é público: é para onde os SIG vão.</p>
+      <p>O Sigma usa a mesma criptografia do Ethereum. Por isso o mesmo endereço aparece de dois jeitos:
+         <code>sig7e5f…5bdf</code> no Sigma e <code>0x7e5f…5bdf</code> na MetaMask. É a mesma conta, e a mesma chave
+         controla essa conta em qualquer rede compatível com o Ethereum. Por isso a regra de ouro: <b>use uma carteira só
+         para o Sigma</b>.</p>
+      <h3>Três jeitos de usar no app</h3>
+      <ul class="ticks">
+        <li><b>Criar uma carteira nova.</b> O jeito mais simples. O app mostra a chave privada uma vez. Anote e guarde.
+            Quer ver os SIG na MetaMask? Importe essa chave nela (Importar conta → Chave privada).</li>
+        <li><b>Usar minha chave.</b> Cole a chave privada de uma carteira que você usa só para o Sigma. Não use a chave da conta
+            onde você guarda outras criptomoedas: ela fica salva no computador. Se quiser uma conta da MetaMask só para o
+            Sigma, crie uma nova lá (Adicionar conta) e use a chave dela.</li>
+        <li><b>Só colar um endereço.</b> O app minera e hospeda para ele sem guardar chave nenhuma. Mas do app você não vai
+            poder usar a IA, publicar sites nem apadrinhar modelos: para gastar, use a MetaMask aqui no site.</li>
+      </ul>
+      <p>Mudou de ideia? No painel, em Carteira, o cartão “Carteira que recebe” tem “Importar a chave desta carteira” e
+         “Trocar carteira”.</p>
+      <h3>Aqui no site</h3>
+      <p>Na <a href="/carteira">Carteira</a>, entre com a MetaMask (a rede Sigma é adicionada nela com um clique) ou com uma
+         carteira guardada neste navegador, protegida por senha. Lá você vê o saldo, envia SIG, acompanha a mineração e cuida
+         dos seus sites e modelos.</p>
+      <p>Uma carteira criada aqui no site fica só neste navegador. O site mostra a chave uma vez e pede para você guardar:
+         se você limpar os dados de navegação, usar uma janela anônima ou trocar de computador, a carteira daqui some, e só a
+         chave anotada traz os SIG de volta.</p>
+      <h3>Adicionar a rede na MetaMask à mão</h3>
+      <div class="table-wrap"><table>
+        <tr><td>Nome da rede</td><td>Sigma</td></tr>
+        <tr><td>URL do RPC</td><td><code class="origin-rpc"></code></td></tr>
+        <tr><td>Chain ID</td><td><code id="chain-id">51515</code></td></tr>
+        <tr><td>Símbolo</td><td>SIG</td></tr>
+      </table></div>
+      <p class="muted">A MetaMask pode mostrar uma “taxa de gás”, mas o Sigma não cobra gás nem taxa: mandar SIG é de graça.</p>
+      <div class="callout warn"><b>Quem tem a chave privada controla os SIG.</b> O app só pede a chave na tela dele, no seu
+         computador, e só se você escolher “Usar minha chave”. Ninguém do Sigma vai pedir a sua chave, nem no fórum, nem por
+         mensagem: quem pedir está tentando roubar você. Faça um backup e guarde em lugar seguro. Não existe “esqueci a
+         senha” numa rede em que só você tem a chave.</div>
+    </section>
+
+    <section id="forum">
+      <h2><span class="n">09</span> O fórum</h2>
+      <p>O <a href="/forum">Fórum</a> é onde a rede conversa: dúvidas, ideias, críticas e decisões. Para entrar, clique em
+         <b>Entrar com a carteira</b> e assine uma mensagem. Assinar é de graça, não mexe nos seus SIG e não manda senha para
+         ninguém: só prova que o endereço é seu.</p>
+      <p>Os selos ao lado do nome mostram quem cede o computador para a rede (PC na rede) e quem apadrinha modelos (padrinho).</p>
+      <p>É no fórum que as ideias amadurecem antes de virar votação: proponha lá primeiro, ouça as críticas e só depois
+         abra a votação.</p>
+    </section>
+
+    <section id="votacoes">
+      <h2><span class="n">10</span> Votações: a rede decide</h2>
+      <p class="lead">As regras do Sigma não são decididas numa sala fechada. A rede vota, e o resultado vira regra sozinho,
+         no código, sem ninguém precisar apertar botão.</p>
+      <h3>Como funciona</h3>
+      <ul class="ticks">
+        <li><b>Qualquer pessoa propõe.</b> Basta deixar um depósito de <span data-gov="deposit">10 SIG</span>, que volta
+            inteiro no fim, aprovada ou não. O depósito existe para ninguém encher a rede de propostas. Ficam abertas no
+            máximo 20 votações ao mesmo tempo.</li>
+        <li><b>Cada votação dura 10 dias.</b> Dá tempo de ler, discutir no fórum e decidir.</li>
+        <li><b>1 SIG = 1 voto.</b> Você escolhe sim ou não e quantos SIG quer usar. Esses SIG ficam travados até o fim da
+            votação e depois voltam inteiros para a sua carteira. Por isso o mesmo SIG não vota duas vezes, nem passando
+            para outra carteira. Cada carteira vota uma vez em cada votação.</li>
+        <li><b>Quando passa.</b> A proposta é aprovada se tiver mais “sim” que “não” e se pelo menos
+            <span data-gov="quorum">1%</span> de todo o SIG que existe tiver votado. Sem esse mínimo, não vale.</li>
+        <li><b>O que acontece depois.</b> Proposta que muda uma regra (um número da rede) muda na hora em que a votação
+            termina. Proposta de texto registra a decisão da rede, como uma prioridade ou um compromisso, sem mexer no
+            código.</li>
+      </ul>
+      <h3>O que pode ser votado</h3>
+      <div class="table-wrap"><table>
+        <tr><th>Regra</th><th>Hoje</th><th>Pode ir de</th></tr>
+        <tr><td>Emissão: quanto do que falta sai a cada 12 horas</td><td data-param="mint_bps">0,01%</td><td>0 a 0,5%</td></tr>
+        <tr><td>Aluguel de disco (sites e modelos), por MB a cada 5 minutos</td><td data-param="hosting_per_mb_window">5&nbsp;µSIG</td><td>1 a 100 µSIG</td></tr>
+        <tr><td>Aluguel de memória (modelos), por MB a cada 5 minutos</td><td data-param="ram_per_mb_window">2&nbsp;µSIG</td><td>0 a 100 µSIG</td></tr>
+        <tr><td>Quanto a demanda pode subir o aluguel</td><td data-param="demand_max_bps">até&nbsp;4x</td><td>1x (nunca sobe) a 11x</td></tr>
+        <tr><td>Dificuldade mínima da mineração</td><td data-param="min_share_bits">12</td><td>8 a 32</td></tr>
+        <tr><td>Depósito para abrir uma votação</td><td data-param="proposal_deposit">10&nbsp;SIG</td><td>1 a 10.000 SIG</td></tr>
+        <tr><td>Mínimo de votos para valer (quórum)</td><td data-param="quorum_bps">1%</td><td>0 a 50% do SIG que existe</td></tr>
+      </table></div>
+      <p><b>O que não se vota:</b> o teto de 100 milhões de SIG e o tempo da rede (janelas de 5 minutos e períodos de 12
+         horas). E nenhuma votação mexe no saldo de ninguém.</p>
+      <h3>Como votar</h3>
+      <ol class="steps">
+        <li>Abra a aba <b>Votações</b> no painel do Sigma. Lá estão as votações abertas, os totais de sim e não e o tempo que falta.</li>
+        <li>Escolha <b>sim</b> ou <b>não</b> e quantos SIG quer travar no voto.</li>
+        <li>Confirme. Os SIG voltam para a sua carteira quando a votação terminar. Para propor uma votação, é na mesma aba.</li>
+      </ol>
+      <p class="muted">Pelo terminal: <code>python -m sigma.cli governance</code> lista as votações,
+         <code>python -m sigma.cli propose "título" --text "explicação"</code> abre uma de texto (com
+         <code>--param mint_bps --value 2</code>, uma que muda a regra) e
+         <code>python -m sigma.cli vote ID sim 100</code> vota com 100 SIG. Aqui no site, a
+         <a href="/carteira">Carteira</a> mostra as votações, só para acompanhar.</p>
+      <div class="callout warn"><b>O risco, sem esconder: quem tem mais SIG tem mais votos.</b> Uma carteira grande pesa
+         mais que muitas pequenas. É o preço de não ter cadastro: a rede não sabe quem é pessoa, só quanto SIG cada carteira
+         trava. O que segura isso: todo SIG nasce do trabalho, ninguém recebeu SIG de graça (nem nós), o voto trava o SIG
+         até o fim, as votações são públicas e o debate começa no fórum. E enquanto um servidor do projeto ainda assina os
+         blocos, o resultado depende dele seguir o código. Dividir esse poder é a próxima etapa.</div>
+    </section>
+
+    <section id="limites">
+      <h2><span class="n">11</span> O que ainda estamos construindo</h2>
+      <p>A rede funciona, mas está no começo. Prometemos transparência, então aqui está o que ainda é simples demais. Cada
+         item é uma frente aberta: se você programa, pesquisa ou testa, venha para a categoria
+         <a href="/forum?c=desenvolvimento">Desenvolvimento</a> do fórum.</p>
+      <ul class="ticks">
+        <li><b>Um validador só.</b> Hoje um único servidor, mantido pelo projeto, assina os blocos. Na prática, ele pode
+            atrasar ou recusar transações e, numa troca de versão, reiniciar a rede do zero. As votações rodam no código,
+            mas também dependem dele. O próximo passo é ter vários validadores, para a rede não depender de ninguém, nem
+            de nós.</li>
+        <li><b>Sites passam pelo servidor da rede.</b> As máquinas guardam cópias e recebem aluguel, mas quem visita um site
+            ainda recebe os arquivos pelo servidor do projeto. Se ele cair, os sites saem do ar até ele voltar. Falta a entrega
+            direta pelas máquinas.</li>
+        <li><b>Privacidade da IA.</b> Pergunta e resposta vão cifradas entre você e a máquina que responde, mas essa máquina lê
+            o pedido. E quem pediu, quando, para qual modelo e por quanto fica público na rede. Falta esconder esses dados e
+            diminuir o quanto cada máquina consegue ver.</li>
+        <li><b>Hospedagem de mentira.</b> A máquina diz quanto disco e memória tem, e a rede acredita. Para modelos, quem não
+            responde aos pedidos perde o modelo e o aluguel. Mas, enquanto ninguém pede nada, e no caso dos sites, uma
+            máquina pode dizer que guarda um arquivo e receber aluguel sem guardar. Falta a prova de armazenamento: desafios
+            que só quem guarda o arquivo de verdade consegue responder.</li>
+        <li><b>Contagem de tokens.</b> A máquina informa quantos tokens usou. Falta auditoria por amostragem para pegar quem
+            cobrar a mais.</li>
+        <li><b>Computação livre.</b> Só tarefas prontas rodam. Código qualquer vai exigir um ambiente isolado, como WebAssembly.</li>
+        <li><b>Limite por conexão.</b> Contra abuso, a rede aceita no máximo 256 relatórios de mineração por janela de 5
+            minutos vindos da mesma conexão de internet. Cada computador manda um relatório por janela, então sobra folga
+            para uma casa, uma escola ou um coletivo. Mas muitas operadoras no Brasil (as de celular e várias de fibra)
+            colocam vários clientes atrás do mesmo endereço (CGNAT), e aí os vizinhos dividem esse limite. Computador cujo
+            relatório é recusado gasta energia sem ganhar pontos.</li>
+        <li><b>Endereço provisório.</b> O Sigma ainda não tem domínio próprio: o endereço oficial é
+            <code>sigma.195-35-29-232.sslip.io</code>. Desconfie de endereços parecidos.</li>
+        <li><b>App sem assinatura digital.</b> Por isso o Windows e o antivírus avisam. <a href="/baixar#aviso">Veja como conferir o arquivo.</a></li>
+        <li><b>Valor do SIG.</b> O SIG é a moeda interna da rede: paga quem usa e remunera quem contribui. Não tem preço de
+            mercado e não é investimento. Qualquer negociação pública do token exige avaliação jurídica antes.</li>
+      </ul>
+    </section>
+
+    <section id="glossario">
+      <h2><span class="n">12</span> Glossário</h2>
+      <dl class="gloss">
+        <dt>Aluguel</dt><dd>SIG que um site ou modelo paga, a cada janela, para cada máquina que o guarda: pelo disco que ocupa e, nos modelos, pela memória que reserva. Sobe com a demanda.</dd>
+        <dt>Bloco</dt><dd>Pacote de transações confirmadas, ligado ao anterior. Sai um novo a cada poucos segundos, quando há transações.</dd>
+        <dt>Carteira</dt><dd>Seu par de chaves: o endereço, que recebe, e a chave privada, que assina.</dd>
+        <dt>CGNAT</dt><dd>Quando a operadora coloca vários clientes atrás do mesmo endereço de internet. Comum no celular e em muitas fibras.</dd>
+        <dt>Chave privada</dt><dd>O segredo que controla a carteira. Quem tem, manda nos SIG.</dd>
+        <dt>Cifrado</dt><dd>Embaralhado com uma chave: só quem tem a chave certa consegue ler.</dd>
+        <dt>Cópia</dt><dd>Um site ou modelo guardado em mais uma máquina, para não depender de uma só.</dd>
+        <dt>Demanda</dt><dd>Quanto do disco e da memória das máquinas online já está pedido. Multiplica o aluguel: 1x com a rede vazia, até 4x cheia.</dd>
+        <dt>Depósito</dt><dd>SIG que quem abre uma votação deixa travado (hoje, 10 SIG). Volta inteiro no fim.</dd>
+        <dt>Emissão</dt><dd>SIG novo, que sai um pouco em cada bloco: hoje, 0,01% do que falta dos 100 milhões a cada 12 horas.</dd>
+        <dt>Época</dt><dd>Período de 12 horas. É a referência da taxa de emissão e a forma como a carteira soma os seus ganhos.</dd>
+        <dt>GGUF</dt><dd>Formato de arquivo dos modelos de IA abertos que a rede hospeda.</dd>
+        <dt>H/s</dt><dd>Contas por segundo: a força de mineração de um computador ou da rede inteira.</dd>
+        <dt>Hash, SHA-256</dt><dd>Impressão digital de um arquivo: muda inteira se um único byte mudar.</dd>
+        <dt>Janela</dt><dd>Período de 5 minutos. Cada máquina manda um relatório de mineração e um sinal de vida por janela.</dd>
+        <dt>Máquina</dt><dd>Um computador rodando o Sigma. Tem uma chave própria, mas os ganhos vão para a sua carteira.</dd>
+        <dt>MetaMask</dt><dd>Carteira de navegador muito usada. Funciona com o Sigma usando o mesmo endereço.</dd>
+        <dt>Minerar</dt><dd>Fazer contas de prova de trabalho para ganhar pontos e receber SIG novo.</dd>
+        <dt>Orçamento</dt><dd>SIG que você deposita para pagar o aluguel de um site ou modelo ao longo do tempo.</dd>
+        <dt>Padrinho</dt><dd>Quem financia um modelo de IA na rede e recebe royalty por ele.</dd>
+        <dt>Pontos</dt><dd>A medida do seu trabalho em cada janela. Em média, um ponto por conta feita.</dd>
+        <dt>Prova de trabalho</dt><dd>Conta difícil de achar e fácil de conferir: mostra que o computador trabalhou.</dd>
+        <dt>Quórum</dt><dd>O mínimo de votos para uma votação valer: hoje, 1% de todo o SIG que existe.</dd>
+        <dt>Royalty</dt><dd>Parte de cada pagamento a um modelo que vai para o padrinho (até 50%).</dd>
+        <dt>SIG e µSIG</dt><dd>A moeda da rede. Um SIG se divide em um milhão de µSIG, para cobrar coisas bem pequenas.</dd>
+        <dt>Sigma Code</dt><dd>Agente de programação que usa a IA da rede. Fica na aba Programar do painel.</dd>
+        <dt>Token (de IA)</dt><dd>Pedaço de texto que um modelo lê ou escreve. É a unidade de cobrança da IA.</dd>
+        <dt>Validador</dt><dd>Quem assina os blocos da rede. Hoje é um só: um servidor do projeto.</dd>
+        <dt>Votação</dt><dd>Proposta que a rede decide em 10 dias, com 1 SIG = 1 voto. Aprovada, pode mudar uma regra na hora.</dd>
+      </dl>
+    </section>
+
+    <section id="faq">
+      <h2><span class="n">13</span> Perguntas frequentes</h2>
+      <div class="faq">
+        <details><summary>O Sigma é de graça?</summary><div><p>É. Baixar e rodar não custa nada além da energia do seu computador. Quem usa a IA ou publica sites paga em SIG, e quem hospeda recebe.</p></div></details>
+        <details><summary>Preciso comprar SIG para começar?</summary><div><p>Não. Nós não vendemos SIG: você ganha minerando ou recebe de alguém.</p></div></details>
+        <details><summary>Por que não existe SIG de boas-vindas?</summary><div><p>Porque todo SIG tem que vir de trabalho. Se alguém ganhasse SIG de graça, estaria ficando com uma parte do trabalho dos outros.</p></div></details>
+        <details><summary>Quanto eu vou ganhar?</summary><div><p>Depende de quantos computadores estão minerando e da força do seu. A <a href="/">página inicial</a> mostra ao vivo quanto SIG sai por hora para toda a rede e o poder da rede: a sua parte é a fatia do seu trabalho nesse total. O SIG não é investimento e não tem preço de mercado.</p></div></details>
+        <details><summary>Meu computador vai ficar lento?</summary><div>
+          <p>A mineração usa prioridade baixa: quando você precisa do processador, ela dá a vez. Ao responder um pedido de
+            IA, o Sigma pausa a mineração.</p>
+          <p>A IA é diferente. Se a rede colocar um modelo aqui, ele fica carregado na memória (por padrão, até 40% da RAM).
+            Quando chega um pedido, ele usa o processador e a placa de vídeo para responder. O motor que o Sigma instala roda
+            com prioridade baixa, mas trabalha de verdade: enquanto responde, o computador pode ficar mais lento. Em
+            computador com pouca memória, diminua a “Memória para IA” ou desligue a IA no painel.</p></div></details>
+        <details><summary>Gasta muita energia?</summary><div>
+          <p>Gasta, e vale fazer a conta antes. Minerando com metade do processador, um PC de mesa costuma gastar algumas
+            dezenas de watts a mais; um notebook, menos.</p>
+          <p>A conta é: <b>watts a mais × horas ligado ÷ 1000 = kWh</b>. Exemplo: 40 W a mais, 24 horas por dia, 30 dias
+            = 28,8 kWh. A R$ 1 por kWh, uns R$ 29 no mês (confira o preço do kWh na sua conta de luz).</p>
+          <p>O SIG não tem preço de mercado: isso é uma contribuição para a causa, não um investimento. Para gastar menos,
+            baixe o uso do processador no painel ou pause a mineração. No notebook, o Sigma pausa a mineração quando sai da
+            tomada e volta sozinho quando você liga o carregador (dá para mudar nas Configurações).</p></div></details>
+        <details><summary>Preciso de placa de vídeo?</summary><div><p>Não. A mineração usa o processador. A placa de vídeo, se você tiver, ajuda a IA.</p></div></details>
+        <details><summary>Meu computador fica inseguro?</summary><div>
+          <p>Fora do Sigma Code, o app não roda código de ninguém: as tarefas de cálculo são só as que já vêm no app. No
+            Sigma Code, cada comando passa por você antes de rodar, e cada mudança em arquivo também, a não ser que você
+            mesmo libere.</p>
+          <p>Os modelos de IA são arquivos de dados, baixados do endereço que o padrinho registrou e conferidos pelo SHA-256 e
+            pelo formato antes de carregar. Isso garante que o arquivo é exatamente o registrado, não que ele seja bom. Quem
+            lê esses arquivos é o llama.cpp ou o Ollama, programas abertos de outras equipes. Se preferir não receber
+            modelos, desligue a IA no painel: você continua minerando.</p>
+          <p>O painel só abre no seu computador. E o código-fonte vem junto no <code>sigma.pyz</code>: qualquer pessoa pode ler.</p></div></details>
+        <details><summary>Posso usar a mesma carteira na MetaMask e no app?</summary><div><p>Pode, é o mesmo endereço. O jeito
+          mais seguro: crie a carteira no app e importe a chave dela na MetaMask. Se a conta da MetaMask guarda outras
+          criptomoedas, não cole a chave dela no app: use “Só colar um endereço”.</p></div></details>
+        <details><summary>Tenho vários computadores. Posso usar todos?</summary><div><p>Pode, todos com a mesma carteira. Cada
+          computador minera com a sua própria identidade, e os pontos de todos somam na mesma carteira. O único limite é de
+          256 relatórios por janela de 5 minutos para cada conexão de internet; com CGNAT, comum na internet de celular e em
+          muitas de fibra, vizinhos dividem esse limite. Se o painel avisar que os relatórios estão sendo recusados, desligue
+          “Minerar SIG” em alguns computadores.</p></div></details>
+        <details><summary>Como eu desligo o Sigma?</summary><div><p>Na janelinha de controle, clique em <b>Desligar</b>. O que você já ganhou fica na carteira, e o trabalho das últimas janelas de 5 minutos ainda é pago nos minutos seguintes.</p></div></details>
+        <details><summary>E se eu perder a chave privada?</summary><div><p>A carteira e os SIG nela ficam inacessíveis. Não existe “recuperar senha” numa rede em que só você tem a chave. Faça backup.</p></div></details>
+        <details><summary>A rede pode zerar os saldos?</summary><div><p>Pode, e preferimos dizer antes. Hoje um único servidor
+          do projeto assina os blocos, e numa troca de versão a rede pode ser reiniciada do zero, com todos os saldos.
+          Dividir esse poder entre muitos validadores é a próxima etapa. <a href="#limites">Veja o que falta.</a></p></div></details>
+        <details><summary>Por que meu site saiu do ar?</summary><div><p>Provavelmente o orçamento acabou. Recarregue na aba Sites
+          do painel ou em <a href="/carteira">Carteira</a> → Meus sites, em até 7 dias, para ele voltar com o mesmo nome;
+          depois disso a rede apaga o site, devolve o que sobrou do orçamento e o nome fica livre para qualquer pessoa usar.
+          Se todos os sites caíram juntos, é o servidor da rede que está fora do ar: por enquanto, é ele que entrega os
+          sites.</p></div></details>
+        <details><summary>Quem decide as regras?</summary><div><p>Quem participa, votando: 1 SIG = 1 voto, travado até o
+          fim e devolvido inteiro. Qualquer pessoa propõe. O risco é que quem tem mais SIG tem mais votos.
+          <a href="#votacoes">Veja como funciona.</a></p></div></details>
+        <details><summary>Quem fica com o que eu pago pela IA?</summary><div><p>A máquina que respondeu: 100% do que você
+          paga por token, menos o royalty que o padrinho do modelo escolheu (de 0 a 50%). A rede não cobra taxa e não queima
+          nada.</p></div></details>
+        <details><summary>Como posso ajudar?</summary><div><p>Deixe o Sigma rodando, apadrinhe um modelo, publique um site, chame mais gente e traga ideias para o <a href="/forum">fórum</a>. Tudo conta.</p></div></details>
+      </div>
+      <div class="next"><a class="btn primary" href="/baixar">Baixar o Sigma <span class="arrow" aria-hidden="true">→</span></a>
+        <a class="btn" href="/forum?c=ajuda">Perguntar no fórum</a></div>
+    </section>
+  </article>
+</div>
+
+<footer class="footer">
+  <span class="motto">Queremos que os donos dos robôs sejam <span>as pessoas</span>, não as Big Techs.</span>
+  <nav aria-label="Rodapé"><a href="/">Manifesto</a><a href="/baixar">Baixar</a><a href="/tutorial">Como funciona</a><a href="/forum">Fórum</a><a href="/carteira">Carteira</a></nav>
+  <p style="margin:14px 0 0">Σ Sigma · código-fonte disponível · feito por gente, para gente</p>
+</footer>
+
+<script>
+document.querySelectorAll(".origin").forEach((e) => e.textContent = location.origin);
+document.querySelectorAll(".origin-rpc").forEach((e) => e.textContent = location.origin + "/rpc");
+fetch("/status").then((r) => r.json()).then((s) => {
+  if (s && s.chain_id) document.getElementById("chain-id").textContent = s.chain_id;
+}).catch(() => {});
+// as regras votáveis com o valor de agora (uma votação pode ter mudado); sem resposta, ficam os valores de partida
+(() => {
+  const nf = (n, d = 0) => Number(n).toLocaleString("pt-BR", {maximumFractionDigits: d});
+  const ok = (v) => typeof v === "number" && isFinite(v);
+  const FMT = {
+    mint_bps: (v) => nf(v / 100, 2) + "%",
+    hosting_per_mb_window: (v) => nf(v) + "\u00a0µSIG",
+    ram_per_mb_window: (v) => nf(v) + "\u00a0µSIG",
+    demand_max_bps: (v) => v ? "até\u00a0" + nf(1 + v / 10000, 2) + "x" : "não sobe",
+    min_share_bits: (v) => nf(v),
+    proposal_deposit: (v) => nf(v / 1e6, 2) + "\u00a0SIG",
+    quorum_bps: (v) => nf(v / 100, 2) + "%",
+  };
+  fetch("/governance").then((r) => r.ok ? r.json() : null).then((g) => {
+    const now = g && g.governable;
+    if (!now || typeof now !== "object") return;
+    document.querySelectorAll("[data-param]").forEach((td) => {
+      const k = td.dataset.param, v = now[k] && now[k].now;
+      if (FMT[k] && ok(v)) td.textContent = FMT[k](v);
+    });
+    if (ok(g.deposit)) document.querySelectorAll('[data-gov="deposit"]').forEach((e) => e.textContent = FMT.proposal_deposit(g.deposit));
+    if (ok(g.quorum_bps)) document.querySelectorAll('[data-gov="quorum"]').forEach((e) => e.textContent = FMT.quorum_bps(g.quorum_bps));
+  }).catch(() => {});
+})();
+// marca no índice a seção que está na tela
+(() => {
+  const links = new Map([...document.querySelectorAll(".toc a")].map((a) => [a.getAttribute("href").slice(1), a]));
+  try {
+    const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+      if (!e.isIntersecting) return;
+      links.forEach((a) => a.classList.remove("on"));
+      links.get(e.target.id)?.classList.add("on");
+    }), {rootMargin: "-20% 0px -70% 0px"});
+    document.querySelectorAll("article > section[id]").forEach((s) => io.observe(s));
+  } catch {}
+})();
+</script>
+</body>
+</html>

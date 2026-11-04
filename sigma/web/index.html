@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23ff3b1f'/%3E%3Ctext x='32' y='50' font-size='50' font-weight='900' text-anchor='middle' font-family='Arial Black,Arial,sans-serif' fill='%230b0b0a'%3E%CE%A3%3C/text%3E%3C/svg%3E">
+<title>Sigma · Queremos que os donos dos robôs sejam as pessoas, não as Big Techs</title>
+<meta name="description" content="Vão substituir você por um robô. Queremos que os donos dos robôs sejam as pessoas, não as Big Techs. Baixe o Sigma, deixe seu computador minerando e faça parte da rede.">
+<!-- prévia do link no WhatsApp e nas redes: endereços absolutos, no endereço oficial de hoje -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Sigma">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:url" content="https://sigma.195-35-29-232.sslip.io/">
+<meta property="og:title" content="Vão substituir você por um robô.">
+<meta property="og:description" content="Queremos que os donos dos robôs sejam as pessoas, não as Big Techs. Baixe o Sigma e faça parte da rede.">
+<meta property="og:image" content="https://sigma.195-35-29-232.sslip.io/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Σ vermelho sobre fundo preto e a frase: Vão substituir você por um robô.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0b0b0a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="/sigma.css">
+<script>document.documentElement.classList.add("js")</script>
+<style>
+/* ---------------------------------------------------------------- herói */
+.hero { position: relative; border-bottom: 2px solid var(--text); overflow: hidden; }
+.hero .inner { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, .8fr); gap: clamp(28px, 5vw, 72px);
+               align-items: center; padding-top: clamp(24px, 3.5vw, 48px); padding-bottom: clamp(40px, 5vw, 72px); position: relative; }
+@media (max-width: 900px) { .hero .inner { grid-template-columns: 1fr; } }
+.hero .halftone { position: absolute; right: -80px; top: -60px; width: 60%; height: 85%; pointer-events: none; opacity: .45;
+                  -webkit-mask-image: radial-gradient(closest-side, #000, transparent); mask-image: radial-gradient(closest-side, #000, transparent); }
+/* 1,12 no mínimo: o acento de VOCÊ e de ROBÔ não pode encostar na linha de cima */
+.hero h1 { font-size: clamp(44px, 5.4vw, 80px); line-height: 1.12; margin: 10px 0 14px; letter-spacing: .5px; text-wrap: balance; }
+.hero h1 .robo { color: var(--accent); white-space: nowrap; }
+.punch { font: 400 clamp(22px, 2.2vw, 30px)/1.25 var(--display); text-transform: uppercase; letter-spacing: .5px; margin: 0 0 16px; max-width: 32ch; }
+.punch mark { color: inherit; padding: 0 .1em; background: linear-gradient(var(--accent), var(--accent)) no-repeat 0 100% / 0 100%;
+              animation: marca .9s .6s cubic-bezier(.2, .8, .2, 1) forwards; }
+@keyframes marca { to { background-size: 100% 100%; color: var(--accent-ink); } }
+.hero .lead { color: var(--muted); margin: 0; font-size: clamp(17px, 1.6vw, 20px); }
+.hero .lead b { color: var(--text); font-weight: 600; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; align-items: center; }
+.micro { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 14px 0 0; }
+
+/* o robô feito de computadores: cada quadrado aceso é uma máquina online agora */
+.robot { margin: 0; position: relative; max-width: 440px; justify-self: center; width: 100%; }
+.robot .wedge { position: absolute; top: -16px; right: -16px; width: 52%; height: 52%; background: var(--accent);
+                clip-path: polygon(0 0, 100% 0, 100% 100%); }
+.robot-frame { position: relative; border: 2px solid var(--text); background: #0f0f0e; padding: clamp(18px, 3vw, 30px); }
+.robot-frame .tag { position: absolute; left: -2px; top: -2px; background: var(--text); color: var(--bg); font: 600 11px var(--mono);
+                    text-transform: uppercase; letter-spacing: 1px; padding: 4px 8px; }
+#robot { display: block; width: 100%; height: auto; margin-top: 10px; }
+#robot rect { fill: #1b1a18; stroke: #3d3b35; stroke-width: 1; transition: fill .6s, stroke .6s; }
+#robot rect.on { fill: var(--accent); stroke: var(--accent); }
+#robot rect.new { animation: acende 1.8s ease-in-out infinite; }
+@keyframes acende { 50% { fill: var(--paper); stroke: var(--paper); } }
+.robot figcaption { margin-top: 14px; font: 600 13px/1.55 var(--mono); text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.robot figcaption b { color: var(--accent); }
+.robot figcaption a { color: var(--text); }
+
+/* ---------------------------------------------------------------- contagem regressiva */
+.countdown .inner { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: clamp(20px, 5vw, 64px); align-items: center;
+                    padding-top: 34px; padding-bottom: 36px; }
+@media (max-width: 900px) { .countdown .inner { grid-template-columns: 1fr; } }
+.cd-label { font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; }
+.cd-digits { display: flex; align-items: flex-start; font: 400 clamp(68px, 12vw, 150px)/.9 var(--display); letter-spacing: 1px; }
+.cd-digits > div { display: flex; flex-direction: column; align-items: center; }
+.cd-digits span { display: block; min-width: 1.08em; text-align: center; font-variant-numeric: tabular-nums; }
+.cd-digits small { font: 600 11px var(--mono); letter-spacing: 2px; text-transform: uppercase; margin-top: 8px; }
+.cd-digits i { font-style: normal; opacity: .5; padding: 0 .03em; }
+.cd-side .amount { font: 400 clamp(40px, 5.4vw, 70px)/1 var(--display); margin: 0; letter-spacing: .5px; text-transform: uppercase; }
+.cd-side p { margin: 10px 0 20px; font-size: 17px; max-width: 48ch; }
+
+/* ---------------------------------------------------------------- ao vivo */
+.supply { border: 2px solid var(--text); padding: clamp(18px, 3vw, 28px); margin: 28px 0 0; background: var(--card); }
+.supply-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 14px; }
+.supply-head b { font: 400 clamp(42px, 6.4vw, 80px)/1 var(--display); letter-spacing: .5px; overflow-wrap: anywhere; }
+.supply-head span, .supply-foot { font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.supply-foot { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; }
+#ao-vivo .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 760px) { #ao-vivo .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 420px) { #ao-vivo .stats { grid-template-columns: 1fr; } }
+.live-line { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 14px; }
+.live-line.off { color: var(--warn); }
+
+/* ---------------------------------------------------------------- 3 passos */
+.steps3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 32px 0 34px; padding: 0; list-style: none;
+          border: 2px solid var(--paper-ink); }
+.steps3 li { padding: 26px 26px 30px; border-right: 2px solid var(--paper-ink); position: relative; }
+.steps3 li:last-child { border-right: 0; }
+.steps3 li + li::before { content: "→"; position: absolute; left: -19px; top: 30px; width: 36px; height: 36px; display: grid;
+                          place-items: center; background: var(--accent); color: var(--accent-ink); font: 400 22px/1 var(--display); }
+@media (max-width: 820px) {
+  .steps3 { grid-template-columns: 1fr; }
+  .steps3 li { border-right: 0; border-bottom: 2px solid var(--paper-ink); }
+  .steps3 li:last-child { border-bottom: 0; }
+  .steps3 li + li::before { content: "↓"; left: 26px; top: -19px; }
+}
+.steps3 .big-n { -webkit-text-stroke-color: var(--accent-deep); }
+.steps3 h3 { font-size: clamp(26px, 3vw, 36px); margin: 14px 0 8px; }
+.steps3 p { margin: 0; color: var(--paper-muted); }
+
+/* ---------------------------------------------------------------- emissão */
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 2px solid var(--text); margin: 26px 0 22px; }
+.facts div { padding: 14px 14px 0 0; }
+.facts b { display: block; font: 400 clamp(32px, 4vw, 48px)/1 var(--display); color: var(--accent); }
+.facts span { display: block; font-size: 14px; color: var(--muted); line-height: 1.4; margin-top: 6px; }
+/* o texto do SVG escala com a largura: largura máxima fixa no desktop, letras maiores no celular */
+.chart { margin: 40px auto 0; max-width: 960px; border: 2px solid var(--text); background: var(--card); padding: 18px 18px 6px; }
+@media (max-width: 640px) {
+  #curve .axis text { font-size: 24px !important; }
+  #curve .lbl { font-size: 26px !important; }
+  #curve .dot, #curve .today { stroke-width: 4; }
+}
+.chart figcaption b { display: block; font: 400 22px/1.15 var(--display); text-transform: uppercase; letter-spacing: .5px; }
+.chart figcaption span { font-size: 13px; color: var(--muted); }
+.chart-box { position: relative; margin-top: 12px; touch-action: pan-y; cursor: crosshair; }
+#curve { display: block; width: 100%; height: auto; overflow: visible; }
+#curve .grid line { stroke: var(--line); stroke-width: 1; }
+#curve .axis text { fill: var(--muted); font: 600 11px var(--mono); }
+#curve .area { fill: var(--accent); opacity: .1; }
+#curve .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.js #curve .line { stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 2.2s cubic-bezier(.3, .7, .2, 1); }
+.js .chart.in #curve .line { stroke-dashoffset: 0; }
+#curve .dot { fill: var(--accent); stroke: var(--card); stroke-width: 2; }
+#curve .lbl { fill: var(--text); font: 600 12px var(--mono); }
+#curve .cross { stroke: var(--text); stroke-width: 1; opacity: .45; }
+#curve .today { fill: var(--paper); stroke: var(--accent); stroke-width: 3; }
+.tip { position: absolute; pointer-events: none; background: var(--bg); border: 1px solid var(--line-strong); padding: 8px 11px;
+       font-size: 13px; line-height: 1.45; white-space: nowrap; transform: translate(-50%, calc(-100% - 12px)); z-index: 2; }
+.tip.below { transform: translate(-50%, 14px); }
+.tip b { display: block; font: 600 15px var(--sans); color: var(--text); }
+.tip span { display: block; color: var(--muted); }
+.table-view { border-top: 1px solid var(--line); margin-top: 8px; }
+.table-view summary { cursor: pointer; font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); padding: 10px 0; }
+.table-view table { font-size: 14px; margin-bottom: 12px; }
+.fineprint { font-size: 14px; color: var(--muted); border-left: 3px solid var(--line-strong); padding-left: 12px; }
+
+/* ---------------------------------------------------------------- votações */
+.gov-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; background: var(--paper-ink);
+             border: 2px solid var(--paper-ink); }
+@media (max-width: 420px) { .gov-facts { grid-template-columns: 1fr; } }
+.gov-facts div { background: var(--paper); padding: 16px 16px 18px; min-width: 0; }
+.gov-facts b { display: block; font: 400 clamp(28px, 3.4vw, 40px)/1.15 var(--display); color: var(--accent-deep);
+               text-transform: uppercase; letter-spacing: .5px; overflow-wrap: anywhere; }
+.gov-facts span { display: block; font-size: 15px; color: var(--paper-muted); line-height: 1.4; margin-top: 4px; }
+.gov-risk { border-left: 6px solid var(--accent-deep); padding-left: 14px; margin: 20px 0 0; font-size: 16px; }
+
+/* ---------------------------------------------------------------- seu computador */
+.features { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; background: var(--line);
+            border: 2px solid var(--text); margin-top: 32px; }
+@media (max-width: 980px) { .features { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .features { grid-template-columns: 1fr; } }
+.feature { background: var(--bg); padding: 26px 22px 28px; }
+.feature svg { width: 46px; height: 46px; color: var(--accent); }
+.feature h3 { font-size: 27px; margin: 16px 0 8px; }
+.feature p { margin: 0; color: var(--muted); font-size: 15px; }
+.controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1px; background: var(--line);
+            border: 2px solid var(--line-strong); margin-top: 22px; }
+.control { background: var(--card); padding: 14px 18px 16px; }
+.control span { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.control b { display: block; font: 400 28px/1.1 var(--display); margin: 4px 0 10px; }
+.control .track { height: 6px; background: #2a120d; position: relative; }
+.control .track i { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+.control .switch { display: inline-block; width: 42px; height: 22px; border: 2px solid var(--accent); position: relative; vertical-align: middle; }
+.control .switch::after { content: ""; position: absolute; top: 2px; right: 2px; width: 14px; height: 14px; background: var(--accent); }
+.controls-cap { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-top: 10px; }
+
+/* ---------------------------------------------------------------- por que */
+.manifesto p { font-size: clamp(18px, 2vw, 21px); }
+.manifesto .quote { font: 400 clamp(36px, 6vw, 80px)/1.12 var(--display); text-transform: uppercase; margin: 46px 0 0; padding-left: 22px;
+         border-left: 10px solid var(--accent); letter-spacing: .5px; }
+.manifesto .quote span { color: var(--accent); }
+/* 6 princípios: 3 + 3 no computador, 2 + 2 + 2 no tablet, um embaixo do outro no celular (nunca sobra célula vazia) */
+.principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line);
+              border: 2px solid var(--text); margin-top: 46px; }
+@media (max-width: 900px) { .principles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .principles { grid-template-columns: 1fr; } }
+.principles div { background: var(--bg); padding: 22px 22px 24px; }
+.principles b { display: block; font: 400 24px/1.15 var(--display); text-transform: uppercase; margin-bottom: 8px; letter-spacing: .5px; }
+.principles span { color: var(--muted); font-size: 15px; }
+
+/* ---------------------------------------------------------------- chamado */
+.call h2 { font-size: clamp(46px, 8.4vw, 112px); line-height: 1.12; margin: 6px 0 16px; }
+.call .eyebrow { color: var(--accent-ink); }
+.call .lead { color: var(--accent-ink); }
+.roles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 32px; }
+@media (max-width: 900px) { .roles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .roles { grid-template-columns: 1fr; } }
+.role { background: var(--accent-ink); color: var(--text); padding: 22px; display: flex; flex-direction: column; gap: 8px;
+        transition: transform .12s, box-shadow .12s; }
+.role:hover { transform: translate(-3px, -3px); box-shadow: 6px 6px 0 var(--paper); }
+.role b { font: 400 27px/1.15 var(--display); text-transform: uppercase; letter-spacing: .5px; }
+.role p { color: var(--muted); font-size: 15px; flex: 1; margin: 0; }
+.role a { color: var(--accent); font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: 1px; text-decoration: none; }
+.role a:hover { text-decoration: underline; }
+.role.main { background: var(--paper); color: var(--paper-ink); }
+.role.main p { color: var(--paper-muted); }
+.role.main a { color: var(--accent-deep); }
+.role.main:hover { box-shadow: 6px 6px 0 var(--accent-ink); }
+/* os cartões ficam dentro da faixa vermelha (foco preto): no cartão preto o foco volta a ser vermelho */
+.role :focus-visible { outline-color: var(--accent); }
+.role.main :focus-visible { outline-color: var(--accent-ink); }
+
+/* ---------------------------------------------------------------- final */
+.final { text-align: center; }
+/* .88 só porque "Acenda o seu quadrado" não tem acento: texto com acento precisa de 1,12 ou mais */
+.final h2 { font-size: clamp(48px, 9.6vw, 128px); line-height: .88; margin: 0 0 20px; }
+.final h2 span { color: var(--accent); }
+.final p { font-size: 19px; color: var(--muted); max-width: 52ch; margin: 0 auto 28px; }
+</style>
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+<nav class="nav" aria-label="Principal">
+  <a class="brand" href="/"><span>Σ</span> SIGMA</a>
+  <div class="links">
+    <a class="link on" href="/" aria-current="page">Manifesto</a>
+    <a class="link" href="/baixar">Baixar</a>
+    <a class="link" href="/tutorial">Como funciona</a>
+    <a class="link" href="/forum">Fórum</a>
+    <a class="link" href="/carteira">Carteira</a>
+  </div>
+  <div class="spacer"></div>
+  <span class="pill" id="net">conectando…</span>
+</nav>
+
+<div class="ticker" aria-hidden="true"><div>
+  Queremos que os donos dos robôs sejam as pessoas, não as Big Techs ✦ Nenhum SIG de graça, nem para os criadores ✦ 0,01% do que falta, a cada 12 horas, um pouco em cada bloco ✦ Seu computador, sua parte da rede ✦ IA aberta ✦ As regras são votadas por quem participa ✦ Código-fonte disponível ✦
+  Queremos que os donos dos robôs sejam as pessoas, não as Big Techs ✦ Nenhum SIG de graça, nem para os criadores ✦ 0,01% do que falta, a cada 12 horas, um pouco em cada bloco ✦ Seu computador, sua parte da rede ✦ IA aberta ✦ As regras são votadas por quem participa ✦ Código-fonte disponível ✦&nbsp;
+</div></div>
+
+<main id="conteudo">
+<header class="hero">
+  <div class="halftone" aria-hidden="true"></div>
+  <div class="inner">
+    <div>
+      <div class="eyebrow">Manifesto da rede Sigma</div>
+      <h1>Vão substituir você por um <span class="robo">robô</span>.</h1>
+      <p class="punch">Queremos que os donos dos robôs sejam <mark>as pessoas</mark>, não as Big Techs.</p>
+      <p class="lead">O Sigma é uma rede de inteligência artificial feita de computadores comuns: o seu, o meu, o do
+        vizinho. Quem liga o computador na rede ajuda a rodar a IA e recebe SIG por isso. <b>Precisamos de você.</b></p>
+      <div class="cta">
+        <a class="btn primary big" href="/baixar">Baixar o Sigma <span class="arrow" aria-hidden="true">→</span></a>
+        <a class="btn big" href="#passos">Como começar</a>
+      </div>
+      <p class="micro">Grátis · código-fonte disponível · Windows, Linux e macOS · sem cadastro</p>
+    </div>
+    <figure class="robot">
+      <div class="wedge" aria-hidden="true"></div>
+      <div class="robot-frame">
+        <span class="tag">Robô de todo mundo</span>
+        <svg id="robot" viewBox="0 0 380 428" role="img" aria-label="Robô desenhado com quadrados. Cada quadrado aceso é um computador ligado na rede agora."></svg>
+      </div>
+      <figcaption id="robot-cap">Este robô é feito de quadrados. Cada quadrado aceso é um computador ligado na rede agora.</figcaption>
+    </figure>
+  </div>
+</header>
+
+<section class="band-red grain countdown" aria-labelledby="cd-title">
+  <div class="inner">
+    <div>
+      <div class="cd-label" id="cd-title">SIG nascendo agora</div>
+      <div class="cd-digits" aria-labelledby="cd-title">
+        <div><span id="cd-hour">833</span><small>SIG por hora</small></div>
+      </div>
+    </div>
+    <div class="cd-side">
+      <p class="amount"><span id="cd-mint">10.000</span> SIG a cada <span data-period>12 horas</span></p>
+      <p id="cd-note">saem aos poucos, um pouco em cada bloco, divididos entre quem está minerando, na proporção do trabalho de cada computador. Nenhum SIG sai de graça.</p>
+      <a class="btn ink big" href="/baixar">Quero minerar <span class="arrow" aria-hidden="true">→</span></a>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="ao-vivo">
+  <div class="inner">
+    <div class="eyebrow">A rede agora</div>
+    <h2>Números ao vivo, direto da rede.</h2>
+    <p class="lead" style="color:var(--muted)">Sem arredondar para cima. Sem número inventado. Se a rede cair, você vê aqui.</p>
+    <div class="supply reveal">
+      <div class="supply-head"><span>SIG impressos</span><b id="s-minted">—</b><span id="s-cap">de 100.000.000</span></div>
+      <div class="meter" id="s-meter" role="progressbar" aria-label="SIG impressos em relação ao teto de 100 milhões"
+           aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="s-bar"></i></div>
+      <div class="supply-foot"><span id="s-pct">—</span><span id="s-left">o teto é de 100 milhões</span></div>
+    </div>
+    <div class="stats reveal" style="margin-top:22px">
+      <div><span>SIG saindo por hora</span><b id="s-next">—</b><small><span data-rate>0,01%</span> do que falta a cada <span data-period>12 horas</span>, um pouco em cada bloco</small></div>
+      <div><span>Máquinas online</span><b id="s-machines">—</b><small>computadores ligados à rede agora</small></div>
+      <div><span>Poder da rede</span><b id="s-hash">—</b><small>contas por segundo, somando todos</small></div>
+      <div><span>Mineradores recebendo</span><b id="s-miners">—</b><small>carteiras com trabalho na última janela fechada</small></div>
+      <div><span>Pessoas no fórum</span><b id="s-forum">—</b><small>contas que já entraram</small></div>
+      <div><span>Bloco atual</span><b id="s-height">—</b><small id="s-interval">blocos novos a cada poucos segundos</small></div>
+    </div>
+    <p class="live-line" id="live-line" aria-live="polite">Conectando à rede…</p>
+  </div>
+</section>
+
+<section class="band-paper grain sec" id="passos">
+  <div class="inner">
+    <div class="eyebrow">Comece agora</div>
+    <h2>Três passos. Nenhum é difícil.</h2>
+    <ol class="steps3 reveal">
+      <li><span class="big-n" aria-hidden="true">1</span><h3>Baixe</h3>
+        <p>Um programa só. No Windows, dois cliques. No Linux e no macOS, um comando (com Python 3.11 ou mais novo).
+           Nada de instalar modelo, motor de IA ou outro programa: o Sigma cuida de tudo.</p></li>
+      <li><span class="big-n" aria-hidden="true">2</span><h3>Informe sua carteira</h3>
+        <p>Crie uma carteira nova na hora, o jeito mais simples, ou cole só o endereço de uma que você já tem,
+           como a da MetaMask. É para lá que vão os SIG.</p></li>
+      <li><span class="big-n" aria-hidden="true">3</span><h3>Pronto</h3>
+        <p>Seu computador já está minerando. Daí em diante o Sigma trabalha sozinho: hospeda, roda IA e recebe por isso.</p></li>
+    </ol>
+    <div class="row">
+      <a class="btn primary big" href="/baixar">Baixar o Sigma <span class="arrow" aria-hidden="true">→</span></a>
+      <span class="muted">Grátis, e o código-fonte está disponível. Leva uns dois minutos.</span>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="emissao">
+  <div class="inner">
+    <div class="split">
+      <div>
+        <div class="eyebrow">Como o SIG nasce</div>
+        <h2>Nenhum SIG de graça. Nem para nós.</h2>
+        <p>Todo SIG que existe saiu da mineração. A rede nasceu com todos os saldos zerados: sem reserva para os
+           fundadores, sem presente de boas-vindas, sem venda antecipada. Quem criou o Sigma minera com as mesmas
+           regras que você.</p>
+        <p>A regra é uma só e está no código: <b>a cada 12 horas, a rede imprime 0,01% do que ainda falta dos
+           100 milhões de SIG</b>. Não tem dia de distribuição: o SIG sai aos poucos, um pouco em cada bloco, e é
+           dividido entre quem minerou na última janela de 5 minutos já fechada, na proporção do trabalho de cada
+           computador. Quem começa a minerar passa a receber em uns 10 minutos.</p>
+      </div>
+      <div>
+        <p>Como a conta é sempre sobre o que falta, o ritmo cai devagar. Nas primeiras 12 horas saem 10 mil SIG
+           (uns 833 por hora). Em um ano, 7% do total. Metade de tudo leva uns 9 anos e meio. Ninguém chega primeiro e
+           leva quase tudo: quem entrar daqui a anos ainda encontra SIG para minerar.</p>
+        <div class="facts">
+          <div><b>100 mi</b><span>é o teto. Não existe SIG além disso.</span></div>
+          <div><b>0,01%</b><span>do que falta, a cada 12 horas.</span></div>
+          <div><b>0</b><span>SIG criado fora da mineração.</span></div>
+        </div>
+        <p class="fineprint">A taxa de 0,01% é a regra de hoje: a própria rede pode votar para mudá-la (de 0 a 0,5%). O
+           teto de 100 milhões não entra em votação. <a href="#votacoes">Veja como a rede vota.</a></p>
+        <p class="fineprint">O SIG não é investimento e não tem preço de mercado. Ele serve para pagar e receber dentro
+           da rede: IA, sites e computação. Ninguém aqui promete que ele vai valer mais amanhã.</p>
+      </div>
+    </div>
+    <figure class="chart reveal">
+      <figcaption><b>SIG impressos ao longo do tempo</b>
+        <span>Com a regra de hoje (0,01% do que falta a cada 12 horas) e sempre alguém minerando. Tempo sem ninguém minerando não imprime nada.</span></figcaption>
+      <div class="chart-box" id="chart" tabindex="0" aria-label="Gráfico da emissão. Use as setas para percorrer os meses e Page Up/Page Down para os anos.">
+        <svg id="curve" viewBox="0 0 720 330" role="img" aria-labelledby="curve-t curve-d">
+          <title id="curve-t">SIG impressos ao longo do tempo</title>
+          <desc id="curve-d">A curva sobe devagar e vai achatando: 7% dos 100 milhões em um ano, metade em cerca de 9 anos e meio, 76,8% em 20 anos e 94,6% em 40 anos.</desc>
+          <g class="grid">
+            <line x1="64" x2="700" y1="290" y2="290"/><line x1="64" x2="700" y1="223.5" y2="223.5"/>
+            <line x1="64" x2="700" y1="157" y2="157"/><line x1="64" x2="700" y1="90.5" y2="90.5"/>
+            <line x1="64" x2="700" y1="24" y2="24"/>
+          </g>
+          <g class="axis">
+            <text x="56" y="294" text-anchor="end">0</text><text x="56" y="227.5" text-anchor="end">25 mi</text>
+            <text x="56" y="161" text-anchor="end">50 mi</text><text x="56" y="94.5" text-anchor="end">75 mi</text>
+            <text x="56" y="28" text-anchor="end">100 mi</text>
+            <text x="64" y="314">início</text><text x="223" y="314" text-anchor="middle">10 anos</text>
+            <text x="382" y="314" text-anchor="middle">20 anos</text><text x="541" y="314" text-anchor="middle">30 anos</text>
+            <text x="700" y="314" text-anchor="end">40 anos</text>
+          </g>
+          <path class="area" d="M64.0 290.0L68.0 285.2L72.0 280.5L75.9 275.8L79.9 271.3L83.9 266.8L87.8 262.4L91.8 258.1L95.8 253.9L99.8 249.7L103.8 245.6L107.7 241.6L111.7 237.7L115.7 233.8L119.7 230.0L123.6 226.3L127.6 222.6L131.6 219.1L135.6 215.5L139.5 212.0L143.5 208.7L147.5 205.3L151.4 202.0L155.4 198.8L159.4 195.7L163.4 192.6L167.4 189.5L171.3 186.5L175.3 183.6L179.3 180.7L183.2 177.8L187.2 175.1L191.2 172.3L195.2 169.7L199.2 167.0L203.1 164.4L207.1 161.9L211.1 159.4L215.0 156.9L219.0 154.5L223.0 152.2L227.0 149.9L231.0 147.6L234.9 145.3L238.9 143.2L242.9 141.0L246.8 138.9L250.8 136.8L254.8 134.8L258.8 132.8L262.8 130.8L266.7 128.9L270.7 127.0L274.7 125.1L278.6 123.3L282.6 121.5L286.6 119.7L290.6 118.0L294.5 116.3L298.5 114.6L302.5 113.0L306.5 111.4L310.5 109.8L314.4 108.2L318.4 106.7L322.4 105.2L326.3 103.8L330.3 102.3L334.3 100.9L338.3 99.5L342.2 98.1L346.2 96.8L350.2 95.5L354.2 94.2L358.2 92.9L362.1 91.7L366.1 90.4L370.1 89.2L374.1 88.1L378.0 86.9L382.0 85.8L386.0 84.7L389.9 83.6L393.9 82.5L397.9 81.4L401.9 80.4L405.8 79.4L409.8 78.4L413.8 77.4L417.8 76.4L421.8 75.5L425.7 74.5L429.7 73.6L433.7 72.7L437.7 71.8L441.6 71.0L445.6 70.1L449.6 69.3L453.6 68.5L457.5 67.7L461.5 66.9L465.5 66.1L469.4 65.3L473.4 64.6L477.4 63.9L481.4 63.1L485.3 62.4L489.3 61.7L493.3 61.1L497.3 60.4L501.2 59.7L505.2 59.1L509.2 58.4L513.2 57.8L517.2 57.2L521.1 56.6L525.1 56.0L529.1 55.4L533.0 54.9L537.0 54.3L541.0 53.8L545.0 53.2L549.0 52.7L552.9 52.2L556.9 51.7L560.9 51.2L564.8 50.7L568.8 50.2L572.8 49.7L576.8 49.3L580.8 48.8L584.7 48.4L588.7 47.9L592.7 47.5L596.6 47.1L600.6 46.6L604.6 46.2L608.6 45.8L612.6 45.4L616.5 45.0L620.5 44.7L624.5 44.3L628.4 43.9L632.4 43.6L636.4 43.2L640.4 42.9L644.4 42.5L648.3 42.2L652.3 41.9L656.3 41.5L660.2 41.2L664.2 40.9L668.2 40.6L672.2 40.3L676.1 40.0L680.1 39.7L684.1 39.4L688.1 39.2L692.1 38.9L696.0 38.6L700.0 38.3L700 290L64 290Z"/>
+          <path class="line" pathLength="1" d="M64.0 290.0L68.0 285.2L72.0 280.5L75.9 275.8L79.9 271.3L83.9 266.8L87.8 262.4L91.8 258.1L95.8 253.9L99.8 249.7L103.8 245.6L107.7 241.6L111.7 237.7L115.7 233.8L119.7 230.0L123.6 226.3L127.6 222.6L131.6 219.1L135.6 215.5L139.5 212.0L143.5 208.7L147.5 205.3L151.4 202.0L155.4 198.8L159.4 195.7L163.4 192.6L167.4 189.5L171.3 186.5L175.3 183.6L179.3 180.7L183.2 177.8L187.2 175.1L191.2 172.3L195.2 169.7L199.2 167.0L203.1 164.4L207.1 161.9L211.1 159.4L215.0 156.9L219.0 154.5L223.0 152.2L227.0 149.9L231.0 147.6L234.9 145.3L238.9 143.2L242.9 141.0L246.8 138.9L250.8 136.8L254.8 134.8L258.8 132.8L262.8 130.8L266.7 128.9L270.7 127.0L274.7 125.1L278.6 123.3L282.6 121.5L286.6 119.7L290.6 118.0L294.5 116.3L298.5 114.6L302.5 113.0L306.5 111.4L310.5 109.8L314.4 108.2L318.4 106.7L322.4 105.2L326.3 103.8L330.3 102.3L334.3 100.9L338.3 99.5L342.2 98.1L346.2 96.8L350.2 95.5L354.2 94.2L358.2 92.9L362.1 91.7L366.1 90.4L370.1 89.2L374.1 88.1L378.0 86.9L382.0 85.8L386.0 84.7L389.9 83.6L393.9 82.5L397.9 81.4L401.9 80.4L405.8 79.4L409.8 78.4L413.8 77.4L417.8 76.4L421.8 75.5L425.7 74.5L429.7 73.6L433.7 72.7L437.7 71.8L441.6 71.0L445.6 70.1L449.6 69.3L453.6 68.5L457.5 67.7L461.5 66.9L465.5 66.1L469.4 65.3L473.4 64.6L477.4 63.9L481.4 63.1L485.3 62.4L489.3 61.7L493.3 61.1L497.3 60.4L501.2 59.7L505.2 59.1L509.2 58.4L513.2 57.8L517.2 57.2L521.1 56.6L525.1 56.0L529.1 55.4L533.0 54.9L537.0 54.3L541.0 53.8L545.0 53.2L549.0 52.7L552.9 52.2L556.9 51.7L560.9 51.2L564.8 50.7L568.8 50.2L572.8 49.7L576.8 49.3L580.8 48.8L584.7 48.4L588.7 47.9L592.7 47.5L596.6 47.1L600.6 46.6L604.6 46.2L608.6 45.8L612.6 45.4L616.5 45.0L620.5 44.7L624.5 44.3L628.4 43.9L632.4 43.6L636.4 43.2L640.4 42.9L644.4 42.5L648.3 42.2L652.3 41.9L656.3 41.5L660.2 41.2L664.2 40.9L668.2 40.6L672.2 40.3L676.1 40.0L680.1 39.7L684.1 39.4L688.1 39.2L692.1 38.9L696.0 38.6L700.0 38.3"/>
+          <g>
+            <circle class="dot" cx="215" cy="157" r="5"/><text class="lbl" x="228" y="174">9,5 anos: metade</text>
+            <circle class="dot" cx="382" cy="85.8" r="5"/><text class="lbl" x="395" y="104">20 anos: 76,8%</text>
+          </g>
+          <line class="cross" x1="0" x2="0" y1="24" y2="290" style="display:none"/>
+          <circle class="dot hdot" r="5" style="display:none"/>
+          <g class="today-g" style="display:none"><circle class="today" r="7"/><text class="lbl" x="13" y="-11">hoje</text></g>
+        </svg>
+        <div class="tip" id="tip" hidden></div>
+      </div>
+      <details class="table-view">
+        <summary>Ver os números em tabela</summary>
+        <div class="table-wrap"><table>
+          <tr><th>Quando</th><th class="num">Sai em 12 horas</th><th class="num">Total impresso</th><th class="num">Do teto</th></tr>
+          <tr><td>1º período (12 h)</td><td class="num">10.000</td><td class="num">10.000</td><td class="num">0,01%</td></tr>
+          <tr><td>2º período (24 h)</td><td class="num">9.999</td><td class="num">19.999</td><td class="num">0,02%</td></tr>
+          <tr><td>30 dias</td><td class="num">9.941</td><td class="num">598.233</td><td class="num">0,6%</td></tr>
+          <tr><td>6 meses</td><td class="num">9.643</td><td class="num">3.584.367</td><td class="num">3,6%</td></tr>
+          <tr><td>1 ano</td><td class="num">9.297</td><td class="num">7.040.256</td><td class="num">7,0%</td></tr>
+          <tr><td>5 anos</td><td class="num">6.943</td><td class="num">30.581.602</td><td class="num">30,6%</td></tr>
+          <tr><td>9,5 anos</td><td class="num">4.999</td><td class="num">50.019.371</td><td class="num">50,0%</td></tr>
+          <tr><td>20 anos</td><td class="num">2.322</td><td class="num">76.778.068</td><td class="num">76,8%</td></tr>
+          <tr><td>40 anos</td><td class="num">539</td><td class="num">94.607.419</td><td class="num">94,6%</td></tr>
+        </table></div>
+      </details>
+    </figure>
+  </div>
+</section>
+
+<section class="band-paper grain sec" id="votacoes">
+  <div class="inner">
+    <div class="split">
+      <div>
+        <div class="eyebrow">Quem manda nas regras</div>
+        <h2>As regras são de quem participa.</h2>
+        <p>Nas Big Techs, a regra muda numa reunião fechada e você fica sabendo depois. No Sigma, a rede vota. Quanto
+           SIG nasce, quanto custa hospedar, quanto a demanda pode subir o preço: tudo isso vai a votação, e o resultado
+           vira regra sozinho, no código, sem ninguém apertar botão.</p>
+        <p>Qualquer pessoa propõe. Quem tem SIG vota no app, na aba <b>Votações</b>.</p>
+        <p class="muted" id="gov-live">&nbsp;</p>
+      </div>
+      <div>
+        <div class="gov-facts">
+          <div><b>10 dias</b><span>de votação para cada proposta.</span></div>
+          <div><b>1 SIG = 1 voto</b><span>travado até o fim e devolvido inteiro.</span></div>
+          <div><b>1%</b><span>do SIG que existe precisa votar, ou não vale.</span></div>
+          <div><b>10 SIG</b><span>de depósito para propor. Voltam no fim.</span></div>
+        </div>
+        <p class="gov-risk"><b>O risco, sem esconder:</b> quem tem mais SIG tem mais votos. É por isso que todo SIG
+           nasce do trabalho, que ninguém ganhou SIG de graça e que o debate começa aberto, no fórum. O teto de 100 milhões
+           e o tempo da rede não entram em votação. E, enquanto um servidor do projeto ainda assina os blocos, o voto
+           depende dele seguir o código: dividir esse poder é a próxima etapa.</p>
+        <div class="row" style="margin-top:18px">
+          <a class="btn primary" href="/tutorial#votacoes">Como votar <span class="arrow" aria-hidden="true">→</span></a>
+          <a class="btn" href="/carteira">Ver as votações</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="seu-pc" style="border-top:1px solid var(--line)">
+  <div class="inner">
+    <div class="eyebrow">O que o seu computador faz</div>
+    <h2>Seu computador vira um pedaço da rede.</h2>
+    <p class="lead" style="color:var(--muted)">Você não precisa entender nada disso para participar: o Sigma faz sozinho.
+      Mas é bom saber o que acontece aí dentro.</p>
+    <div class="features reveal">
+      <article class="feature">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><rect x="12" y="12" width="24" height="24"/><rect x="19" y="19" width="10" height="10" fill="currentColor"/><path d="M18 4v8M30 4v8M18 36v8M30 36v8M4 18h8M4 30h8M36 18h8M36 30h8"/></svg>
+        <h3>Minera SIG</h3>
+        <p>Usa a parte do processador que você liberar, com prioridade baixa: quando você precisa do computador,
+           a mineração dá a vez. No notebook, pausa sozinha quando sai da tomada.</p>
+      </article>
+      <article class="feature">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><rect x="5" y="8" width="38" height="32"/><path d="M5 17h38"/><path d="M11 12.5h4M18 12.5h4" stroke-width="2.5"/><path d="M13 25h14M13 31h22"/></svg>
+        <h3>Hospeda sites</h3>
+        <p>Guarda cópias dos sites publicados na rede. Cada cópia rende aluguel em SIG.</p>
+      </article>
+      <article class="feature">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M5 7h38v26H22l-9 8v-8H5z"/><path d="M24 12l2.2 5.3L31.5 19.5l-5.3 2.2L24 27l-2.2-5.3-5.3-2.2 5.3-2.2z" fill="currentColor" stroke-width="1.5"/></svg>
+        <h3>Roda IA</h3>
+        <p>A rede escolhe quais modelos de IA abertos ficam no seu computador, conforme a memória e o disco que você
+           liberou. Cada modelo tem de 0,5 a 5 GB: o Sigma baixa, confere e responde os pedidos. Internet limitada?
+           Desligue a IA no painel.</p>
+      </article>
+      <article class="feature">
+        <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M6 12h36M6 24h36M6 36h36"/><rect x="12" y="8" width="8" height="8" fill="currentColor"/><rect x="28" y="20" width="8" height="8" fill="currentColor"/><rect x="18" y="32" width="8" height="8" fill="currentColor"/></svg>
+        <h3>Você manda</h3>
+        <p>Você decide quanto de processador, memória e disco ceder. Liga e desliga a IA, pausa, fecha.
+           Tudo num painel só, que abre no seu computador.</p>
+      </article>
+    </div>
+    <div class="controls reveal" aria-label="Exemplo dos controles do painel">
+      <div class="control"><span>Uso do processador</span><b>50%</b><div class="track"><i style="width:50%"></i></div></div>
+      <div class="control"><span>Memória para IA</span><b>4 GB</b><div class="track"><i style="width:25%"></i></div></div>
+      <div class="control"><span>Disco para a rede</span><b>20 GB</b><div class="track"><i style="width:20%"></i></div></div>
+      <div class="control"><span>IA para a rede</span><b>Ligada <i class="switch" aria-hidden="true"></i></b></div>
+    </div>
+    <p class="controls-cap">Exemplo do painel do Sigma: você muda cada limite quando quiser.</p>
+  </div>
+</section>
+
+<section class="sec manifesto" id="por-que" style="border-top:1px solid var(--line)">
+  <div class="inner">
+    <div class="split">
+      <div>
+        <div class="eyebrow">Por que isso importa</div>
+        <h2>O robô vai existir. A questão é de quem ele vai ser.</h2>
+      </div>
+      <div>
+        <p>A inteligência artificial vai fazer boa parte do trabalho que hoje é nosso. Isso não tem volta. O que ainda
+           está em disputa é <b>de quem serão as máquinas</b>.</p>
+        <p>A IA já escreve, desenha, traduz, atende e programa. A cada mês, faz mais. Quem for dono dessas máquinas
+           vai ficar com o valor do trabalho que elas fazem. Do seu trabalho.</p>
+        <p>Hoje, meia dúzia de empresas é dona dos data centers, dos modelos e das regras. Se continuar assim, o futuro
+           é um aluguel sem fim: você paga para usar o robô que tomou o seu lugar.</p>
+        <p>Existe outro caminho. Milhões de computadores passam boa parte do dia parados. Sozinho, cada um é pequeno.
+           Juntos, rodam IA aberta sem depender do data center de ninguém, e o que essa IA ganha fica com quem emprestou
+           a máquina. Se esse poder for das pessoas, o robô também vai ser.</p>
+      </div>
+    </div>
+    <p class="quote reveal">Eles têm os data centers.<br><span>Nós somos muitos.</span></p>
+    <div class="principles reveal">
+      <div><b>Regras iguais para todos</b><span>Não tem conta especial nem SIG reservado: emissão e pagamentos seguem o
+        código, que vale igual para todo mundo. Hoje um único servidor do projeto ainda assina os blocos. A meta é dividir
+        isso entre muitos validadores, até ninguém, nem nós, conseguir mandar na rede.
+        <a href="/tutorial#limites">Veja o que falta.</a></span></div>
+      <div><b>Quem trabalha recebe</b><span>O SIG novo vai para quem minera. O SIG que circula vai para quem hospeda sites e roda IA.</span></div>
+      <div><b>Nenhum SIG de graça</b><span>Nem para os criadores. Zero pré-mineração, zero venda antecipada, zero boas-vindas.</span></div>
+      <div><b>IA aberta</b><span>Só modelos com pesos abertos, que qualquer pessoa pode baixar e estudar. O app recusa
+        licenças de uso não comercial ou só para pesquisa, e quem apadrinha responde pela licença do modelo que trouxe.</span></div>
+      <div><b>Sua chave, seus SIG</b><span>Só quem tem a chave privada movimenta a carteira. Nós não temos a sua e não
+        conseguimos gastar por você. Funciona até com a MetaMask.</span></div>
+      <div><b>Verdade antes de marketing</b><span>Dizemos o que funciona e o que ainda falta. <a href="/tutorial#limites">Veja a lista.</a> Não prometemos lucro.</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="band-red grain sec call" id="ajude">
+  <div class="inner">
+    <div class="eyebrow">Chamado</div>
+    <h2>Precisamos de você. Muito.</h2>
+    <p class="lead">Não temos investidor, data center nem equipe de marketing. Temos uma ideia e gente que acredita nela.
+      A rede é exatamente do tamanho das pessoas que participam: cada computador ligado conta, e conta muito.</p>
+    <div class="roles">
+      <div class="role main"><b>Ligue seu computador</b><p>Baixe o Sigma e deixe ligado. É a ajuda mais importante de todas, e leva dois minutos.</p><a href="/baixar">Baixar o Sigma →</a></div>
+      <div class="role"><b>Espalhe a palavra</b><p>Mande este manifesto para quem tem medo de perder o emprego para um robô. E para quem acha que isso nunca vai acontecer.</p><a href="#" id="share">Compartilhar →</a></div>
+      <div class="role"><b>Publique um site</b><p>Com o SIG que você minerar, coloque na rede das pessoas o site do seu coletivo, do seu bairro ou do seu projeto.</p><a href="/tutorial#sites">Como publicar →</a></div>
+      <div class="role"><b>Apadrinhe um modelo</b><p>Com o SIG que você minerar, traga um modelo de IA aberto para a rede e pague a hospedagem dele. Você recebe uma parte de cada uso.</p><a href="/tutorial#padrinho">Como apadrinhar →</a></div>
+      <div class="role"><b>Programe com a gente</b><p>Em Python, sem dependências. Falta muito: vários validadores, entrega de sites pelas próprias máquinas, provas de armazenamento, auditoria dos tokens cobrados.</p><a href="/forum?c=desenvolvimento">Ver o que falta →</a></div>
+      <div class="role"><b>Entre no fórum</b><p>Critique, proponha, ajude quem está chegando. As propostas que vão a votação começam lá.</p><a href="/forum">Entrar no fórum →</a></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="duvidas">
+  <div class="inner split">
+    <div>
+      <div class="eyebrow">Perguntas diretas</div>
+      <h2>Respostas sem enrolação.</h2>
+      <p class="muted">Ficou alguma dúvida? Pergunte no <a href="/forum?c=ajuda">fórum</a> ou leia o <a href="/tutorial">guia completo</a>.</p>
+    </div>
+    <div class="faq">
+      <details><summary>Preciso pagar alguma coisa?</summary><div><p>Ao Sigma, não: baixar e rodar é de graça, sem cadastro.
+        Mas computador ligado gasta energia, e a conta de luz é sua (veja “Gasta energia?”). Quem usa a IA da rede ou
+        publica sites paga em SIG.</p></div></details>
+      <details><summary>Para onde vai o SIG que eu pago?</summary><div>
+        <p>Para quem trabalhou. Cada pergunta à IA é paga por token, por quem pergunta, e vai <b>100% para a máquina que
+          respondeu</b>. A única parte que não fica com ela é o royalty que o padrinho do modelo escolheu (de 0 a 50%).
+          A rede não cobra taxa e não queima nada.</p>
+        <p>Sites e modelos pagam aluguel às máquinas que guardam cópias: pelo disco que ocupam e, nos modelos, também
+          pela memória que deixam reservada. Esse preço sobe com a procura: 1x com a rede vazia, até 4x com ela cheia.
+          Assim, quando falta espaço, ganha mais quem empresta o computador.</p></div></details>
+      <details><summary>Gasta energia?</summary><div>
+        <p>Gasta, e vale fazer a conta antes. Minerando com metade do processador, um PC de mesa costuma gastar algumas
+          dezenas de watts a mais; um notebook, menos.</p>
+        <p>A conta é: <b>watts a mais × horas ligado ÷ 1000 = kWh</b>. Exemplo: 40 W a mais, 24 horas por dia, 30 dias
+          = 28,8 kWh. A R$ 1 por kWh, uns R$ 29 no mês (confira o preço do kWh na sua conta de luz).</p>
+        <p>O SIG não tem preço de mercado: isso é uma contribuição para a causa, não um investimento. Para gastar menos,
+          baixe o uso do processador no painel ou pause a mineração. No notebook, o Sigma pausa a mineração quando você
+          tira da tomada e volta sozinho quando você liga o carregador (dá para mudar nas Configurações, em “Minerar
+          também na bateria”).</p></div></details>
+      <details><summary>Vai deixar meu computador lento?</summary><div>
+        <p>A mineração usa prioridade baixa: quando você precisa do processador, ela dá a vez.</p>
+        <p>A IA é diferente. Se a rede colocar um modelo aqui, ele fica carregado na memória (por padrão, até 40% da RAM).
+          Quando chega um pedido, ele usa o processador e a placa de vídeo para responder. O motor que o Sigma instala roda
+          com prioridade baixa, mas trabalha de verdade: enquanto responde, o computador pode ficar mais lento. Em
+          computador com pouca memória, diminua a “Memória para IA” ou desligue a IA no painel.</p></div></details>
+      <details><summary>Quanto eu vou ganhar?</summary><div><p>Ninguém sabe, e desconfie de quem disser que sabe. Depende de quantos computadores estão minerando e da força do seu. O SIG não é investimento e não tem preço de mercado. Entre pela causa, não pela promessa.</p></div></details>
+      <details><summary>Dá para comprar SIG?</summary><div><p>Nós não vendemos SIG. Ele só nasce da mineração. Depois, passa de mão em mão dentro da rede: quem usa paga, quem hospeda recebe.</p></div></details>
+      <details><summary>Os criadores ganharam SIG?</summary><div><p>Não. A rede começou com todos os saldos zerados. Se quisermos SIG, mineramos como todo mundo.</p></div></details>
+      <details><summary>Quem decide as regras da rede?</summary><div>
+        <p>Quem participa, votando. Qualquer pessoa abre uma votação de 10 dias deixando 10 SIG de depósito (que voltam no
+          fim). Cada SIG vale um voto e fica travado até o fim, depois volta inteiro. A proposta passa se tiver mais “sim” que
+          “não” e se pelo menos 1% de todo o SIG que existe tiver votado. Se a proposta muda uma regra, como a emissão ou o preço do
+          aluguel, a regra muda na hora.</p>
+        <p>O risco: quem tem mais SIG tem mais votos. O teto de 100 milhões e o tempo da rede não podem ser votados.
+          <a href="/tutorial#votacoes">Entenda as votações.</a></p></div></details>
+      <details><summary>É seguro?</summary><div>
+        <p>Fora do Sigma Code, o app não roda código de ninguém: as tarefas de cálculo são só as que já vêm no app. No Sigma
+          Code, cada comando passa por você antes de rodar, e cada mudança em arquivo também, a não ser que você mesmo libere.</p>
+        <p>Os modelos de IA são arquivos de dados, baixados do endereço que o padrinho registrou e conferidos pelo SHA-256
+          e pelo formato antes de carregar. Isso garante que o arquivo é exatamente o registrado, não que ele seja bom. Quem
+          lê esses arquivos é o llama.cpp ou o Ollama, programas abertos de outras equipes. Se preferir não receber
+          modelos, desligue a IA no painel: você continua minerando.</p>
+        <p>O painel só abre no seu computador. E o código-fonte vem junto no <code>sigma.pyz</code>: qualquer pessoa pode ler.</p></div></details>
+      <details><summary>A máquina que responde lê o que eu escrevo?</summary><div>
+        <p>Lê, porque precisa ler para responder. No caminho, o servidor e quem olha a rede veem só bytes embaralhados: a
+          pergunta vai cifrada e a resposta volta cifrada. Mas cada pergunta é sorteada para uma das máquinas que têm o
+          modelo e leva a conversa inteira — numa conversa longa, várias pessoas diferentes da rede podem acabar lendo tudo
+          o que você escreveu. E cada máquina é o computador de outra pessoa: o app oficial não guarda o que lê, mas quem
+          controla a máquina pode mudar o programa e guardar.</p>
+        <p>E fica público na rede que você fez o pedido, quando, para qual modelo e quanto pagou. Não mande senha,
+          documento nem segredo.</p></div></details>
+      <details><summary>O Sigma Code mexe nos meus arquivos?</summary><div>
+        <p>Só se você deixar. O Sigma Code é um agente de programação que usa a IA da rede, na aba Programar do painel.
+          Você escolhe a pasta do projeto, e ele só mexe dentro dela. Cada comando passa por você antes de rodar, e cada
+          mudança em arquivo também, a não ser que você mesmo libere. Arquivos de senha e chaves (.env, .key, .ssh)
+          ficam de fora.</p>
+        <p>Cada passo do Sigma Code vai para uma máquina sorteada e leva tudo o que o agente já leu da pasta: ao longo de
+          uma tarefa, várias máquinas de outras pessoas acabam vendo os seus arquivos. Cada uma precisa ler para responder,
+          mas é o computador de um estranho. Não use em pastas com documentos pessoais. Cada passo é pago em SIG.</p></div></details>
+      <details><summary>Por que o antivírus reclama?</summary><div><p>Porque o app é novo, ainda não tem assinatura digital e
+        minera, e antivírus desconfiam de todo minerador. Antes de liberar qualquer coisa, confira se você baixou do
+        endereço oficial e se o SHA-256 bate. <a href="/baixar#aviso">Veja o passo a passo.</a></p></div></details>
+      <details><summary>Posso minerar em vários computadores?</summary><div><p>Pode, todos com a mesma carteira. Cada
+        computador minera com a sua própria identidade, e os pontos de todos somam na carteira. O limite é de 256
+        relatórios de mineração por janela de 5 minutos para cada conexão de internet: folga de sobra para uma casa ou uma
+        escola. Mas com CGNAT, comum na internet de celular e em muitas de fibra, vizinhos dividem esse limite.
+        <a href="/tutorial#limites">Entenda.</a></p></div></details>
+      <details><summary>Preciso de placa de vídeo?</summary><div><p>Não. A mineração usa o processador. Se você tiver placa de vídeo, o Sigma pode usá-la para rodar a IA mais rápido.</p></div></details>
+      <details><summary>Posso usar a MetaMask?</summary><div><p>Pode. O endereço do Sigma é o mesmo da MetaMask, só muda o
+        começo: <code>sig7e5f…</code> é o mesmo que <code>0x7e5f…</code>. Para minerar para a sua conta da MetaMask,
+        escolha “Só colar um endereço” no app. Não cole no app a chave da conta onde você guarda outras criptomoedas.</p></div></details>
+      <details><summary>E se eu desligar o computador?</summary><div><p>Ele para de minerar e de hospedar. O que você já ganhou fica na carteira, e o trabalho das últimas janelas de 5 minutos ainda é pago nos minutos seguintes.</p></div></details>
+    </div>
+  </div>
+</section>
+
+<div class="ticker paper reverse" aria-hidden="true"><div>
+  Baixe ✦ Informe sua carteira ✦ Pronto ✦ Acenda o seu quadrado ✦ Baixe ✦ Informe sua carteira ✦ Pronto ✦ Acenda o seu quadrado ✦
+  Baixe ✦ Informe sua carteira ✦ Pronto ✦ Acenda o seu quadrado ✦ Baixe ✦ Informe sua carteira ✦ Pronto ✦ Acenda o seu quadrado ✦&nbsp;
+</div></div>
+
+<section class="sec final">
+  <div class="inner">
+    <h2>Acenda o seu <span>quadrado</span>.</h2>
+    <p>Baixe o Sigma, informe sua carteira e deixe seu computador fazer parte do robô que é de todo mundo.</p>
+    <a class="btn primary big" href="/baixar">Baixar o Sigma <span class="arrow" aria-hidden="true">→</span></a>
+  </div>
+</section>
+</main>
+
+<footer class="footer">
+  <span class="motto">Queremos que os donos dos robôs sejam <span>as pessoas</span>, não as Big Techs.</span>
+  <nav aria-label="Rodapé"><a href="/">Manifesto</a><a href="/baixar">Baixar</a><a href="/tutorial">Como funciona</a><a href="/forum">Fórum</a><a href="/carteira">Carteira</a></nav>
+  <p style="margin:14px 0 0">Σ Sigma · código-fonte disponível · feito por gente, para gente</p>
+</footer>
+
+<script>
+// revela as seções ao rolar; se algo falhar, mostra tudo (o conteúdo nunca fica escondido)
+(() => {
+  const els = document.querySelectorAll(".reveal");
+  try {
+    const io = new IntersectionObserver((entries) => entries.forEach((e) => {
+      if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+    }), {rootMargin: "0px 0px -8% 0px"});
+    els.forEach((el) => io.observe(el));
+  } catch { els.forEach((el) => el.classList.add("in")); }
+})();
+</script>
+<script>
+const $ = (id) => document.getElementById(id);
+const UNIT = 1e6, CAP = 100e6 * UNIT, PER_YEAR = 730;
+const RATE = 0.9999;   // a curva usa a regra de hoje: 0,01% do que falta a cada 12 h (a taxa pode mudar por votação)
+const nf = (n, d = 0) => Number(n).toLocaleString("pt-BR", {maximumFractionDigits: d});
+const sig = (u) => nf(u / UNIT, u < 1000 * UNIT ? 2 : 0);   // µSIG → SIG legível
+const has = (v) => typeof v === "number" && isFinite(v);
+function pctTxt(p) { return (p === 0 ? "0" : nf(p, p < .01 ? 4 : p < 1 ? 3 : 2)) + "%"; }
+// o mesmo formato do painel: H/s abaixo de mil, depois kH/s, MH/s… com uma casa decimal
+function hashTxt(h) {
+  const u = ["H/s", "kH/s", "MH/s", "GH/s", "TH/s"];
+  let i = 0;
+  while (h >= 1000 && i < u.length - 1) { h /= 1000; i++; }
+  return nf(h, i ? 1 : 0) + " " + u[i];
+}
+function periodTxt(s) { return s % 3600 === 0 ? nf(s / 3600) + " horas" : s % 60 === 0 ? nf(s / 60) + " min" : nf(s) + " s"; }
+
+// ---------------------------------------------------------------- o robô de quadrados
+const ROBOT = [
+  "......####......",
+  ".......##.......",
+  "..############..",
+  ".##############.",
+  ".##############.",
+  ".##....##....##.",
+  ".##....##....##.",
+  ".##############.",
+  "################",
+  "################",
+  ".###........###.",
+  ".##############.",
+  "..############..",
+  "......####......",
+  "..############..",
+  ".##############.",
+  "################",
+  "################",
+];
+const robot = (() => {
+  const svg = $("robot"), NS = "http://www.w3.org/2000/svg", cells = [];
+  ROBOT.forEach((row, y) => [...row].forEach((c, x) => {
+    if (c !== "#") return;
+    const r = document.createElementNS(NS, "rect");
+    r.setAttribute("x", x * 24); r.setAttribute("y", y * 24);
+    r.setAttribute("width", 20); r.setAttribute("height", 20);
+    svg.appendChild(r);
+    cells.push({r, y});
+  }));
+  // ordem fixa de acender: de baixo para cima, com um pouco de acaso (semente fixa: o desenho é o mesmo em toda visita)
+  let a = 51515;
+  const rnd = () => {
+    a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+  cells.forEach((c) => c.k = (ROBOT.length - c.y) * 10 + rnd() * 16);
+  cells.sort((p, q) => p.k - q.k);
+  let lit = 0;
+  return {
+    total: cells.length,
+    set(n) {
+      n = Math.max(0, Math.min(n, cells.length));
+      cells.forEach((c, i) => {
+        c.r.style.transitionDelay = i >= lit && i < n ? (i - lit) * 70 + "ms" : "0ms";
+        c.r.classList.toggle("on", i < n);
+        c.r.classList.toggle("new", i === n - 1);
+      });
+      lit = n;
+    },
+  };
+})();
+function robotCaption(n) {
+  const cap = $("robot-cap");
+  if (n == null) {
+    cap.textContent = "Sem resposta da rede agora. Quando ela voltar, cada quadrado aceso será um computador online.";
+  } else if (n === 0) {
+    cap.innerHTML = 'Nenhum computador online agora. <a href="/baixar">Acenda o primeiro quadrado.</a>';
+  } else if (n > robot.total) {
+    cap.innerHTML = `Hoje são <b>${nf(n)}</b> computadores na rede: o desenho ficou pequeno para tanta gente.`;
+  } else {
+    cap.innerHTML = `Cada quadrado aceso é um computador ligado na rede agora. Hoje: <b>${nf(n)}</b>. ` +
+      '<a href="/baixar">O próximo pode ser o seu.</a>';
+  }
+}
+
+// ---------------------------------------------------------------- curva da emissão
+const chart = (() => {
+  const L = 64, R = 700, T = 24, B = 290, N = 40 * PER_YEAR, VW = 720;   // 29.200 períodos de 12 h = 40 anos
+  const X = (n) => L + n / N * (R - L), Y = (f) => B - f * (B - T);
+  const svg = $("curve"), box = $("chart"), tip = $("tip");
+  const cross = svg.querySelector(".cross"), hdot = svg.querySelector(".hdot"), today = svg.querySelector(".today-g");
+  let idx = 6932;   // metade do teto
+  function show(n) {
+    n = Math.max(0, Math.min(N, Math.round(n)));
+    idx = n;
+    const f = 1 - Math.pow(RATE, n), x = X(n), y = Y(f);
+    cross.setAttribute("x1", x); cross.setAttribute("x2", x); cross.style.display = "";
+    hdot.setAttribute("cx", x); hdot.setAttribute("cy", y); hdot.style.display = "";
+    const minted = CAP * f / UNIT, mint = n ? CAP * Math.pow(RATE, n - 1) * (1 - RATE) / UNIT : 0;
+    const when = n === 0 ? "início da rede" : n < PER_YEAR ? `dia ${nf(n / 2)}` : `ano ${nf(n / PER_YEAR, 1)}`;
+    tip.innerHTML = `<b>${nf(minted)} SIG impressos</b><span>${pctTxt(f * 100)} do teto · ${when}</span>` +
+      (n ? `<span>nessas 12 horas saem ${nf(mint)} SIG</span>` : "");
+    const w = svg.getBoundingClientRect().width, s = w / VW;
+    tip.style.left = Math.max(100, Math.min(w - 100, x * s)) + "px";
+    tip.style.top = y * s + "px";
+    tip.classList.toggle("below", y * s < 110);
+    tip.hidden = false;
+  }
+  function hide() { cross.style.display = hdot.style.display = "none"; tip.hidden = true; }
+  box.addEventListener("pointermove", (e) => {
+    const r = svg.getBoundingClientRect();
+    show(((e.clientX - r.left) / r.width * VW - L) / (R - L) * N);
+  });
+  box.addEventListener("pointerleave", hide);
+  box.addEventListener("focus", () => show(idx));
+  box.addEventListener("blur", hide);
+  box.addEventListener("keydown", (e) => {
+    const month = PER_YEAR / 12;
+    const step = {ArrowRight: month, ArrowLeft: -month, ArrowUp: month, ArrowDown: -month, PageUp: PER_YEAR, PageDown: -PER_YEAR}[e.key];
+    if (step) { e.preventDefault(); show(idx + step); }
+    if (e.key === "Home" || e.key === "End") { e.preventDefault(); show(e.key === "Home" ? 0 : N); }
+    if (e.key === "Escape") hide();
+  });
+  return {
+    // onde a rede está na curva: o período de 12 h "equivalente" ao que já foi impresso
+    today(frac) {
+      if (!(frac >= 0 && frac < 1)) { today.style.display = "none"; return; }
+      const n = Math.min(N, frac > 0 ? Math.log(1 - frac) / Math.log(RATE) : 0);
+      today.setAttribute("transform", `translate(${X(n).toFixed(1)} ${Y(frac).toFixed(1)})`);
+      today.querySelector("text").textContent = frac > 0 ? "hoje" : "hoje: o começo";
+      today.style.display = "";
+    },
+  };
+})();
+
+// ---------------------------------------------------------------- dados ao vivo
+let failures = 0, lastOk = null;
+const NOTE = "saem aos poucos, um pouco em cada bloco, divididos entre quem está minerando, na proporção do trabalho de cada computador. Nenhum SIG sai de graça.";
+const IDLE = "Neste momento ninguém está minerando, então nada está saindo: o SIG espera. Quem ligar o computador agora divide a emissão com menos gente.";
+
+async function getJSON(url) {
+  const r = await fetch(url, {cache: "no-store"});
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+async function load() {
+  const [a, b, c] = await Promise.allSettled([getJSON("/status"), getJSON("/mining"), getJSON("/governance")]);
+  const st = a.status === "fulfilled" ? a.value : null, mi = b.status === "fulfilled" ? b.value : null;
+  const gov = c.status === "fulfilled" ? c.value : null;
+  if (!st && !mi) return offline();
+  failures = 0;
+  lastOk = new Date();
+  // /mining tem os campos da emissão; o /status traz o mesmo resumo em "supply"
+  const sup = Object.assign({}, st && st.supply, mi && {minted: mi.minted, cap: mi.cap, epoch: mi.epoch,
+    next_mint: mi.next_mint, mint_per_hour: mi.mint_per_hour, mint_per_period: mi.mint_per_period,
+    miners_epoch: mi.miners_epoch, hashrate: mi.hashrate});
+  render(st, mi, sup, gov);
+}
+// SIG por hora: o nó manda pronto; sem ele, sai da emissão de 12 h
+function perHour(sup, mi) {
+  if (has(sup.mint_per_hour)) return sup.mint_per_hour;
+  const period = has(sup.mint_per_period) ? sup.mint_per_period : sup.next_mint;
+  const secs = mi && has(mi.epoch_seconds) && mi.epoch_seconds > 0 ? mi.epoch_seconds : 43200;
+  return has(period) ? period * 3600 / secs : null;
+}
+function render(st, mi, sup, gov) {
+  $("net").className = "pill live";
+  $("net").textContent = st && has(st.height) ? "rede ao vivo · bloco " + nf(st.height) : "rede ao vivo";
+  if (mi && has(mi.epoch_seconds)) {
+    document.querySelectorAll("[data-period]").forEach((e) => e.textContent = periodTxt(mi.epoch_seconds));
+  }
+  if (mi && has(mi.mint_bps)) {   // a taxa é votável: o texto segue a regra de agora
+    document.querySelectorAll("[data-rate]").forEach((e) => e.textContent = nf(mi.mint_bps / 100, 2) + "%");
+  }
+  const hour = perHour(sup, mi), period = has(sup.mint_per_period) ? sup.mint_per_period : sup.next_mint;
+  if (has(hour)) $("cd-hour").textContent = nf(hour / UNIT, hour < 10 * UNIT ? 2 : 0);
+  if (has(period)) $("cd-mint").textContent = sig(period);
+  $("cd-note").textContent = sup.miners_epoch === 0 ? IDLE : NOTE;
+
+  const cap = has(sup.cap) && sup.cap > 0 ? sup.cap : CAP;
+  $("s-cap").textContent = "de " + sig(cap);
+  if (has(sup.minted)) {
+    const pct = sup.minted / cap * 100;
+    $("s-minted").textContent = sig(sup.minted);
+    $("s-bar").style.width = Math.min(100, pct) + "%";
+    $("s-meter").setAttribute("aria-valuenow", pct.toFixed(4));
+    $("s-pct").textContent = sup.minted ? pctTxt(pct) + " do teto" : "nenhum SIG impresso ainda: ele começa a sair assim que alguém minerar";
+    $("s-left").textContent = "faltam " + sig(cap - sup.minted) + " SIG";
+    chart.today(sup.minted / cap);
+  }
+  $("s-next").textContent = has(hour) ? sig(hour) : "—";
+  $("s-hash").textContent = has(sup.hashrate) ? hashTxt(sup.hashrate) : "—";
+  $("s-miners").textContent = has(sup.miners_epoch) ? nf(sup.miners_epoch) : "—";
+  if (st) {
+    const machines = has(st.machines) ? st.machines : null;
+    $("s-machines").textContent = machines == null ? "—" : nf(machines);
+    $("s-forum").textContent = st.forum && has(st.forum.users) ? nf(st.forum.users) : "—";
+    $("s-height").textContent = has(st.height) ? "#" + nf(st.height) : "—";
+    if (has(st.block_interval) && st.block_interval > 0) {
+      $("s-interval").textContent = "um bloco novo a cada ~" + nf(st.block_interval, 1) + " s";
+    }
+    if (machines != null) { robot.set(machines); robotCaption(machines); }
+  }
+  // votações: só a contagem (nenhum texto de estranho entra nesta página)
+  if (gov && Array.isArray(gov.proposals)) {
+    const open = gov.proposals.filter((p) => p && p.status === "open").length;
+    $("gov-live").textContent = open
+      ? `Agora: ${open === 1 ? "1 votação aberta" : nf(open) + " votações abertas"}.`
+      : "Nenhuma votação aberta agora. A próxima pode ser a sua.";
+  }
+  const line = $("live-line");
+  line.classList.remove("off");
+  line.textContent = "Ao vivo · atualizado às " + lastOk.toLocaleTimeString("pt-BR");
+}
+function offline() {
+  failures++;
+  $("net").className = "pill off";
+  $("net").textContent = "rede fora do ar";
+  const line = $("live-line");
+  line.classList.add("off");
+  line.textContent = lastOk
+    ? "Sem resposta da rede. Mostrando os números recebidos às " + lastOk.toLocaleTimeString("pt-BR") + ". Tentando de novo…"
+    : "Sem resposta da rede agora. Tentando de novo em alguns segundos…";
+  if (!lastOk) {
+    $("cd-note").textContent = "Quando a rede responder, os números de agora aparecem aqui. A regra não muda: a cada 12 " +
+      "horas, 0,01% do que falta sai aos poucos, em cada bloco, para quem minerou.";
+    robotCaption(null);
+  }
+}
+(async function loop() {
+  try { await load(); } catch { offline(); }
+  setTimeout(loop, document.hidden ? 60000 : failures ? 15000 : 20000);
+})();
+document.addEventListener("visibilitychange", () => { if (!document.hidden) load().catch(offline); });
+
+$("share").onclick = async (e) => {
+  e.preventDefault();
+  const data = {title: "Vão substituir você por um robô.",
+    text: "Queremos que os donos dos robôs sejam as pessoas, não as Big Techs. Conheça o Sigma:", url: location.origin + "/"};
+  try {
+    if (navigator.share) await navigator.share(data);
+    else { await navigator.clipboard.writeText(data.text + " " + data.url); alert("Link copiado. Mande para quem precisa ver isso."); }
+  } catch {}
+};
+</script>
+</body>
+</html>

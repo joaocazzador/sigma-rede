@@ -1,0 +1,17 @@
+# dados gerados ao rodar (chaves, chains, modelos baixados, logs)
+demo-data/
+rede-local/
+*.key
+*.gguf
+*.db
+chain.jsonl
+
+# builds (os instaladores ficam na página /baixar da rede)
+build/
+dist/
+
+__pycache__/
+*.pyc
+
+# notas internas de revisão (caminhos locais e detalhes de ataques)
+docs/revisao-*.md

@@ -1,0 +1,913 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23ff3b1f'/%3E%3Ctext x='32' y='50' font-size='50' font-weight='900' text-anchor='middle' font-family='Arial Black,Arial,sans-serif' fill='%230b0b0a'%3E%CE%A3%3C/text%3E%3C/svg%3E">
+<title>Carteira Sigma</title>
+<meta name="description" content="A carteira da rede Sigma: veja o saldo, envie SIG, acompanhe a mineração e as votações da rede e cuide dos seus sites e modelos. Funciona com a MetaMask.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Sigma">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:url" content="https://sigma.195-35-29-232.sslip.io/carteira">
+<meta property="og:title" content="Carteira Sigma">
+<meta property="og:description" content="Saldo, envios, mineração, sites e modelos da rede Sigma. Funciona com a MetaMask.">
+<meta property="og:image" content="https://sigma.195-35-29-232.sslip.io/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0b0b0a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="/sigma.css">
+<!-- integridade conferida: se o arquivo do CDN mudar um byte, o navegador não roda (a chave passa por ele) -->
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js" integrity="sha384-6Zl0Pc8zjSz8KvmNeXRvUQgY4ryFb+BwDvKCmLYcBME0joAaru491tQgi9B7zsMM" crossorigin="anonymous"></script>
+<style>
+main { max-width: 1040px; margin: 0 auto; padding: 24px 16px 70px; }
+main h2 { font-size: clamp(30px, 4.4vw, 46px); }
+.ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+.mono { word-break: break-all; }
+.mono.ex { white-space: nowrap; }   /* exemplo curto: não quebra no meio */
+.balance { font: 400 clamp(44px, 7vw, 66px)/1 var(--display); letter-spacing: .5px; margin: 4px 0 6px; }
+#mode { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px; }
+#mine-line { max-width: 62ch; }
+#mine-line .live { color: var(--ok); font-weight: 600; }
+.mini { padding: 2px 8px !important; font-size: 11px !important; }
+button.danger { color: var(--bad); border-color: var(--bad); }
+.stat span.muted { display: block; }
+.stat b { font: 400 26px/1.15 var(--display); overflow-wrap: anywhere; }
+.tabs { display: flex; gap: 2px; border-bottom: 2px solid var(--text); margin-bottom: 16px; overflow-x: auto; }
+.tabs button { border: 0; background: none; color: var(--muted); padding: 10px 12px; white-space: nowrap; font-size: 13px; }
+.tabs button:hover { transform: none; box-shadow: none; color: var(--text); }
+.tabs button.on { color: var(--text); box-shadow: inset 0 -3px 0 var(--accent); }
+dialog { border: 2px solid var(--text); background: var(--card); color: var(--text); max-width: 480px; width: calc(100% - 32px); padding: 22px; }
+dialog::backdrop { background: rgba(0, 0, 0, .7); }
+dialog h3 { margin-top: 0; }
+dialog p { margin: 0 0 12px; }
+.model { border: 1px solid var(--line); background: var(--bg); padding: 16px; margin-bottom: 12px; }
+.empty { color: var(--muted); padding: 22px 0; text-align: center; }
+.empty a { color: var(--accent); }
+.cta-mine { border: 2px solid var(--accent); background: var(--accent-soft); padding: 18px; }
+.cta-mine h3 { margin: 0 0 6px; }
+.cta-mine p { margin: 0 0 12px; }
+main h3 { margin: 24px 0 10px; }
+/* caixa de seleção com texto normal (o label padrão do site é rótulo de campo, em caixa alta) */
+label.check { display: flex; gap: 10px; align-items: center; margin: 14px 0 0; font: 600 15px/1.4 var(--sans);
+              text-transform: none; letter-spacing: 0; color: var(--text); cursor: pointer; }
+label.check input { width: 20px; height: 20px; flex: none; margin: 0; accent-color: var(--accent); }
+.keybox { background: var(--bg); border: 2px solid var(--accent); padding: 12px 14px; font: 600 15px/1.5 var(--mono);
+          word-break: break-all; user-select: all; }
+#show-new-row { margin: 14px 0 0; font-size: 14px; }
+/* votações (só leitura): sim em vermelho, não em papel; o trilho mostra a proporção */
+.vote { border: 1px solid var(--line); background: var(--bg); padding: 16px; margin-bottom: 12px; min-width: 0; }
+.vote.open { border-left: 4px solid var(--accent); }
+.vote h4 { margin: 0 0 4px; font: 600 17px/1.4 var(--sans); overflow-wrap: anywhere; }
+.vote .what { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+.vote .bar { display: flex; height: 12px; border: 2px solid var(--text); background: var(--card); margin: 12px 0 6px; }
+.vote .bar i { display: block; height: 100%; }
+.vote .bar .yes { background: var(--accent); }
+.vote .bar .no { background: var(--paper); }
+.vote .totals { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; font: 600 13px var(--mono); }
+.vote .totals .y { color: var(--accent); }
+.vote details { margin-top: 8px; font-size: 14px; }
+.vote details summary { cursor: pointer; color: var(--muted); }
+.vote .body { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 6px; }
+</style>
+</head>
+<body>
+<nav class="nav" aria-label="Principal">
+  <a class="brand" href="/"><span>Σ</span> SIGMA</a>
+  <div class="links">
+    <a class="link" href="/">Manifesto</a>
+    <a class="link" href="/baixar">Baixar</a>
+    <a class="link" href="/tutorial">Como funciona</a>
+    <a class="link" href="/forum">Fórum</a>
+    <a class="link on" href="/carteira" aria-current="page">Carteira</a>
+  </div>
+  <div class="spacer"></div>
+  <span class="pill" id="net">conectando…</span>
+  <button id="logout" class="mini" hidden>Sair</button>
+</nav>
+<main>
+  <!-- tela de entrada -->
+  <section id="login" hidden>
+    <div class="card">
+      <h2 style="margin-top:0">Acesse sua carteira</h2>
+      <p class="muted">Seu endereço Sigma é o mesmo de uma conta Ethereum, só muda o começo:
+        <span class="mono ex">sigABC…</span> = <span class="mono ex">0xABC…</span> Entre com a MetaMask ou com uma carteira guardada neste navegador.</p>
+      <div class="callout warn" id="no-ethers" hidden><b>A parte da carteira que cuida das chaves não carregou.</b> Confira
+        sua internet e recarregue a página. Se continuar, pode ser que o arquivo tenha chegado alterado no caminho e o
+        navegador recusou, para proteger você: avise no <a href="/forum?c=ajuda">fórum</a>.</div>
+      <div class="grid">
+        <div class="card" style="margin:0">
+          <h3 style="margin-top:0">MetaMask</h3>
+          <p class="muted">A chave fica na MetaMask, que assina as transações. A rede Sigma é adicionada nela com um clique.</p>
+          <button class="primary" id="btn-mm">Conectar MetaMask</button>
+        </div>
+        <div class="card" style="margin:0" id="unlock-box" hidden>
+          <h3 style="margin-top:0">Desbloquear a carteira deste navegador</h3>
+          <p class="muted mono" id="saved-addr"></p>
+          <label for="unlock-pass">Senha</label><input type="password" id="unlock-pass" autocomplete="current-password">
+          <div class="row" style="margin-top:10px"><button class="primary" id="btn-unlock">Desbloquear</button>
+            <button class="danger" id="btn-forget">Esquecer</button></div>
+          <p id="show-new-row"><a href="#" id="show-new">Criar ou importar outra carteira</a></p>
+        </div>
+        <div class="card" style="margin:0" id="new-box">
+          <h3 style="margin-top:0">Criar ou importar uma carteira</h3>
+          <p class="muted">Crie uma carteira nova ou importe a chave de uma carteira que você usa só para o Sigma, como a
+            criada pelo app. A chave fica cifrada com a sua senha, só neste navegador. Não cole aqui a chave da conta onde
+            você guarda outras criptomoedas: para usar a MetaMask, conecte pelo botão dela.</p>
+          <label for="import-key">Chave privada (deixe vazio para criar uma carteira nova)</label>
+          <input id="import-key" placeholder="0x… (ou arraste um arquivo .key aqui)" autocomplete="off" spellcheck="false">
+          <label for="new-pass">Senha para proteger (pelo menos 10 caracteres)</label>
+          <input type="password" id="new-pass" autocomplete="new-password">
+          <button class="primary" id="btn-local" style="margin-top:10px">Criar carteira</button>
+        </div>
+      </div>
+    </div>
+    <div class="cta-mine">
+      <h3>Ainda não tem SIG?</h3>
+      <p class="muted">SIG só nasce da mineração: ninguém ganha de graça, nem os criadores. Baixe o app, informe o endereço da
+        sua carteira e deixe o computador trabalhar. O SIG novo sai um pouco em cada bloco e é dividido entre quem está
+        minerando, na proporção do trabalho de cada computador.</p>
+      <a class="btn primary" href="/baixar">Baixar o Sigma</a>
+    </div>
+  </section>
+
+  <!-- carteira -->
+  <section id="wallet" hidden>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:flex-start">
+        <div>
+          <div class="muted" id="mode"></div>
+          <div class="balance" id="balance">—</div>
+          <div class="muted" id="mine-line"></div>
+        </div>
+        <div class="row">
+          <button class="primary" data-dialog="dlg-send">Enviar</button>
+          <a class="btn" id="btn-mine" href="/baixar" hidden>Minerar para esta carteira</a>
+          <button id="btn-export" hidden>Mostrar chave</button>
+        </div>
+      </div>
+      <div class="mono" style="margin-top:12px"><span id="addr-sig"></span> <button class="mini" data-copy="addr-sig">copiar</button></div>
+      <div class="mono muted"><span id="addr-eth"></span> <button class="mini" data-copy="addr-eth">copiar</button></div>
+    </div>
+
+    <div class="card">
+      <div class="tabs" id="tabs">
+        <button data-tab="activity" class="on">Atividade</button>
+        <button data-tab="mining">Mineração</button>
+        <button data-tab="models">Meus modelos</button>
+        <button data-tab="sites">Meus sites</button>
+        <button data-tab="votes">Votações</button>
+        <button data-tab="explorer">Explorador da rede</button>
+      </div>
+      <div data-pane="activity"></div>
+      <div data-pane="mining" hidden></div>
+      <div data-pane="models" hidden></div>
+      <div data-pane="sites" hidden></div>
+      <div data-pane="votes" hidden></div>
+      <div data-pane="explorer" hidden></div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer">
+  <span class="motto">Queremos que os donos dos robôs sejam <span>as pessoas</span>, não as Big Techs.</span>
+  <nav aria-label="Rodapé"><a href="/">Manifesto</a><a href="/baixar">Baixar</a><a href="/tutorial">Como funciona</a><a href="/forum">Fórum</a><a href="/carteira">Carteira</a></nav>
+  <p style="margin:14px 0 0">Σ Sigma · código-fonte disponível · feito por gente, para gente</p>
+</footer>
+
+<dialog id="dlg-send">
+  <h3>Enviar SIG</h3>
+  <label for="send-to">Para (sig… ou 0x…)</label><input id="send-to" autocomplete="off" spellcheck="false">
+  <label for="send-amount">Quantidade (SIG)</label><input id="send-amount" type="number" min="0" step="0.000001">
+  <p class="muted" style="margin:10px 0 0">Mandar SIG é de graça: a rede não cobra taxa nem gás.</p>
+  <div class="row" style="margin-top:14px;justify-content:flex-end">
+    <button data-close>Cancelar</button><button class="primary" id="btn-send">Enviar</button></div>
+</dialog>
+
+<dialog id="dlg-op">
+  <h3 id="op-title"></h3>
+  <p class="muted" id="op-help"></p>
+  <div id="op-fields"></div>
+  <div class="row" style="margin-top:14px;justify-content:flex-end">
+    <button data-close>Cancelar</button><button class="primary" id="op-go">Confirmar</button></div>
+</dialog>
+
+<!-- confirmação de ação perigosa: o foco começa em Cancelar -->
+<dialog id="dlg-ask">
+  <h3 id="ask-title"></h3>
+  <p class="muted" id="ask-text"></p>
+  <div class="row" style="margin-top:14px;justify-content:flex-end">
+    <button id="ask-no" autofocus>Cancelar</button><button class="primary" id="ask-yes"></button></div>
+</dialog>
+
+<!-- a chave aparece aqui (backup obrigatório ao criar, ou "Mostrar chave") -->
+<dialog id="dlg-key">
+  <h3 id="key-title">Guarde esta chave agora</h3>
+  <p class="muted" id="key-text"></p>
+  <div class="keybox" id="key-value"></div>
+  <div class="row" style="margin-top:10px"><button type="button" id="key-copy">Copiar chave</button></div>
+  <label class="check" id="key-check-row"><input type="checkbox" id="key-check"> Guardei minha chave</label>
+  <div class="row" style="margin-top:16px;justify-content:flex-end"><button class="primary" id="key-go" disabled>Continuar</button></div>
+</dialog>
+
+<div id="toast" role="status"></div>
+
+<script>
+const SYSTEM = "0x000000000000000000000000000000000000516d";
+const UNIT = 1_000_000;
+const MIN_PASS = 10;
+const MIN_SITE_BUDGET = 10_000;           // µSIG: o mínimo da rede para um site novo
+const MAX_FILE = 20 * 1024 * 1024;        // por arquivo de site (o mesmo limite do nó)
+const SITE_NAME = /^[a-z0-9][a-z0-9-]{2,31}$/;
+const PRUNE_WINDOWS = 2016;               // janelas (~7 dias) que um site expirado espera antes de a rede apagá-lo e liberar o nome (chain.PRUNE_WINDOWS)
+const JOB_END = ["done", "failed", "disputed", "expired", "canceled"];
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const sig = (n) => (n / UNIT).toLocaleString("pt-BR", {minimumFractionDigits: 2, maximumFractionDigits: 6}) + " SIG";
+const nf = (n, d = 0) => Number(n || 0).toLocaleString("pt-BR", {maximumFractionDigits: d});
+const short = (a) => a ? a.slice(0, 9) + "…" + a.slice(-4) : "—";
+const toSig = (a) => "sig" + a.toLowerCase().replace(/^0x|^sig/, "");
+const toEth = (a) => "0x" + a.toLowerCase().replace(/^0x|^sig/, "");
+const gb = (mb) => nf(mb / 1000, mb < 10000 ? 1 : 0) + " GB";
+const plural = (n, um, varios) => nf(n) + " " + (n === 1 ? um : varios);
+// campo de diálogo realmente preenchido: vazio quer dizer "não mexer", não zero (achado carteira-royalty-zerado)
+const filled = (i) => !!i && i.value.trim() !== "";
+const api = async (path, opts) => {
+  let r;
+  try { r = await fetch(path, opts); }
+  catch { throw new Error("a rede não respondeu: confira sua internet e tente de novo"); }
+  let j = null;
+  try { j = await r.json(); } catch {}   // resposta que não é JSON (servidor fora, página de erro)
+  if (!r.ok || j === null) throw new Error((j && j.error) || "a rede respondeu " + r.status);
+  return j;
+};
+let status = {}, me = null, mode = null, localWallet = null, mmProvider = null, tab = "activity", names = {};
+const HAS_ETHERS = typeof window.ethers !== "undefined";
+
+function toast(msg, ms = 3500) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.style.display = "none", ms);
+}
+function storeGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function storeSet(k, v) {
+  try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); return true; } catch { return false; }
+}
+// o mesmo formato do painel: H/s abaixo de mil, depois kH/s, MH/s… com uma casa decimal
+function hashTxt(h) {
+  const u = ["H/s", "kH/s", "MH/s", "GH/s"];
+  let i = 0;
+  while (h >= 1000 && i < u.length - 1) { h /= 1000; i++; }
+  return nf(h, i ? 1 : 0) + " " + u[i];
+}
+function untilTxt(sec) {
+  if (!(sec > 0)) return "agora";
+  const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60);
+  return h ? `${h} h ${String(m).padStart(2, "0")} min` : m ? `${m} min` : `${Math.ceil(sec)} s`;
+}
+// redes de teste usam épocas de segundos; a principal, de 12 horas
+const periodTxt = (s) => s % 3600 === 0 ? nf(s / 3600) + " horas" : s % 60 === 0 ? nf(s / 60) + " min" : nf(s) + " s";
+function needNet() { if (!status.chain_id) throw new Error("a rede não respondeu ainda; tente de novo em instantes"); }
+// endereço digitado: aceita sig… ou 0x…; letras misturadas têm que bater com o checksum (EIP-55) da MetaMask
+function parseAddr(text) {
+  const hex = String(text || "").trim().replace(/^(0x|sig)/i, "");
+  if (!/^[0-9a-fA-F]{40}$/.test(hex)) throw new Error("endereço inválido: são 40 caracteres depois de sig ou 0x");
+  try { return ethers.getAddress("0x" + hex).toLowerCase(); }
+  catch { throw new Error("Esse endereço tem um caractere errado. Copie e cole de novo direto da MetaMask, sem digitar."); }
+}
+
+// ------------------------------------------------------------- diálogos
+// pergunta antes de algo sem volta; Esc ou Cancelar = não
+function ask({title, text, ok, danger = false}) {
+  return new Promise((resolve) => {
+    const d = $("dlg-ask"), yes = $("ask-yes"), no = $("ask-no");
+    $("ask-title").textContent = title;
+    $("ask-text").textContent = text;
+    yes.textContent = ok;
+    yes.className = danger ? "danger" : "primary";
+    const done = (v) => { yes.onclick = no.onclick = d.oncancel = null; if (d.open) d.close(); resolve(v); };
+    yes.onclick = () => done(true);
+    no.onclick = () => done(false);
+    d.oncancel = (e) => { e.preventDefault(); done(false); };
+    d.showModal();
+    no.focus();
+  });
+}
+// mostra a chave; no modo "backup" só deixa continuar depois de marcar "Guardei minha chave"
+function showKey(key, backup) {
+  return new Promise((resolve) => {
+    const d = $("dlg-key"), go = $("key-go"), check = $("key-check");
+    $("key-title").textContent = backup ? "Guarde esta chave agora" : "Sua chave privada";
+    $("key-text").textContent = backup
+      ? "Esta carteira fica só neste navegador. Se você limpar os dados de navegação, usar uma janela anônima ou trocar " +
+        "de computador, ela some, e os SIG somem junto, a não ser que você tenha a chave anotada. Anote num papel ou num " +
+        "gerenciador de senhas e nunca mande para ninguém."
+      : "Quem tiver esta chave controla seus SIG. Use para importar na MetaMask (Importar conta → Chave privada) ou no " +
+        "app Sigma (“Usar minha chave”). Nunca mande para ninguém.";
+    $("key-value").textContent = key;
+    $("key-check-row").hidden = !backup;
+    check.checked = false;
+    go.textContent = backup ? "Continuar" : "Fechar";
+    go.disabled = backup;
+    check.onchange = () => { go.disabled = !check.checked; };
+    $("key-copy").onclick = async () => {
+      let ok = false;
+      try { await navigator.clipboard.writeText(key); ok = true; } catch {}
+      toast(ok ? "Chave copiada. Cole num lugar seguro e apague de onde mais ela ficar." :
+                 "Não deu para copiar: selecione a chave e copie à mão.");
+    };
+    // no backup, Esc não fecha: a chave só some depois de guardada. Se o navegador fechar à força (Esc duas vezes),
+    // a janela volta na hora: sem a chave anotada, uma carteira só deste navegador pode sumir com os SIG
+    let closed = false;
+    const finish = () => {
+      closed = true;
+      go.onclick = d.oncancel = d.onclose = check.onchange = null;
+      $("key-value").textContent = "";
+      if (d.open) d.close();
+      resolve();
+    };
+    d.oncancel = (e) => { e.preventDefault(); if (!backup) finish(); };
+    d.onclose = () => { if (closed) return; if (!backup) finish(); else if (!d.open) d.showModal(); };
+    go.onclick = finish;
+    d.showModal();
+    (backup ? $("key-copy") : go).focus();
+  });
+}
+
+// ------------------------------------------------------------- envio
+async function ensureChain() {
+  needNet();
+  const chainId = "0x" + status.chain_id.toString(16);
+  try {
+    await window.ethereum.request({method: "wallet_switchEthereumChain", params: [{chainId}]});
+  } catch (e) {
+    if (e.code !== 4902 && e?.data?.originalError?.code !== 4902) throw e;
+    await window.ethereum.request({method: "wallet_addEthereumChain", params: [{
+      chainId, chainName: "Sigma", nativeCurrency: {name: "Sigma", symbol: "SIG", decimals: 18},
+      rpcUrls: [location.origin + "/rpc"], blockExplorerUrls: [location.origin + "/carteira"]}]});
+  }
+}
+async function sendTx(req) {
+  let hash;
+  if (mode === "metamask") {
+    await ensureChain();
+    const signer = await mmProvider.getSigner();
+    hash = (await signer.sendTransaction(req)).hash;
+  } else {
+    hash = (await localWallet.sendTransaction({...req, type: 0, gasPrice: 0n})).hash;
+  }
+  toast("Transação enviada, esperando o próximo bloco…", 10000);
+  for (let i = 0; i < 120; i++) {
+    const st = await api("/tx/" + hash.slice(2));
+    if (st.status === "included") { toast("Confirmada no bloco #" + st.height); refresh(); return st; }
+    if (st.status === "dropped") throw new Error(st.error);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error("a transação não entrou em um bloco a tempo");
+}
+const sendOp = (type, data) => sendTx({to: SYSTEM, value: 0n,
+  data: ethers.hexlify(ethers.toUtf8Bytes(JSON.stringify({type, data})))});
+// a MetaMask e o ethers embrulham o erro do nó em camadas diferentes
+function errMsg(e) {
+  return e?.error?.message || e?.info?.error?.message || e?.data?.message || e?.shortMessage || e?.message || String(e);
+}
+async function guarded(fn, btn) {
+  if (btn) btn.disabled = true;
+  try { await fn(); return true; }
+  catch (e) { toast("Erro: " + errMsg(e), 7000); return false; }
+  finally { if (btn) btn.disabled = false; }
+}
+
+// ------------------------------------------------------------- login
+function rpcProvider() {
+  needNet();
+  return new ethers.JsonRpcProvider(location.origin + "/rpc",
+    {chainId: status.chain_id, name: "sigma"}, {staticNetwork: true});
+}
+function savedAddress() {
+  try { return toSig(JSON.parse(storeGet("sigma.keystore")).address); } catch { return null; }
+}
+async function enter(address, how) {
+  me = toSig(address); mode = how;
+  $("login").hidden = true; $("wallet").hidden = false; $("logout").hidden = false;
+  $("addr-sig").textContent = me; $("addr-eth").textContent = toEth(me);
+  $("mode").textContent = how === "metamask" ? "Conectado pela MetaMask" : "Carteira deste navegador";
+  $("btn-export").hidden = how !== "local";
+  await refresh();
+}
+$("btn-mm").onclick = () => guarded(async () => {
+  if (!window.ethereum) throw new Error("MetaMask não encontrada. Instale a extensão e recarregue a página.");
+  mmProvider = new ethers.BrowserProvider(window.ethereum);
+  const [acc] = await window.ethereum.request({method: "eth_requestAccounts"});
+  await ensureChain();
+  window.ethereum.on?.("accountsChanged", (a) => a[0] ? enter(a[0], "metamask") : location.reload());
+  await enter(acc, "metamask");
+}, $("btn-mm"));
+// o botão diz o que vai acontecer: campo vazio cria, campo preenchido importa
+const syncLocalBtn = () => { $("btn-local").textContent = $("import-key").value.trim() ? "Importar chave" : "Criar carteira"; };
+$("import-key").addEventListener("input", syncLocalBtn);
+$("show-new").onclick = (e) => {
+  e.preventDefault();
+  $("new-box").hidden = false;
+  $("show-new-row").hidden = true;
+  $("import-key").focus();
+};
+$("btn-local").onclick = () => guarded(async () => {
+  needNet();   // antes de criar qualquer coisa: sem rede, a carteira não abre depois
+  const pass = $("new-pass").value;
+  if (pass.length < MIN_PASS) throw new Error("Use uma senha com pelo menos 10 caracteres.");
+  const key = $("import-key").value.trim();
+  let w;
+  if (key) {
+    try { w = new ethers.Wallet(key.startsWith("0x") ? key : "0x" + key); }
+    catch { throw new Error("chave privada inválida: são 64 caracteres, de 0 a 9 e de a até f (pode começar com 0x)"); }
+  } else {
+    w = ethers.Wallet.createRandom();
+  }
+  // já existe outra carteira guardada aqui: substituir apaga a de antes deste navegador
+  const old = savedAddress();
+  if (old && old !== toSig(w.address)) {
+    const yes = await ask({title: "Substituir a carteira deste navegador?",
+      text: `Já existe uma carteira guardada neste navegador (${old}). Se você criar ou importar outra, ela substitui a ` +
+            "atual neste navegador, e os SIG da atual só voltam com a chave dela. Você tem essa chave anotada?",
+      ok: "Substituir", danger: true});
+    if (!yes) return;
+  }
+  toast("Protegendo a chave com sua senha… (leva alguns segundos)", 15000);
+  // sem opções: o ethers usa o scrypt padrão (N = 2^17), bem mais caro de quebrar por tentativa
+  const json = await ethers.encryptKeystoreJson({address: w.address, privateKey: w.privateKey}, pass);
+  const saved = storeSet("sigma.keystore", json);
+  toast(saved ? "Carteira protegida." : "Este navegador não deixou guardar a carteira: ela só vale enquanto esta aba estiver aberta.", 6000);
+  if (!key) await showKey(w.privateKey, true);
+  $("new-pass").value = ""; $("import-key").value = ""; syncLocalBtn();
+  localWallet = new ethers.Wallet(w.privateKey, rpcProvider());
+  await enter(w.address, "local");
+}, $("btn-local"));
+$("btn-unlock").onclick = () => guarded(async () => {
+  needNet();
+  toast("Desbloqueando… (leva alguns segundos)", 15000);
+  let acc;
+  try { acc = await ethers.decryptKeystoreJson(storeGet("sigma.keystore"), $("unlock-pass").value); }
+  catch { throw new Error("senha errada"); }
+  $("unlock-pass").value = "";
+  localWallet = new ethers.Wallet(acc.privateKey, rpcProvider());
+  await enter(acc.address, "local");
+}, $("btn-unlock"));
+$("btn-forget").onclick = async () => {
+  const yes = await ask({title: "Apagar a carteira deste navegador?",
+    text: "Sem a chave privada anotada, os SIG dela ficam inacessíveis para sempre. Apague só se você tem a chave guardada.",
+    ok: "Apagar", danger: true});
+  if (yes) { storeSet("sigma.keystore", null); location.reload(); }
+};
+$("logout").onclick = () => location.reload();
+$("btn-export").onclick = async () => {
+  const yes = await ask({title: "Mostrar a chave privada?",
+    text: "Quem tiver essa chave controla seus SIG. Mostre só se ninguém estiver olhando a sua tela.", ok: "Mostrar"});
+  if (yes) await showKey(localWallet.privateKey, false);
+};
+// arrastar um arquivo .key (carteira da linha de comando) para o campo de importação
+$("import-key").addEventListener("drop", async (e) => {
+  e.preventDefault();
+  try { $("import-key").value = "0x" + JSON.parse(await e.dataTransfer.files[0].text()).private_key; syncLocalBtn(); }
+  catch { toast("Arquivo não reconhecido: esperado um arquivo .key do Sigma"); }
+});
+
+// ------------------------------------------------------------- ações
+document.addEventListener("click", (e) => {
+  const d = e.target.closest("[data-dialog]"); if (d) $(d.dataset.dialog).showModal();
+  const c = e.target.closest("[data-close]"); if (c) c.closest("dialog").close();
+  const cp = e.target.closest("[data-copy]");
+  if (cp) { navigator.clipboard?.writeText($(cp.dataset.copy).textContent); toast("Copiado"); }
+  const t = e.target.closest("[data-tab]");
+  if (t) { tab = t.dataset.tab; render(); }
+  const op = e.target.closest("[data-op]"); if (op) openOp(op.dataset.op, op.dataset.name);
+});
+$("btn-send").onclick = () => guarded(async () => {
+  const to = parseAddr($("send-to").value);
+  const amount = Number($("send-amount").value);
+  if (!(amount > 0)) throw new Error("quantidade inválida");
+  const yes = await ask({title: "Enviar " + nf(amount, 6) + " SIG?",
+    text: `Para ${toSig(to)}. Confira o endereço inteiro: um envio não dá para desfazer.`, ok: "Enviar"});
+  if (!yes) return;
+  await sendTx({to, value: ethers.parseUnits(amount.toFixed(6), 18)});
+  $("dlg-send").close();
+}, $("btn-send"));
+
+const OPS = {
+  "fund-model": {title: "Recarregar o orçamento do modelo", help: "O orçamento paga o aluguel das máquinas que guardam o modelo. Se acabar, o modelo é apagado da rede.",
+    fields: [["amount", "Quantidade (SIG)", "number"]],
+    run: (n, v) => { if (!(v.amount > 0)) throw new Error("quantidade: informe um valor maior que zero");
+      return sendOp("fund_model", {name: n, amount: Math.round(v.amount * UNIT)}); }},
+  // os campos vêm preenchidos com o royalty e o reinvestimento atuais; mandar só os que a pessoa mexeu (vazio = não
+  // muda) e recusar valor fora da faixa, para ninguém zerar o royalty sem querer (achado carteira-royalty-zerado)
+  "update-model": {title: "Royalty e reinvestimento", help: "Royalty: % de todo pagamento ao modelo que vai para você (máx. 50%). Reinvestimento: % do royalty que volta para o orçamento. Deixe um campo vazio para não mexer nele.",
+    fields: [["royalty", "Royalty (%)", "number"], ["reinvest", "Reinvestir (%)", "number"]],
+    prefill: (n) => { const m = (data.models || {})[n] || {}; return {royalty: m.royalty_bps / 100, reinvest: m.reinvest_bps / 100}; },
+    run: (n, v, inputs) => {
+      const d = {name: n};
+      if (filled(inputs.royalty)) { if (!(v.royalty >= 0 && v.royalty <= 50)) throw new Error("royalty: informe de 0 a 50%"); d.royalty_bps = Math.round(v.royalty * 100); }
+      if (filled(inputs.reinvest)) { if (!(v.reinvest >= 0 && v.reinvest <= 100)) throw new Error("reinvestir: informe de 0 a 100%"); d.reinvest_bps = Math.round(v.reinvest * 100); }
+      if (d.royalty_bps === undefined && d.reinvest_bps === undefined) throw new Error("preencha royalty, reinvestir, ou os dois");
+      return sendOp("update_model", d); }},
+  "transfer-model": {title: "Passar o apadrinhamento", help: "A nova carteira passa a controlar o modelo e a receber os royalties. Não dá para desfazer.",
+    fields: [["to", "Novo padrinho (sig… ou 0x…)", "text"]],
+    run: (n, v) => sendOp("update_model", {name: n, new_sponsor: toSig(parseAddr(v.to))})},
+  "retire-model": {title: "Apagar o modelo da rede", help: "As máquinas apagam o modelo e o orçamento restante volta para você. Não dá para desfazer.",
+    fields: [], run: (n) => sendOp("retire_model", {name: n})},
+  "fund-site": {title: "Recarregar o orçamento do site", help: "O orçamento paga o aluguel das máquinas que guardam o site. Um site expirado volta ao ar com o mesmo nome se você recarregar em até 7 dias; depois disso a rede apaga o site e o nome fica livre para qualquer pessoa.",
+    fields: [["amount", "Quantidade (SIG)", "number"]],
+    run: async (n, v) => { if (!(v.amount > 0)) throw new Error("quantidade: informe um valor maior que zero");
+      const s = (await api("/sites"))[n];
+      return sendOp("deploy_site", {name: n, manifest: s.manifest, replicas: s.replicas, budget: Math.round(v.amount * UNIT)}); }},
+  "deploy-site": {title: "Publicar um site",
+    help: "Escolha a pasta do site, com um index.html. Ele fica no endereço da rede (…/site/nome/), com cópias em " +
+          "computadores da rede pagas pelo orçamento do site. Por enquanto, quem visita recebe os arquivos pelo servidor " +
+          "da rede. Sites da rede rodam isolados: não podem usar cookies nem localStorage.",
+    fields: [["name", "Nome (3 a 32: letras minúsculas sem acento, números ou hífen)", "text"], ["budget", "Orçamento (SIG)", "number"],
+             ["replicas", "Cópias na rede (1 a 5)", "number"], ["folder", "Pasta", "folder"]],
+    run: async (_, v, inputs) => {
+      const name = v.name.trim(), budget = Math.round(v.budget * UNIT), replicas = Math.round(v.replicas || 2);
+      if (!SITE_NAME.test(name)) throw new Error("nome: de 3 a 32 caracteres, só letras minúsculas sem acento, números ou hífen (sem hífen no começo)");
+      const mine = (data.sites || {})[name];
+      if (!mine && !(budget >= MIN_SITE_BUDGET)) throw new Error("um site novo precisa de pelo menos 0,01 SIG de orçamento");
+      if (!(replicas >= 1 && replicas <= 5)) throw new Error("cópias na rede: de 1 a 5");
+      const files = [...inputs.folder.files];
+      if (!files.length) throw new Error("escolha uma pasta");
+      if (files.length > 500) throw new Error("no máximo 500 arquivos por site");
+      const manifest = {};
+      for (const f of files) {
+        const rel = f.webkitRelativePath.split("/").slice(1).join("/") || f.name;
+        if (rel.length > 200) throw new Error("caminho longo demais (máximo 200 caracteres): " + rel.slice(0, 60) + "…");
+        if (f.size > MAX_FILE) throw new Error(`arquivo grande demais: ${rel} (máximo 20 MB por arquivo)`);
+      }
+      for (const f of files) {
+        const rel = f.webkitRelativePath.split("/").slice(1).join("/") || f.name;
+        const {hash} = await api("/blob", {method: "POST", body: await f.arrayBuffer()});
+        manifest[rel] = {hash, size: f.size};
+      }
+      return sendOp("deploy_site", {name, manifest, budget, replicas});
+    }},
+};
+function openOp(key, name) {
+  const op = OPS[key];
+  $("op-title").textContent = op.title + (name ? " · " + name : "");
+  $("op-help").textContent = op.help;
+  const init = op.prefill ? op.prefill(name) : {};   // valores atuais já no campo (vazio só se a pessoa apagar)
+  $("op-fields").innerHTML = op.fields.map(([k, l, t]) => `<label>${esc(l)}</label>` + (t === "folder"
+    ? `<input type="file" data-k="${k}" webkitdirectory multiple>`
+    : `<input data-k="${k}" type="${t}" step="any"${init[k] != null && isFinite(init[k]) ? ` value="${esc(init[k])}"` : ""}>`)).join("");
+  $("op-go").onclick = () => guarded(async () => {
+    const inputs = {}, v = {};
+    $("op-fields").querySelectorAll("[data-k]").forEach((i) => { inputs[i.dataset.k] = i; v[i.dataset.k] = i.type === "number" ? Number(i.value) : i.value; });
+    await op.run(name, v, inputs);
+    $("dlg-op").close();
+  }, $("op-go"));
+  $("dlg-op").showModal();
+}
+
+// ------------------------------------------------------------- telas
+let data = {};
+const jobs = {};   // id → job (só busca de novo os que ainda não terminaram)
+async function loadJobs(history) {
+  const ids = history.filter((h) => h.type === "create_job" && h.id).slice(0, 15).map((h) => h.id)
+    .filter((id) => !(jobs[id] && JOB_END.includes(jobs[id].status)));
+  await Promise.all(ids.map((id) => api("/job/" + id).then((j) => { jobs[id] = j; }).catch(() => {})));
+}
+async function refresh() {
+  try {
+    status = await api("/status");
+    $("net").textContent = "rede ao vivo · bloco #" + nf(status.height);
+    $("net").className = "pill live";
+    if (!me) return;
+    // mineração e máquinas são extras: se faltarem, o resto da carteira continua
+    const [account, history, models, sites, machines, mining, miner, gov] = await Promise.all([
+      api("/account/" + me), api("/history/" + me), api("/models"), api("/sites"),
+      api("/machines").catch(() => ({})), api("/mining").catch(() => null), api("/mining/miner/" + me).catch(() => null),
+      api("/governance").catch(() => null)]);
+    await loadJobs(history).catch(() => {});
+    data = {account, history, models, sites, machines, mining, miner, gov};
+    names = Object.fromEntries(Object.entries(machines).map(([a, m]) => [a, m.name]));
+    $("balance").textContent = sig(account.balance);
+    renderMineLine();
+    render();
+  } catch (e) { $("net").textContent = "rede fora do ar"; $("net").className = "pill off"; }
+}
+const who = (a) => a === me ? "você" : names[a] || short(a);
+const LABEL = {transfer: "Transferência", mint: "Recompensa da mineração", register_machine: "Registrou uma máquina",
+  create_job: "Pedido de IA ou computação (valor reservado)", cancel_job: "Cancelou um pedido", claim_job: "Pegou um pedido",
+  submit_result: "Entregou resultado", deploy_site: "Publicou site", pin_site: "Hospedou site", register_model: "Apadrinhou modelo",
+  fund_model: "Recarregou modelo", update_model: "Alterou modelo", retire_model: "Apagou modelo", pin_model: "Hospedou modelo",
+  propose: "Abriu uma votação (depósito travado até o fim)", vote: "Votou (SIG travado até o fim da votação)"};
+// créditos que a rede faz direto no saldo, somados por época (o nó junta num lançamento só)
+const CREDIT = {rent: "Aluguel por guardar sites e modelos", job: "Pagamento por pedidos atendidos", royalty: "Royalties de modelos",
+  change: "Troco de pedidos", refund: "Devolução de pedidos", budget: "Devolução de orçamento",
+  vote: "Votos devolvidos (votação encerrada)", deposit: "Depósito de votação devolvido"};
+const JOB_STATUS = {open: "esperando um computador", running: "um computador está respondendo", done: "concluído",
+  failed: "não deu certo: valor devolvido", disputed: "as máquinas não concordaram: valor devolvido",
+  expired: "ninguém respondeu a tempo: valor devolvido", canceled: "cancelado: valor devolvido"};
+const windowSecs = () => data.mining?.window_seconds || 300;
+const myMachines = () => Object.entries(data.machines || {}).filter(([, m]) => m.payout === me);
+// quem relatou uma das duas últimas janelas ainda está minerando (mesma regra do nó)
+const mining = () => data.miner && data.mining && data.miner.last_window != null && data.miner.last_window >= data.mining.window - 2;
+
+// aluguel por janela: o preço é da rede (/mining), igual para todas as máquinas, e segue o que o item usa e a demanda
+// (a mesma conta de chain.copy_fee): disco (sites e modelos) + memória reservada (só modelos), cada um vezes o
+// multiplicador da demanda (10000 = 1x). Cada máquina online que guarda o item recebe isso.
+const hostingPrice = () => data.mining?.hosting_per_mb_window ?? 5;
+const ramPrice = () => data.mining?.ram_per_mb_window ?? 2;
+const rentMult = (k) => { const v = data.mining?.rent?.[k]; return typeof v === "number" && v > 0 ? v : 10000; };
+function copyFee(x) {
+  let cost = (Number(x.size) || 0) * hostingPrice() * rentMult("disk_bps");
+  if (x.ram_mb != null) cost += (Number(x.ram_mb) || 0) * 1e6 * ramPrice() * rentMult("ram_bps");
+  return Math.max(1, Math.ceil(cost / 1e10));
+}
+function rentPerWindow(x) {
+  const ms = data.machines || {}, per = copyFee(x);
+  return Object.keys(x.pinners || {}).reduce((s, a) => s + (ms[a] && !ms[a].online ? 0 : per), 0);
+}
+const multTxt = (bps) => nf(bps / 10000, 2) + "x";
+// o preço de agora, em uma frase (models: inclui a memória)
+function rentNote(models) {
+  const m = data.mining || {}, max = 1 + (m.demand_max_bps ?? 30000) / 10000;
+  return `Preço de agora, igual para todas as máquinas: disco ${nf(hostingPrice())} µSIG por MB` +
+    (models ? ` e memória reservada ${nf(ramPrice())} µSIG por MB` : "") + ` a cada janela de ${Math.round(windowSecs() / 60)} min, ` +
+    `vezes a demanda da rede (agora: disco ${multTxt(rentMult("disk_bps"))}` + (models ? `, memória ${multTxt(rentMult("ram_bps"))}` : "") +
+    `; vai de 1x com a rede vazia até ${nf(max, 2)}x com ela cheia). O aluguel vai inteiro para as máquinas: a rede não cobra taxa nem queima nada.`;
+}
+// emissão de agora: SIG por hora para toda a rede e a taxa (votável) por 12 h
+function perHour() {
+  const m = data.mining;
+  const v = m ? m.mint_per_hour ?? m.next_mint * 3600 / (m.epoch_seconds || 43200) : null;
+  return typeof v === "number" && isFinite(v) ? v : null;
+}
+const rateTxt = () => nf((data.mining?.mint_bps ?? 1) / 100, 2) + "%";
+const sig2 = (n) => nf(n / UNIT, 2) + " SIG";   // taxa por hora: duas casas bastam
+function lifetime(budget, rent) {
+  if (!rent) return "aguardando máquinas";
+  const s = budget / rent * windowSecs();
+  return s > 172800 ? `~${Math.round(s / 86400)} dias` : s > 7200 ? `~${Math.round(s / 3600)} h` : s > 120 ? `~${Math.round(s / 60)} min` : `~${Math.round(s)} s`;
+}
+// site expirado: quanto falta até a rede apagá-lo e liberar o nome (expired_window + PRUNE_WINDOWS). Sem /mining ou
+// sem o campo, não dá para contar: mostra só "expirado" (achado site-expirado-nome-tomado)
+function siteDelete(s) {
+  const w = data.mining && data.mining.window;
+  if (!s || s.status === "active" || s.expired_window == null || w == null) return "";
+  const secs = Math.max(0, s.expired_window + PRUNE_WINDOWS - w) * windowSecs();
+  const quando = secs <= 0 ? "a qualquer momento"
+    : secs >= 2 * 86400 ? `em ~${Math.round(secs / 86400)} dias`
+    : secs >= 7200 ? `em ~${Math.round(secs / 3600)} h` : "em breve";
+  return `<div class="muted">apagado ${quando} se não recarregar; depois o nome fica livre</div>`;
+}
+
+function renderMineLine() {
+  const mi = data.miner, line = $("mine-line"), machines = myMachines(), online = machines.filter(([, m]) => m.online).length;
+  const active = mining();
+  $("btn-mine").hidden = active || online > 0;
+  if (active) {
+    line.innerHTML = `<span class="live">● Minerando para esta carteira</span> · ${hashTxt(mi.last_rate)} · ` +
+      `no ritmo de agora, ~${sig(mi.est_per_hour ?? mi.est_reward ?? 0)} por hora`;
+  } else if (online) {
+    line.textContent = `${online} ${online === 1 ? "máquina trabalhando" : "máquinas trabalhando"} para esta carteira.`;
+  } else if (mi && mi.rewards_total) {
+    line.textContent = `Já minerou ${sig(mi.rewards_total)}. Nenhum computador minerando para ela agora.`;
+  } else {
+    line.textContent = "Nenhum computador minerando para esta carteira ainda.";
+  }
+}
+
+function activityRow(h) {
+  if (h.type === "credit") {
+    // aluguel, royalty e orçamento dizem de qual site ou modelo vieram (o nó guarda até 10 nomes)
+    const refs = Array.isArray(h.refs) && h.refs.length ? h.refs : h.name ? [h.name] : [];
+    const detail = [refs.join(", "), h.count > 1 ? plural(h.count, "lançamento", "lançamentos") : ""].filter(Boolean).join(" · ");
+    return `<tr><td>#${nf(h.height)}</td><td>${esc((CREDIT[h.kind] || "Crédito da rede") + (h.epoch != null ? " · época " + h.epoch : ""))}</td>
+      <td class="muted">${esc(detail)}</td>
+      <td class="ok">+${sig(h.amount)}</td><td class="muted">rede</td></tr>`;
+  }
+  const inbound = h.to === me && h.from !== me;
+  let what = h.type === "transfer" ? (inbound ? "Recebeu de " + who(h.from) : "Enviou para " + who(h.to))
+    : h.type === "mint" ? LABEL.mint + (h.epoch != null ? " · época " + h.epoch : "") : (LABEL[h.type] || h.type);
+  let detail = h.name || "";
+  const j = h.type === "create_job" && jobs[h.id];
+  if (j) {
+    what = j.kind === "ai" ? "Pedido de IA (valor reservado)" : "Pedido de computação (valor reservado)";
+    detail = (j.kind === "ai" && j.model ? j.model + " · " : "") + (JOB_STATUS[j.status] || j.status);
+  }
+  return `<tr><td>#${nf(h.height)}</td><td>${esc(what)}</td><td class="muted">${esc(detail)}</td>
+    <td class="${inbound ? "ok" : ""}">${h.amount ? (inbound ? "+" : "") + sig(h.amount) : ""}</td><td class="muted">${esc(h.via)}</td></tr>`;
+}
+
+function render() {
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+  document.querySelectorAll("[data-pane]").forEach((p) => p.hidden = p.dataset.pane !== tab);
+  const pane = document.querySelector(`[data-pane="${tab}"]`);
+  const {account, history, models, sites, machines} = data;
+  if (!account) return;
+  const wmin = Math.round(windowSecs() / 60);
+
+  if (tab === "activity") {
+    pane.innerHTML = history.length ? `<div class="table-wrap"><table><tr><th>Bloco</th><th>O quê</th><th>Detalhes</th><th>Valor</th><th>Via</th></tr>` +
+      history.map(activityRow).join("") + `</table></div>
+      <p class="muted">Mineração, aluguéis, pagamentos por pedidos, royalties, devoluções e SIG de votações que voltam
+        entram direto no saldo e aparecem somados por época (12 horas). SIG travado num voto sai do saldo e volta inteiro
+        quando a votação termina.</p>`
+      : `<div class="empty">Nenhuma movimentação ainda.<br>Para ganhar seus primeiros SIG, <a href="/baixar">baixe o app</a>
+           e deixe o computador minerando para este endereço.</div>`;
+  }
+
+  if (tab === "mining") {
+    const mi = data.miner || {}, m = data.mining, list = myMachines();
+    const hour = perHour();
+    pane.innerHTML = `<div class="grid">
+        <div class="stat"><span class="muted">Pontos que recebem agora</span><b>${nf(mi.points)}</b>
+          <span class="muted">sua fatia: ${nf((mi.share || 0) * 100, 2)}%${mi.pending_points ? ` · ${nf(mi.pending_points)} pontos chegando` : ""}</span></div>
+        <div class="stat"><span class="muted">Estimativa por hora</span><b class="ok">${sig(mi.est_per_hour ?? mi.est_reward ?? 0)}</b>
+          <span class="muted">no ritmo de agora, com a sua fatia</span></div>
+        <div class="stat"><span class="muted">Total já minerado</span><b>${sig(mi.rewards_total || 0)}</b>
+          <span class="muted">desde o começo</span></div>
+        <div class="stat"><span class="muted">Ritmo</span><b>${mining() ? hashTxt(mi.last_rate) : "parado"}</b>
+          <span class="muted">${mining() ? "contas por segundo, somando os computadores desta carteira" : hour != null ? "a rede inteira imprime " + sig2(hour) + " por hora" : ""}</span></div></div>` +
+      (list.length ? `<h3>Máquinas que trabalham para esta carteira</h3><div class="table-wrap"><table>
+          <tr><th>Máquina</th><th>Situação</th><th>Modelos de IA</th><th>Ganhos</th><th>Reputação</th><th>Hardware</th></tr>` +
+          list.map(([a, mc]) => `<tr><td>${esc(mc.name || "sem nome")}<div class="muted mono">${short(a)}</div></td>
+            <td class="${mc.online ? "ok" : "bad"}">${mc.online ? "online" : "offline"}</td>
+            <td>${esc((mc.models || []).join(", ") || (mc.ai ? "esperando a rede" : "IA desligada"))}</td>
+            <td>${sig(mc.earned || 0)}</td><td class="${mc.reputation < 0 ? "bad" : ""}">${mc.reputation}</td>
+            <td class="muted">${mc.hw ? `${mc.hw.cpu_cores} núcleos · ${gb(mc.hw.ram_mb)} RAM · ${gb(mc.hw.disk_mb)} disco${mc.hw.gpu ? " · " + esc(mc.hw.gpu) : ""}` : ""}</td></tr>`).join("") +
+          `</table></div>`
+        : `<div class="cta-mine" style="margin-top:18px"><h3>Nenhum computador trabalha para esta carteira ainda</h3>
+            <p class="muted">Baixe o app Sigma, escolha “Só colar um endereço” e cole <span class="mono">${esc(me)}</span>.
+              Pronto: seu computador minera, hospeda e roda IA para esta carteira. Pode usar a mesma carteira em vários
+              computadores: cada um conta separado, e os pontos somam.</p>
+            <a class="btn primary" href="/baixar">Baixar o Sigma</a></div>`) +
+      `<p class="muted">A emissão é contínua: a cada ${periodTxt(m ? m.epoch_seconds : 43200)}, a rede imprime ${rateTxt()} do que falta dos
+        100 milhões, um pouco em cada bloco, e divide pelos pontos da última janela de ${wmin} min já fechada. Por isso o
+        pagamento anda uns 10 minutos atrás do trabalho.${hour != null ? ` Agora, isso dá ${sig2(hour)} por hora para toda a rede.` : ""}
+        A estimativa muda conforme mais ou menos gente minera.</p>`;
+  }
+
+  if (tab === "models") {
+    const mine = Object.values(models).filter((m) => m.sponsor === me);
+    pane.innerHTML = `<p class="muted">Como padrinho, você paga a hospedagem do modelo e recebe royalty de cada pagamento a ele.
+      A rede decide em quais computadores o modelo fica. Para apadrinhar um modelo novo, use a aba <b>Modelos</b> do
+      <a href="/baixar">app Sigma</a>: escolha do catálogo ou cole o link de um GGUF do Hugging Face.</p>
+      <p class="muted">${esc(rentNote(true))} Cada pergunta ao modelo é paga por quem pergunta, por token, para a máquina que
+      respondeu; o seu royalty sai desse pagamento.</p>` +
+      (mine.length ? mine.map((m) => {
+        const rent = rentPerWindow(m), loading = Object.keys(m.assigned || {});
+        return `<div class="model"><div class="row" style="justify-content:space-between"><b>${esc(m.name)}</b>
+          <span class="pill">${(m.size / 1e6).toFixed(0)} MB · ${Object.keys(m.pinners || {}).length}/${m.replicas} cópias</span></div>
+          <div class="grid" style="margin-top:10px">
+            <div class="stat"><span class="muted">Orçamento</span><b>${sig(m.budget)}</b><span class="muted">vida: ${lifetime(m.budget, rent)}</span></div>
+            <div class="stat"><span class="muted">Royalties recebidos</span><b class="ok">${sig(m.royalties)}</b><span class="muted">${m.royalty_bps / 100}% · ${m.reinvest_bps / 100}% reinvestido</span></div>
+            <div class="stat"><span class="muted">Uso</span><b>${nf(m.tokens)} tokens</b><span class="muted">${plural(m.jobs, "pedido", "pedidos")}</span></div>
+            <div class="stat"><span class="muted">Aluguel</span><b>${sig(rent)}</b><span class="muted">por janela de ${wmin} min · pago ${sig(m.rent_paid)}</span></div>
+          </div>
+          <div class="muted">Hospedado por: ${Object.keys(m.pinners || {}).map(who).map(esc).join(", ") || "ninguém ainda"}${
+            loading.length ? " · baixando em: " + loading.map(who).map(esc).join(", ") : ""}</div>
+          <div class="row" style="margin-top:10px">
+            <button class="primary" data-op="fund-model" data-name="${esc(m.name)}">Recarregar</button>
+            <button data-op="update-model" data-name="${esc(m.name)}">Royalty</button>
+            <button data-op="transfer-model" data-name="${esc(m.name)}">Passar adiante</button>
+            <button class="danger" data-op="retire-model" data-name="${esc(m.name)}">Apagar</button></div></div>`;
+      }).join("") : `<div class="empty">Você não é padrinho de nenhum modelo.</div>`);
+  }
+
+  if (tab === "sites") {
+    const mine = Object.values(sites).filter((s) => s.owner === me);
+    pane.innerHTML = `<div class="row" style="margin-bottom:12px"><button class="primary" data-op="deploy-site">Publicar site</button>
+        <span class="muted">O aluguel sai do orçamento a cada janela de ${wmin} min, para cada máquina que guarda uma cópia.</span></div>
+      <p class="muted">${esc(rentNote(false))}</p>` +
+      (mine.length ? `<div class="table-wrap"><table><tr><th>Site</th><th>Status</th><th>Orçamento</th><th>Vida</th><th>Cópias em</th><th></th></tr>` +
+        mine.map((s) => `<tr><td><a href="/site/${esc(s.name)}/" target="_blank" rel="noopener">${esc(s.name)}</a></td>
+          <td class="${s.status === "active" ? "ok" : "bad"}">${s.status === "active" ? "no ar" : "expirado"}${siteDelete(s)}</td>
+          <td>${sig(s.budget)}</td><td>${lifetime(s.budget, rentPerWindow(s))}</td>
+          <td>${Object.keys(s.pinners || {}).map(who).map(esc).join(", ") || "—"}</td>
+          <td><button data-op="fund-site" data-name="${esc(s.name)}">Recarregar</button></td></tr>`).join("") + `</table></div>`
+        : `<div class="empty">Você ainda não publicou sites.</div>`);
+  }
+
+  if (tab === "votes") {   // a atualização a cada 3 s não fecha o texto que a pessoa abriu
+    const opened = new Set([...pane.querySelectorAll("details[open][data-id]")].map((d) => d.dataset.id));
+    pane.innerHTML = votesHtml(data.gov, opened);
+  }
+
+  if (tab === "explorer") {
+    Promise.all([api(`/blocks?from=${Math.max(1, status.height - 9)}`), api("/mining/epochs").catch(() => [])]).then(([{blocks}, epochs]) => {
+      if (tab !== "explorer") return;
+      const mcs = Object.entries(machines || {}), sup = status.supply || {};
+      pane.innerHTML = `<div class="grid">
+          <div class="stat"><span class="muted">Altura</span><b>#${nf(status.height)}</b></div>
+          <div class="stat"><span class="muted">Máquinas online</span><b>${status.machines ?? "—"}</b></div>
+          <div class="stat"><span class="muted">Modelos / sites</span><b>${status.models} / ${status.sites}</b></div>
+          <div class="stat"><span class="muted">SIG impressos</span><b>${sup.minted != null ? sig(sup.minted) : "—"}</b>
+            <span class="muted">de ${sup.cap ? sig(sup.cap) : "100 milhões"}</span></div>
+          <div class="stat"><span class="muted">Saindo por hora</span><b>${perHour() != null ? sig2(perHour()) : "—"}</b>
+            <span class="muted">${rateTxt()} do que falta a cada 12 h, em todo bloco</span></div></div>
+        <p class="muted">Aluguel agora: disco ${multTxt(rentMult("disk_bps"))}, memória ${multTxt(rentMult("ram_bps"))} (a demanda da rede).</p>
+        <h3>SIG minerado a cada 12 horas</h3>` + (epochs.length ? `<div class="table-wrap"><table><tr><th>Época</th><th>Fim</th><th>Impresso</th><th>Mineradores</th><th>Sua parte</th></tr>` +
+          epochs.slice(0, 10).map((ep) => {
+            const mine = (ep.top || []).find(([a]) => a === me);
+            return `<tr><td>${ep.epoch}</td><td class="muted">${new Date(ep.end * 1000).toLocaleString("pt-BR", {dateStyle: "short", timeStyle: "short"})}</td>
+              <td>${sig(ep.mint)}</td><td>${ep.miners}</td><td class="${mine ? "ok" : "muted"}">${mine ? sig(mine[1]) : "—"}</td></tr>`;
+          }).join("") + `</table></div><p class="muted">“Sua parte” aparece quando você está entre os 10 que mais receberam no período.</p>`
+          : `<div class="empty">Nenhum período de 12 horas encerrado ainda.</div>`) +
+        `<h3>Modelos na rede</h3>` + (Object.keys(models).length ? `<div class="table-wrap"><table><tr><th>Modelo</th><th>Padrinho</th><th>Royalty</th><th>Tokens</th><th>Cópias</th><th>Vida</th></tr>` +
+          Object.values(models).map((m) => `<tr><td>${esc(m.name)}<div class="muted">${esc(m.license || "")}</div></td><td>${esc(who(m.sponsor))}</td>
+            <td>${m.royalty_bps / 100}%</td><td>${nf(m.tokens)}</td><td>${Object.keys(m.pinners || {}).length}/${m.replicas}</td>
+            <td>${lifetime(m.budget, rentPerWindow(m))}</td></tr>`).join("") + `</table></div>`
+          : `<div class="empty">Nenhum modelo apadrinhado ainda.</div>`) +
+        `<h3>Máquinas</h3>` + (mcs.length ? `<div class="table-wrap"><table><tr><th>Nome</th><th>Situação</th><th>Oferece</th><th>Ganhos</th><th>Reputação</th></tr>` +
+          mcs.map(([a, mc]) => `<tr><td>${esc(mc.name || "sem nome")}<div class="muted mono">${short(a)}</div></td>
+            <td class="${mc.online ? "ok" : "bad"}">${mc.online ? "online" : "offline"}</td>
+            <td>${esc([...(mc.models || []), mc.compute ? "computação" : "", mc.hw?.disk_mb ? gb(mc.hw.disk_mb) + " de disco" : ""].filter(Boolean).join(", "))}</td>
+            <td>${sig(mc.earned || 0)}</td><td class="${mc.reputation < 0 ? "bad" : ""}">${mc.reputation}</td></tr>`).join("") + `</table></div>`
+          : `<div class="empty">Nenhuma máquina registrada ainda.</div>`) +
+        `<h3>Últimos blocos</h3><div class="table-wrap"><table><tr><th>Bloco</th><th>Hash</th><th>Transações</th><th>Hora</th></tr>` +
+          blocks.reverse().map((b) => `<tr><td>#${nf(b.height)}</td><td class="mono">${b.hash.slice(0, 16)}…</td><td>${b.txs.length}</td>
+            <td class="muted">${new Date(b.time * 1000).toLocaleTimeString("pt-BR")}</td></tr>`).join("") + `</table></div>`;
+    }).catch(() => { if (tab === "explorer") pane.innerHTML = `<div class="empty">Não deu para ler a rede agora.</div>`; });
+  }
+}
+
+// ------------------------------------------------------------- votações (só leitura)
+// tudo o que vem de uma votação foi escrito por um estranho: título, texto, parâmetro e endereço passam por esc(),
+// e os números passam por Number() antes de virar texto
+const PARAM = {mint_bps: "Emissão a cada 12 horas", hosting_per_mb_window: "Aluguel de disco por MB",
+  ram_per_mb_window: "Aluguel de memória por MB", demand_max_bps: "Quanto a demanda sobe o aluguel",
+  min_share_bits: "Dificuldade mínima da mineração", proposal_deposit: "Depósito para abrir votação",
+  quorum_bps: "Mínimo de votos (quórum)"};
+function paramVal(k, v) {
+  v = Number(v);
+  if (!isFinite(v)) return "—";
+  if (k === "mint_bps" || k === "quorum_bps") return nf(v / 100, 2) + "%";
+  if (k === "hosting_per_mb_window" || k === "ram_per_mb_window") return nf(v) + " µSIG";
+  if (k === "demand_max_bps") return "até " + nf(1 + v / 10000, 2) + "x";
+  if (k === "proposal_deposit") return sig(v);
+  return nf(v);
+}
+function leftTxt(sec) {
+  if (!(sec > 0)) return "terminando agora";
+  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600);
+  return d ? `faltam ${d} ${d === 1 ? "dia" : "dias"} e ${h} h` : "faltam " + untilTxt(sec);
+}
+function voteCard(p, now, opened) {
+  const yes = Math.max(0, Number(p.yes) || 0), no = Math.max(0, Number(p.no) || 0), total = yes + no;
+  const quorum = Math.max(0, Number(p.status === "open" ? p.quorum_now : p.quorum ?? p.quorum_now) || 0);
+  const open = p.status === "open";
+  const status = open ? leftTxt(Number(p.ends) - now)
+    : p.status === "approved" ? (p.applied ? "aprovada · a regra já mudou" : "aprovada") : p.status === "rejected" ? "rejeitada" : esc(p.status);
+  const what = p.kind === "param"
+    ? `Muda a regra: ${esc(PARAM[p.param] || p.param)}, de ${esc(paramVal(p.param, p.old))} para ${esc(paramVal(p.param, p.value))}`
+    : "Proposta de texto: registra uma decisão da rede";
+  const ys = total ? yes / total * 100 : 0;
+  return `<div class="vote${open ? " open" : ""}">
+    <div class="row" style="justify-content:space-between;align-items:flex-start"><h4>${esc(p.title)}</h4>
+      <span class="pill${open ? "" : " off"}">${open ? "aberta" : p.status === "approved" ? "aprovada" : "encerrada"}</span></div>
+    <div class="what">${what}</div>
+    <div class="bar" role="img" aria-label="${nf(ys, 1)}% sim"><i class="yes" style="width:${ys.toFixed(2)}%"></i><i class="no" style="width:${total ? (100 - ys).toFixed(2) : 0}%"></i></div>
+    <div class="totals"><span class="y">sim ${sig(yes)}</span><span>não ${sig(no)}</span></div>
+    <div class="muted" style="margin-top:6px">${status} · ${plural(Number(p.voters) || 0, "carteira votou", "carteiras votaram")} ·
+      ${sig2(total)} votados, mínimo para valer ${sig2(quorum)}${total >= quorum ? " (atingido)" : ""} · proposta por ${esc(who(String(p.proposer || "")))}</div>
+    ${p.text ? `<details data-id="${esc(p.id)}"${opened.has(String(p.id)) ? " open" : ""}><summary>Ler a proposta</summary><div class="body">${esc(p.text)}</div></details>` : ""}
+  </div>`;
+}
+function votesHtml(g, opened = new Set()) {
+  const help = `<p class="muted">As regras da rede são votadas por quem participa: 1 SIG = 1 voto, travado até o fim da
+      votação e devolvido inteiro. Aprovada com mais “sim” que “não” e votos de pelo menos ${g && Number.isFinite(g.quorum_bps) ? nf(g.quorum_bps / 100, 2) : "1"}%
+      do SIG que existe. <b>Para votar ou propor, use a aba Votações do <a href="/baixar">app Sigma</a></b> (ou
+      <code>python -m sigma.cli vote …</code>): aqui é só para acompanhar. <a href="/tutorial#votacoes">Como funciona.</a></p>`;
+  if (!g || !Array.isArray(g.proposals)) return help + `<div class="empty">Não deu para ler as votações agora.</div>`;
+  const now = data.mining?.now || status.now || Date.now() / 1000;
+  const list = g.proposals.filter((p) => p && typeof p === "object")
+    .sort((a, b) => (a.status !== "open") - (b.status !== "open") || (Number(b.created) || 0) - (Number(a.created) || 0));
+  const locked = Number(g.locked) || 0;
+  return help + (locked ? `<p class="muted">SIG travado em votações abertas agora: ${sig(locked)}.</p>` : "") +
+    (list.length ? list.map((p) => voteCard(p, now, opened)).join("")
+      : `<div class="empty">Nenhuma votação ainda. A primeira pode ser a sua: abra pela aba Votações do app.</div>`);
+}
+
+// ------------------------------------------------------------- início
+(async () => {
+  // a carteira já guardada vem primeiro; criar ou importar outra fica atrás de um link (e de uma confirmação)
+  const saved = savedAddress();
+  if (saved) {
+    $("saved-addr").textContent = saved;
+    $("unlock-box").hidden = false;
+    $("new-box").hidden = true;
+  } else {
+    $("show-new-row").hidden = true;
+  }
+  if (!HAS_ETHERS) {
+    $("no-ethers").hidden = false;
+    for (const id of ["btn-mm", "btn-unlock", "btn-local"]) $(id).disabled = true;
+  }
+  $("login").hidden = false;
+  await refresh();
+  setInterval(() => { if (tab !== "explorer" || !me) refresh(); }, 3000);
+})();
+</script>
+</body>
+</html>

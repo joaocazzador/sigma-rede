@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23ff3b1f'/%3E%3Ctext x='32' y='50' font-size='50' font-weight='900' text-anchor='middle' font-family='Arial Black,Arial,sans-serif' fill='%230b0b0a'%3E%CE%A3%3C/text%3E%3C/svg%3E">
+<title>Fórum Sigma</title>
+<meta name="description" content="O fórum da rede Sigma: dúvidas, ideias, críticas e decisões. Entre com a sua carteira, sem senha e sem cadastro.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Sigma">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:url" content="https://sigma.195-35-29-232.sslip.io/forum">
+<meta property="og:title" content="Fórum Sigma">
+<meta property="og:description" content="Onde a rede conversa: dúvidas, ideias, críticas e decisões. Entre com a sua carteira.">
+<meta property="og:image" content="https://sigma.195-35-29-232.sslip.io/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0b0b0a">
+<link rel="stylesheet" href="/sigma.css">
+<!-- integridade conferida, como na Carteira: se o arquivo do CDN mudar um byte, o navegador não roda
+     (a senha e a chave da carteira do navegador passam por ele) -->
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js" integrity="sha384-6Zl0Pc8zjSz8KvmNeXRvUQgY4ryFb+BwDvKCmLYcBME0joAaru491tQgi9B7zsMM" crossorigin="anonymous"></script>
+<style>
+.layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 18px; }
+@media (max-width: 760px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+/* cantos retos, como no resto do site */
+.cats a { display: block; padding: 7px 10px; border-radius: 0; text-decoration: none; color: var(--text); font-size: 15px; }
+.cats a.on, .cats a:hover { background: var(--accent-soft); color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.thread { display: block; padding: 12px 4px; border-bottom: 1px solid var(--line); text-decoration: none; color: var(--text); }
+.thread:hover .t { color: var(--accent); }
+.thread .t { font-weight: 600; }
+.post { border-bottom: 1px solid var(--line); padding: 14px 0; }
+.post .body { white-space: pre-wrap; word-wrap: break-word; margin-top: 6px; }
+.author { font-weight: 600; }
+.user-box { font-size: 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+#login-dlg { position: fixed; inset: 0; margin: auto; max-width: 440px; width: calc(100% - 32px); height: fit-content;
+             max-height: calc(100% - 32px); overflow-y: auto; z-index: 8; border: 2px solid var(--text); box-shadow: 0 20px 60px rgba(0, 0, 0, .55); }
+</style>
+</head>
+<body>
+<nav class="nav" aria-label="Principal">
+  <a class="brand" href="/"><span>Σ</span> SIGMA</a>
+  <div class="links">
+    <a class="link" href="/">Manifesto</a>
+    <a class="link" href="/baixar">Baixar</a>
+    <a class="link" href="/tutorial">Como funciona</a>
+    <a class="link on" href="/forum" aria-current="page">Fórum</a>
+    <a class="link" href="/carteira">Carteira</a>
+  </div>
+  <div class="spacer"></div>
+  <div class="user-box" id="user-box"></div>
+</nav>
+<div class="wrap">
+  <div class="layout">
+    <aside>
+      <div class="card cats" id="cats"></div>
+      <div class="card muted" style="font-size:13px">
+        O login usa sua carteira: você assina uma mensagem e o fórum confere quem assinou. Nenhuma senha
+        é enviada e assinar não custa nada.
+      </div>
+      <div class="card muted" style="font-size:13px">
+        Aqui as ideias amadurecem; a decisão é na votação. Quem tem SIG vota na aba Votações do app: 1 SIG = 1 voto,
+        devolvido no fim. <a href="/tutorial#votacoes">Como funciona.</a>
+      </div>
+    </aside>
+    <section id="main"><div class="card muted">Carregando o fórum…</div></section>
+  </div>
+</div>
+
+<footer class="footer">
+  <span class="motto">Queremos que os donos dos robôs sejam <span>as pessoas</span>, não as Big Techs.</span>
+  <nav aria-label="Rodapé"><a href="/">Manifesto</a><a href="/baixar">Baixar</a><a href="/tutorial">Como funciona</a><a href="/forum">Fórum</a><a href="/carteira">Carteira</a></nav>
+  <p style="margin:14px 0 0">Σ Sigma · código-fonte disponível · feito por gente, para gente</p>
+</footer>
+
+<div id="login-dlg" class="card" role="dialog" aria-modal="true" aria-labelledby="login-title" style="display:none">
+  <h3 id="login-title" style="margin-top:0">Entrar no fórum</h3>
+  <p class="muted" style="margin:0 0 12px">Você assina uma mensagem com a sua carteira. Não custa nada, não mexe nos seus
+    SIG e nenhuma senha sai do seu computador.</p>
+  <button class="primary" id="login-mm" style="width:100%">Entrar com MetaMask</button>
+  <div id="local-login" style="margin-top:14px">
+    <p class="muted" style="margin:0 0 4px">Ou com a carteira deste navegador <span class="mono" id="local-addr"></span></p>
+    <label for="local-pass" class="sr">Senha da carteira deste navegador</label>
+    <input type="password" id="local-pass" placeholder="senha da carteira" autocomplete="current-password">
+    <button id="login-local" style="width:100%;margin-top:8px">Entrar com a carteira do navegador</button>
+  </div>
+  <p class="muted" id="no-local" style="display:none">Não tem carteira? Entre com a MetaMask ou crie uma carteira neste
+    navegador na <a href="/carteira">Carteira</a> (leva um minuto: o tempo de anotar a chave). Usa a carteira criada pelo
+    app Sigma? Ela é só do Sigma, então pode importá-la na MetaMask: no painel, Carteira → Mostrar minha chave.</p>
+  <p class="callout warn" id="no-ethers" style="display:none"><b>A parte que abre a carteira deste navegador não
+    carregou.</b> Confira sua internet e recarregue a página. Se continuar, pode ser que o arquivo tenha chegado alterado
+    no caminho e o navegador recusou, para proteger você. A MetaMask continua funcionando.</p>
+  <button id="login-cancel" style="width:100%;margin-top:10px">Cancelar</button>
+</div>
+<div id="toast" role="status"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const linkify = (s) => esc(s).replace(/https?:\/\/[^\s<]+/g, (u) => `<a href="${u}" target="_blank" rel="noopener nofollow">${u}</a>`);
+const short = (a) => "0x" + a.slice(3, 9) + "…" + a.slice(-4);
+const when = (t) => new Date(t * 1000).toLocaleString("pt-BR", {dateStyle: "short", timeStyle: "short"});
+const sig = (n) => (n / 1e6).toLocaleString("pt-BR", {maximumFractionDigits: 2}) + " SIG";
+const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+const OFFLINE = "O fórum não respondeu agora. Confira sua internet e tente de novo em instantes.";
+// sem a biblioteca (não carregou ou chegou alterada), a MetaMask continua funcionando; a carteira do navegador, não
+const HAS_ETHERS = typeof window.ethers !== "undefined";
+let me = null, cats = {};
+
+function toast(msg, ms = 3500) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.style.display = "none", ms);
+}
+async function api(path, body) {
+  let r;
+  try {
+    r = await fetch("/forum/api/" + path, body === undefined ? {} :
+      {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  } catch { throw new Error(OFFLINE); }
+  let j = null;
+  try { j = await r.json(); } catch {}   // resposta que não é JSON: servidor fora do ar ou página de erro
+  if (!r.ok || j === null) throw new Error((j && j.error) || OFFLINE);
+  return j;
+}
+function errMsg(e) { return e?.error?.message || e?.info?.error?.message || e?.shortMessage || e?.message || String(e); }
+const nameOf = (addr, name) => name ? esc(name) : `<span class="mono">${short(addr)}</span>`;
+function keystore() { try { return localStorage.getItem("sigma.keystore"); } catch { return null; } }
+// a mensagem vai para a MetaMask em hexadecimal (UTF-8), sem depender da biblioteca
+const utf8Hex = (s) => "0x" + [...new TextEncoder().encode(s)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+// ------------------------------------------------------------ login
+async function signIn(address, signer) {
+  const {message} = await api("challenge?address=" + address);
+  const signature = await signer(message);
+  me = (await api("login", {address, signature})).user;
+  closeLogin();
+  renderUser();
+  if (!me.name) setTimeout(askName, 300);
+  route();
+}
+$("login-mm").onclick = async () => {
+  try {
+    if (!window.ethereum) throw new Error("MetaMask não encontrada neste navegador");
+    const [acc] = await window.ethereum.request({method: "eth_requestAccounts"});
+    await signIn(acc, (m) => window.ethereum.request({method: "personal_sign", params: [utf8Hex(m), acc]}));
+  } catch (e) { toast("Erro: " + errMsg(e), 6000); }
+};
+$("login-local").onclick = async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    if (!HAS_ETHERS) throw new Error("a parte que abre a carteira deste navegador não carregou: recarregue a página");
+    toast("Desbloqueando a carteira… (leva alguns segundos)", 15000);
+    let acc;
+    try { acc = await ethers.decryptKeystoreJson(keystore(), $("local-pass").value); }
+    catch { throw new Error("senha errada"); }
+    $("local-pass").value = "";
+    const w = new ethers.Wallet(acc.privateKey);
+    await signIn(w.address, (m) => w.signMessage(m));
+  } catch (err) { toast("Erro: " + errMsg(err), 6000); }
+  finally { btn.disabled = false; }
+};
+$("local-pass").addEventListener("keydown", (e) => { if (e.key === "Enter") $("login-local").click(); });
+$("login-cancel").onclick = () => closeLogin();
+function closeLogin() { $("login-dlg").style.display = "none"; }
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("login-dlg").style.display !== "none") closeLogin(); });
+function openLogin() {
+  const ks = keystore();
+  $("local-login").style.display = ks && HAS_ETHERS ? "block" : "none";
+  $("no-ethers").style.display = ks && !HAS_ETHERS ? "block" : "none";
+  $("no-local").style.display = ks ? "none" : "block";
+  if (ks) try { $("local-addr").textContent = short("sig" + JSON.parse(ks).address.toLowerCase().replace(/^0x/, "")); } catch {}
+  $("login-dlg").style.display = "block";
+  $("login-mm").focus();
+}
+async function askName() {
+  const name = prompt("Como você quer aparecer no fórum? (3 a 24 caracteres)", me.name || "");
+  if (!name) return;
+  try { me = (await api("name", {name})).user; renderUser(); route(); }
+  catch (e) { toast("Erro: " + e.message, 5000); }
+}
+function renderUser() {
+  $("user-box").innerHTML = me
+    ? `<span class="author">${nameOf(me.address, me.name)}</span>${me.badges.map((b) => `<span class="badge">${esc(b)}</span>`).join("")}
+       <span class="muted">· ${sig(me.balance)}</span> <button id="btn-name" style="padding:3px 9px">nome</button>
+       <button id="btn-out" style="padding:3px 9px">sair</button>`
+    : `<button class="primary" id="btn-in">Entrar com a carteira</button>`;
+  $("btn-in")?.addEventListener("click", openLogin);
+  $("btn-name")?.addEventListener("click", askName);
+  $("btn-out")?.addEventListener("click", async () => {
+    try { await api("logout", {}); } catch (e) { return toast("Erro: " + errMsg(e), 5000); }
+    me = null; renderUser(); route();
+  });
+}
+
+// ------------------------------------------------------------ telas
+function renderCats(active) {
+  $("cats").innerHTML = `<a href="/forum" class="${!active ? "on" : ""}">Todos os tópicos</a>` +
+    Object.entries(cats).map(([k, v]) => `<a href="/forum?c=${k}" class="${active === k ? "on" : ""}">${esc(v)}</a>`).join("");
+}
+function newThreadForm(cat) {
+  if (!me) return `<div class="card"><button class="primary" onclick="openLogin()">Entre com sua carteira para criar um tópico</button></div>`;
+  return `<details class="card"><summary style="cursor:pointer;font-weight:600">Novo tópico</summary>
+    <label>Categoria</label><select id="nt-cat">${Object.entries(cats).map(([k, v]) =>
+      `<option value="${k}" ${k === cat ? "selected" : ""}>${esc(v)}</option>`).join("")}</select>
+    <label>Título</label><input id="nt-title" maxlength="120">
+    <label>Mensagem</label><textarea id="nt-body" maxlength="5000"></textarea>
+    <button class="primary" id="nt-go" style="margin-top:10px">Publicar</button></details>`;
+}
+async function showList(cat) {
+  renderCats(cat);
+  const threads = await api("threads" + (cat ? "?category=" + cat : ""));
+  $("main").innerHTML = `<h2 style="margin-top:0">${esc(cat ? cats[cat] : "Todos os tópicos")}</h2>` + newThreadForm(cat) +
+    `<div class="card">` + (threads.length ? threads.map((t) => `<a class="thread" href="/forum?t=${t.id}">
+      <div class="t">${esc(t.title)}</div>
+      <div class="muted">${esc(cats[t.category] || t.category)} · por ${nameOf(t.author, t.author_name)} · ${plural(t.replies, "resposta", "respostas")} · ${when(t.last_post)}</div></a>`).join("")
+      : `<p class="muted">Nenhum tópico ainda. Que tal começar a conversa?</p>`) + `</div>`;
+  $("nt-go")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    try {
+      const {id} = await api("threads", {category: $("nt-cat").value, title: $("nt-title").value, body: $("nt-body").value});
+      history.pushState(null, "", "/forum?t=" + id); route();
+    } catch (err) { toast("Erro: " + err.message, 5000); e.target.disabled = false; }
+  });
+}
+async function showThread(id) {
+  const {thread, posts} = await api("thread/" + id);
+  renderCats(thread.category);
+  document.title = thread.title + " · Fórum Sigma";
+  $("main").innerHTML = `<p><a href="/forum?c=${esc(thread.category)}">← ${esc(cats[thread.category])}</a></p>
+    <h2 style="margin-top:0">${esc(thread.title)}</h2><div class="card">` +
+    posts.map((p) => `<div class="post"><span class="author">${nameOf(p.author, p.author_name)}</span>
+      ${p.badges.map((b) => `<span class="badge">${esc(b)}</span>`).join("")}
+      <span class="muted"> · ${when(p.created)}</span><div class="body">${linkify(p.body)}</div></div>`).join("") + `</div>` +
+    (me ? `<div class="card"><label style="margin-top:0">Sua resposta</label><textarea id="rp-body" maxlength="5000"></textarea>
+       <button class="primary" id="rp-go" style="margin-top:10px">Responder</button></div>`
+        : `<div class="card"><button class="primary" onclick="openLogin()">Entre com sua carteira para responder</button></div>`);
+  $("rp-go")?.addEventListener("click", async (e) => {
+    e.target.disabled = true;
+    try { await api(`thread/${id}/reply`, {body: $("rp-body").value}); showThread(id); }
+    catch (err) { toast("Erro: " + err.message, 5000); e.target.disabled = false; }
+  });
+}
+function route() {
+  const q = new URLSearchParams(location.search);
+  (q.get("t") ? showThread(q.get("t")) : showList(q.get("c"))).catch((e) => $("main").innerHTML = `<div class="card">${esc(e.message)}</div>`);
+}
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a[href^='/forum']");
+  if (a && !e.ctrlKey && !e.metaKey) { e.preventDefault(); history.pushState(null, "", a.getAttribute("href")); route(); scrollTo(0, 0); }
+});
+addEventListener("popstate", route);
+
+// fórum fora do ar: diz o que houve e deixa tentar de novo (a página nunca fica em branco)
+function showDown(e) {
+  renderCats(null);
+  $("main").innerHTML = `<div class="card"><h2 style="margin-top:0">O fórum não respondeu</h2>
+    <p class="muted">${esc(errMsg(e))}</p><button class="primary" id="retry">Tentar de novo</button></div>`;
+  $("retry").onclick = start;
+}
+async function start() {
+  try { cats = await api("categories"); }
+  catch (e) { return showDown(e); }
+  try { me = (await api("me")).user; } catch { me = null; }
+  renderUser();
+  route();
+}
+renderUser();
+start();
+</script>
+</body>
+</html>

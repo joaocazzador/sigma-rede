@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23ff3b1f'/%3E%3Ctext x='32' y='50' font-size='50' font-weight='900' text-anchor='middle' font-family='Arial Black,Arial,sans-serif' fill='%230b0b0a'%3E%CE%A3%3C/text%3E%3C/svg%3E">
+<title>Baixar o Sigma</title>
+<meta name="description" content="Baixe o Sigma para Windows, Linux ou macOS. Um programa só: minera SIG, hospeda sites e roda IA sozinho, e manda tudo para a sua carteira.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Sigma">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:url" content="https://sigma.195-35-29-232.sslip.io/baixar">
+<meta property="og:title" content="Baixe o Sigma">
+<meta property="og:description" content="Um programa só. Baixe, informe sua carteira e pronto: seu computador já está minerando para a rede das pessoas.">
+<meta property="og:image" content="https://sigma.195-35-29-232.sslip.io/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Σ vermelho sobre fundo preto e a frase: Vão substituir você por um robô.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#0b0b0a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="/sigma.css">
+<style>
+.dl-hero { border-bottom: 2px solid var(--text); position: relative; overflow: hidden; }
+.dl-hero .halftone { position: absolute; left: 42%; top: -40px; width: 70%; height: 120%; opacity: .35; pointer-events: none;
+                     -webkit-mask-image: radial-gradient(closest-side, #000, transparent); mask-image: radial-gradient(closest-side, #000, transparent); }
+.dl-hero .inner { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr); gap: clamp(28px, 5vw, 72px);
+                  padding-top: clamp(24px, 3.5vw, 56px); padding-bottom: clamp(40px, 6vw, 80px); position: relative; }
+@media (max-width: 900px) { .dl-hero .inner { grid-template-columns: 1fr; } }
+/* .88 só porque "Baixe o Sigma" não tem acento: texto com acento precisa de 1,12 ou mais.
+   Tamanho contido para o botão de baixar caber na primeira tela de um notebook (1366×657). */
+.dl-hero h1 { font-size: clamp(56px, 8vw, 120px); line-height: .88; margin: 10px 0 16px; }
+.dl-hero h1 span { color: var(--accent); }
+.dl-hero .lead { color: var(--muted); margin: 0; }
+.dl-hero .lead b { color: var(--text); font-weight: 600; }
+
+.get { border: 3px solid var(--text); background: var(--card); padding: clamp(18px, 3vw, 28px); margin-top: 24px; position: relative; }
+.get .notofficial { border-left: 4px solid var(--bad); padding: 4px 0 4px 14px; margin: 0 0 14px; }
+.get .flag { position: absolute; top: -3px; right: -3px; background: var(--accent); color: var(--accent-ink); font: 600 11px var(--mono);
+             text-transform: uppercase; letter-spacing: 1px; padding: 5px 9px; }
+.get .btn.big { font-size: clamp(17px, 2.3vw, 22px); padding: 18px 28px; }
+.get-meta { font: 600 13px var(--mono); text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 12px 0 0; }
+.get-meta .warnx { color: var(--warn); }
+.get-others { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.get-others p { margin: 0 0 8px; font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.get-others .row a { padding: 8px 12px; font-size: 13px; }
+.mobile-note { border-left: 4px solid var(--warn); padding: 4px 0 4px 14px; margin: 0 0 14px; }
+
+.howto { list-style: none; margin: 0; padding: 0; border: 2px solid var(--text); }
+.howto li { display: grid; grid-template-columns: 64px 1fr; gap: 14px; padding: 18px 18px 18px 12px; border-bottom: 1px solid var(--line); align-items: start; }
+.howto li:last-child { border-bottom: 0; }
+.howto .big-n { font-size: 64px; }
+.howto b { display: block; font: 400 24px/1.15 var(--display); text-transform: uppercase; letter-spacing: .5px; margin: 4px 0 4px; }
+.howto p { margin: 0; color: var(--muted); font-size: 15px; }
+
+.os-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 2px solid var(--text); margin-top: 28px; }
+@media (max-width: 900px) { .os-cards { grid-template-columns: 1fr; } }
+.os-card { background: var(--bg); padding: 24px 22px 26px; display: flex; flex-direction: column; min-width: 0; }
+.os-card.match { background: var(--card); box-shadow: inset 0 5px 0 var(--accent); }
+.os-card h3 { font-size: 34px; margin: 0 0 4px; }
+.os-card .req { font: 600 12px var(--mono); text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 0 0 14px; }
+.os-card ol { margin: 0 0 18px; padding-left: 20px; }
+.os-card li { margin-bottom: 8px; }
+.os-card .btn { align-self: flex-start; margin-top: auto; }
+.os-card .tipx { font-size: 14px; color: var(--muted); margin: 0 0 16px; }
+
+.sums { border: 2px solid var(--text); background: var(--card); padding: 6px 16px 14px; margin-top: 22px; }
+.sums td.hash { font: 13px/1.5 var(--mono); word-break: break-all; }
+.sums .file { font: 600 14px var(--mono); white-space: nowrap; }
+.sums button { padding: 4px 9px; font-size: 11px; }
+.sums .state { color: var(--muted); padding: 12px 0 4px; margin: 0; }
+.verify { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 22px; }
+@media (max-width: 900px) { .verify { grid-template-columns: 1fr; } }
+.verify h3 { font-size: 20px; margin: 0 0 4px; }
+.verify p { font-size: 14px; color: var(--muted); margin: 0; }
+.verify .cmd code, .os-card .cmd code { white-space: normal; overflow-wrap: anywhere; }
+
+.warnbox { border: 3px solid var(--warn); padding: clamp(18px, 3vw, 30px); position: relative; }
+.warnbox h2 { margin-top: 0; }
+.warnbox .why { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); margin: 20px 0; }
+@media (max-width: 860px) { .warnbox .why { grid-template-columns: 1fr; } }
+.warnbox .why div { background: var(--bg); padding: 16px; }
+.warnbox .why b { display: block; font: 400 22px/1.15 var(--display); text-transform: uppercase; color: var(--warn); margin-bottom: 6px; letter-spacing: .5px; }
+.warnbox .why span { font-size: 15px; color: var(--muted); }
+.warnbox ol { padding-left: 22px; } .warnbox li { margin-bottom: 10px; }
+
+.does { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 1px; background: var(--line); border: 2px solid var(--text); margin-top: 26px; }
+@media (max-width: 860px) { .does { grid-template-columns: 1fr; } }
+.does > div { background: var(--bg); padding: 22px 24px; }
+.does h3 { margin: 0 0 12px; font-size: 26px; }
+.does ul { list-style: none; margin: 0; padding: 0; }
+.does li { padding: 8px 0 8px 28px; position: relative; border-top: 1px solid var(--line); }
+.does li:first-child { border-top: 0; }
+.does .yes li::before { content: "✓"; position: absolute; left: 0; top: 8px; color: var(--ok); font-weight: 800; }
+.does .no li::before { content: "✕"; position: absolute; left: 0; top: 8px; color: var(--accent); font-weight: 800; }
+
+.wallets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 24px; }
+@media (max-width: 860px) { .wallets { grid-template-columns: 1fr; } }
+.wallets div { border: 2px solid var(--text); padding: 20px; }
+.wallets b { display: block; font: 400 24px/1.15 var(--display); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+.wallets p { margin: 0; color: var(--muted); font-size: 15px; }
+
+.more { margin-top: 26px; }
+.more details { border-top: 1px solid var(--line); }
+.more details:last-child { border-bottom: 1px solid var(--line); }
+.more summary { cursor: pointer; padding: 16px 0; font: 400 24px/1.15 var(--display); text-transform: uppercase; letter-spacing: .5px; }
+.official { font: 600 15px var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.band-end h2 { font-size: clamp(40px, 7vw, 88px); line-height: .9; margin: 0 0 14px; }   /* sem acento: pode ser .9 */
+.more summary:hover { color: var(--accent); }
+.more details > div { padding: 0 0 18px; max-width: 78ch; }
+</style>
+</head>
+<body>
+<a class="skip" href="#conteudo">Pular para o conteúdo</a>
+<nav class="nav" aria-label="Principal">
+  <a class="brand" href="/"><span>Σ</span> SIGMA</a>
+  <div class="links">
+    <a class="link" href="/">Manifesto</a>
+    <a class="link on" href="/baixar" aria-current="page">Baixar</a>
+    <a class="link" href="/tutorial">Como funciona</a>
+    <a class="link" href="/forum">Fórum</a>
+    <a class="link" href="/carteira">Carteira</a>
+  </div>
+  <div class="spacer"></div>
+</nav>
+
+<main id="conteudo">
+<header class="dl-hero">
+  <div class="halftone" aria-hidden="true"></div>
+  <div class="inner">
+    <div>
+      <div class="eyebrow">Baixar</div>
+      <h1>Baixe o <span>Sigma</span>.</h1>
+      <p class="lead">Um programa só. Ele minera, hospeda sites e roda IA sozinho, e manda tudo para a sua carteira.
+        <b>Você não precisa baixar mais nada</b>: nem modelo, nem motor de IA, nem outro programa.</p>
+
+      <div class="get" id="get">
+        <span class="flag" id="get-flag" hidden>Seu sistema</span>
+        <p class="notofficial" id="not-official" hidden></p>
+        <p class="mobile-note" id="get-mobile" hidden>O Sigma roda em computadores. Abra esta página no seu PC para baixar.
+          No celular, você já pode usar a <a href="/carteira">Carteira</a> e o <a href="/forum">Fórum</a>.
+          <button type="button" id="copy-link" style="margin-top:10px">Copiar o link desta página</button></p>
+        <div id="get-main" hidden>
+          <a class="btn primary big" id="get-btn" href="/downloads/Sigma.exe" download>Baixar para Windows <span class="arrow" aria-hidden="true">↓</span></a>
+          <p class="get-meta" id="get-meta"></p>
+          <div class="cmd" id="get-cmd" hidden><code id="get-cmd-text">python3 sigma.pyz</code><button type="button" data-copy>copiar</button></div>
+        </div>
+        <div class="get-others">
+          <p id="get-others-title">Escolha o seu sistema</p>
+          <div class="row">
+            <a class="btn" href="/downloads/Sigma.exe" data-dl="Sigma.exe" download>Windows · Sigma.exe</a>
+            <a class="btn" href="/downloads/sigma.pyz" data-dl="sigma.pyz" download>Linux · sigma.pyz</a>
+            <a class="btn" href="/downloads/sigma.pyz" data-dl="sigma.pyz" download>macOS · sigma.pyz</a>
+          </div>
+          <p style="margin:14px 0 0"><a href="#conferir">Conferir o SHA-256</a> · <a href="#aviso">Por que o antivírus pode reclamar</a> · <a href="#requisitos">Requisitos</a></p>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="eyebrow">Quando você abrir</div>
+      <ol class="howto">
+        <li><span class="big-n" aria-hidden="true">1</span><div><b>O painel abre</b><p>Uma janela do Sigma aparece no seu computador. Ela é o seu painel de controle: dali você vê e ajusta tudo o que o Sigma faz no seu computador.</p></div></li>
+        <li><span class="big-n" aria-hidden="true">2</span><div><b>Informe sua carteira</b><p>Crie uma carteira nova, o jeito mais simples, ou cole só o endereço de uma que você já tem, como a da MetaMask.</p></div></li>
+        <li><span class="big-n" aria-hidden="true">3</span><div><b>Pronto</b><p>Seu computador já está minerando. Modelos de IA, sites e pagamentos: o Sigma cuida sozinho.</p></div></li>
+      </ol>
+    </div>
+  </div>
+</header>
+
+<section class="sec" id="sistemas">
+  <div class="inner">
+    <div class="eyebrow">Passo a passo</div>
+    <h2>Escolha o seu sistema.</h2>
+    <div class="os-cards">
+      <article class="os-card" data-os="windows">
+        <h3>Windows</h3>
+        <p class="req">Windows 10 ou 11 · 64 bits</p>
+        <ol>
+          <li>Baixe o <code>Sigma.exe</code><span data-size="Sigma.exe"></span>.</li>
+          <li>Se o navegador disser que o arquivo “não é baixado com frequência”, escolha <b>Manter</b>
+            (o <a href="#aviso">passo a passo</a> explica).</li>
+          <li>Dê dois cliques nele. Não precisa instalar.</li>
+          <li>Se aparecer “O Windows protegeu o computador”, leia o <a href="#aviso">aviso honesto</a> logo abaixo.</li>
+          <li>Informe sua carteira. Pronto.</li>
+        </ol>
+        <a class="btn primary" href="/downloads/Sigma.exe" data-dl="Sigma.exe" download>Baixar Sigma.exe</a>
+      </article>
+      <article class="os-card" data-os="linux">
+        <h3>Linux</h3>
+        <p class="req">Python 3.11 ou mais novo</p>
+        <ol>
+          <li>Baixe o <code>sigma.pyz</code><span data-size="sigma.pyz"></span>.</li>
+          <li>No terminal, na pasta do download:
+            <div class="cmd"><code>python3 sigma.pyz</code><button type="button" data-copy>copiar</button></div></li>
+          <li>O painel abre no navegador. Informe sua carteira. Pronto.</li>
+        </ol>
+        <p class="tipx">Não sabe a versão do Python? Rode <code>python3 --version</code>. Sem a janelinha de controle?
+          Falta o Tk (<code>sudo apt install python3-tk</code> no Debian e no Ubuntu); o painel funciona do mesmo jeito.</p>
+        <a class="btn primary" href="/downloads/sigma.pyz" data-dl="sigma.pyz" download>Baixar sigma.pyz</a>
+      </article>
+      <article class="os-card" data-os="mac">
+        <h3>macOS</h3>
+        <p class="req">Python 3.11 ou mais novo</p>
+        <ol>
+          <li>Instale o Python 3.11 ou mais novo pelo site <a href="https://www.python.org/downloads/" target="_blank" rel="noopener">python.org</a>
+            (o <code>python3</code> que vem no macOS é antigo demais).</li>
+          <li>Depois de instalar, abra <b>Aplicativos › Python 3.13</b> (ou a versão que você instalou) e dê dois cliques em
+            <b>Install Certificates.command</b>. Sem esse passo, o Python do python.org não abre conexões seguras (HTTPS) e
+            o Sigma fica sem rede.</li>
+          <li>Baixe o <code>sigma.pyz</code><span data-size="sigma.pyz"></span>.</li>
+          <li>No Terminal:
+            <div class="cmd"><code>cd ~/Downloads &amp;&amp; python3 sigma.pyz</code><button type="button" data-copy>copiar</button></div></li>
+          <li>O painel abre no navegador. Informe sua carteira. Pronto.</li>
+        </ol>
+        <a class="btn primary" href="/downloads/sigma.pyz" data-dl="sigma.pyz" download>Baixar sigma.pyz</a>
+      </article>
+    </div>
+    <p class="muted" style="margin-top:14px">O <code>sigma.pyz</code> também roda no Windows, se você tiver o Python: <code>python sigma.pyz</code>.</p>
+  </div>
+</section>
+
+<section class="sec" id="conferir" style="border-top:1px solid var(--line)">
+  <div class="inner">
+    <div class="eyebrow">Segurança</div>
+    <h2>Confira o arquivo antes de abrir.</h2>
+    <p class="lead" style="color:var(--muted)">O SHA-256 é a impressão digital do arquivo: se um único byte mudar, o código muda
+      inteiro. Compare o código do arquivo que você baixou com o desta lista. Têm que ser idênticos.</p>
+    <div class="callout"><b>O SHA-256 não substitui conferir o endereço.</b> Ele prova que o arquivo chegou inteiro e é
+      igual ao publicado nesta página. Mas não protege você de um site falso que publique a lista dele. Por isso, antes
+      de tudo, confira se a barra do navegador mostra exatamente <span class="official">sigma.195-35-29-232.sslip.io</span>.</div>
+    <div class="callout warn"><b>Páginas em /site/ não são do Sigma.</b> Endereços com /site/ são sites publicados por
+      qualquer pessoa da rede, não pelo projeto. O Sigma oficial só se baixa no endereço oficial,
+      <span class="official">sigma.195-35-29-232.sslip.io</span>/baixar. Nenhuma página em /site/ é do Sigma, e nenhuma
+      delas vai pedir a sua chave.</div>
+    <div class="sums">
+      <div class="table-wrap" id="sums"><p class="state">Carregando a lista…</p></div>
+      <p class="muted" style="margin:10px 0 0">Lista completa: <a href="/downloads/SHA256SUMS.txt">SHA256SUMS.txt</a></p>
+    </div>
+    <div class="verify">
+      <div><h3>Windows</h3>
+        <p>Na pasta Downloads, clique com o botão direito num espaço vazio e escolha "Abrir no Terminal"
+           (no Windows 10: segure Shift e escolha "Abrir janela do PowerShell aqui"). Cole:</p>
+        <div class="cmd"><code>Get-FileHash .\Sigma.exe -Algorithm SHA256</code><button type="button" data-copy>copiar</button></div>
+        <p>Maiúsculas e minúsculas não fazem diferença.</p></div>
+      <div><h3>Linux</h3>
+        <p>Na pasta do download:</p>
+        <div class="cmd"><code>sha256sum sigma.pyz</code><button type="button" data-copy>copiar</button></div></div>
+      <div><h3>macOS</h3>
+        <p>No Terminal:</p>
+        <div class="cmd"><code>shasum -a 256 ~/Downloads/sigma.pyz</code><button type="button" data-copy>copiar</button></div></div>
+    </div>
+    <div class="callout warn" style="margin-top:24px"><b>Deu diferente? Não abra.</b> Apague o arquivo e baixe de novo, só
+      pelo endereço oficial. Se continuar diferente, avise no <a href="/forum?c=ajuda">fórum</a>.</div>
+  </div>
+</section>
+
+<section class="sec" id="aviso" style="border-top:1px solid var(--line)">
+  <div class="inner">
+    <div class="warnbox">
+      <div class="eyebrow" style="color:var(--warn)">Aviso honesto</div>
+      <h2>O Windows e o antivírus podem reclamar.</h2>
+      <p class="lead" style="color:var(--muted)">Isso não quer dizer que o Sigma tenha vírus. Quer dizer três coisas:</p>
+      <div class="why">
+        <div><b>O app é novo</b><span>O Windows desconfia de qualquer programa que pouca gente baixou ainda.</span></div>
+        <div><b>Não tem assinatura digital</b><span>Assinar o programa custa caro e, mesmo assinado, o Windows pode continuar
+          avisando até muita gente ter baixado o mesmo arquivo.</span></div>
+        <div><b>Ele minera</b><span>Muitos antivírus marcam todo minerador como “programa indesejado”, porque existe vírus que minera escondido no computador dos outros.</span></div>
+      </div>
+      <p>A diferença é que o Sigma não se esconde: mostra uma janela com o que está fazendo, minera só para a carteira que
+         você escolheu, usa só a parte do processador que você liberou e fecha quando você manda.</p>
+      <h3>Como seguir com segurança</h3>
+      <ol>
+        <li><b>Baixe só pelo endereço oficial:</b> <span class="official">sigma.195-35-29-232.sslip.io</span>. Desconfie
+            de endereços parecidos: um número ou uma letra trocada já é outro site, e um site falso pode copiar esta página
+            inteira. Endereços com /site/ (como <span class="official">sigma.195-35-29-232.sslip.io</span>/site/baixar/) são
+            sites de outras pessoas da rede, não do projeto, e nenhum deles é o Sigma.</li>
+        <li><a href="#conferir">Confira o SHA-256</a> com a lista desta página. Se não bater, pare aqui. Lembre: o SHA-256
+            prova que o arquivo é o publicado aqui, não que este site é o verdadeiro. Quem garante isso é o endereço do
+            passo 1.</li>
+        <li>Se o navegador avisar que o <code>Sigma.exe</code> “não é baixado com frequência”, abra a lista de downloads
+            (Ctrl+J) e, no aviso do arquivo, escolha <b>Manter</b> (às vezes ela fica no menu de três pontinhos). No Edge,
+            ele pergunta mais uma vez: clique em <b>Mostrar mais</b> e em <b>Manter assim mesmo</b>.</li>
+        <li>No aviso azul “O Windows protegeu o computador”, clique em <b>Mais informações</b> e depois em <b>Executar assim mesmo</b>.</li>
+        <li>Se o antivírus bloquear o arquivo: com o endereço oficial conferido e o SHA-256 batendo, o bloqueio é porque o
+            Sigma minera, e você pode restaurar o arquivo e liberar o Sigma no antivírus. Se tiver qualquer dúvida sobre o
+            endereço, não force: use a versão em Python (<code>sigma.pyz</code>), que é o próprio código-fonte e pode ser
+            lida antes de rodar, ou peça ajuda no <a href="/forum?c=ajuda">fórum</a>.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="no-seu-pc" style="border-top:1px solid var(--line)">
+  <div class="inner">
+    <div class="eyebrow">Transparência</div>
+    <h2>O que o Sigma faz no seu computador.</h2>
+    <div class="does">
+      <div class="yes">
+        <h3>Faz</h3>
+        <ul>
+          <li>Minera SIG com o processador, em prioridade baixa, só até o limite que você escolher. No notebook, pausa a
+              mineração quando sai da tomada e volta sozinho no carregador (dá para mudar em Configurações, em “Minerar
+              também na bateria”).</li>
+          <li>Recebe da rede os modelos de IA que cabem no seu computador: baixa do endereço que o padrinho registrou,
+              confere o SHA-256 e responde os pedidos. Se o modelo sair da rede, apaga sozinho.</li>
+          <li>Empresta memória e disco para a IA da rede: por padrão, até 40% da memória e 20 GB do disco. Cada modelo tem
+              de 0,5 a 5 GB. O arquivo fica guardado enquanto o modelo estiver na rede, então normalmente é baixado uma
+              vez só. Internet limitada, como 4G? Desligue “IA para a rede” no painel.</li>
+          <li>Prepara o motor de IA sem perguntar nada: usa o Ollama, se você já tiver, ou baixa o llama.cpp oficial,
+              conferido pelo SHA-256, quando a rede colocar o primeiro modelo aqui. Usa a placa de vídeo quando dá.</li>
+          <li>Pausa a mineração enquanto responde um pedido de IA.</li>
+          <li>Guarda cópias de sites da rede, dentro do espaço em disco que você liberou.</li>
+          <li>Avisa a rede que está ligado, uma vez a cada 5 minutos.</li>
+          <li>Manda tudo que ganha para a sua carteira: o SIG novo da mineração, que sai um pouco em cada bloco, e os
+              aluguéis e pagamentos de quem usa a rede (a rede não cobra taxa nem queima nada).</li>
+          <li>Mostra as votações da rede na aba Votações, onde você vota nas regras com o seu SIG (1 SIG = 1 voto, que
+              volta inteiro no fim).</li>
+          <li>Abre um painel de controle que só funciona no seu computador (endereço <code>127.0.0.1</code>): ninguém de fora acessa.</li>
+          <li>Guarda os dados numa pasta só: <code>%LOCALAPPDATA%\Sigma</code> no Windows, <code>~/.sigma</code> no Linux e no
+              macOS. Se você marcar “Iniciar o Sigma junto com o computador” (Configurações), no Windows ele cria uma
+              entrada no registro para abrir junto com o sistema.</li>
+        </ul>
+      </div>
+      <div class="no">
+        <h3>Não faz</h3>
+        <ul>
+          <li>Não pede cadastro, e-mail nem senha.</li>
+          <li>Não roda código enviado por outras pessoas: só modelos de IA (arquivos de dados conferidos pelo SHA-256) e as
+              tarefas de cálculo que já vêm no app. No Sigma Code, cada comando passa por você antes de rodar, e cada
+              mudança em arquivo também, a não ser que você mesmo libere.</li>
+          <li>Não grava as perguntas e respostas de IA que passam pela sua máquina.</li>
+          <li>Não mostra anúncio.</li>
+          <li>Não minera para ninguém além de você.</li>
+          <li>Não vende SIG nem promete lucro.</li>
+          <li>Não vota nem trava seus SIG numa votação sem você mandar.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="requisitos" style="border-top:1px solid var(--line)">
+  <div class="inner split">
+    <div>
+      <div class="eyebrow">Requisitos</div>
+      <h2>Roda em computador comum.</h2>
+      <p class="muted">Para minerar e hospedar sites, quase qualquer PC serve. Para a rede colocar modelos de IA no seu
+         computador, ele precisa de mais memória e disco. A rede só manda o que cabe.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <tr><th></th><th>Para minerar</th><th>Para receber IA</th></tr>
+        <tr><td><b>Sistema</b></td><td colspan="2">Windows 10 ou 11 (64 bits) · Linux ou macOS com Python 3.11+</td></tr>
+        <tr><td><b>Processador</b></td><td>qualquer um de 64 bits</td><td>4 núcleos ou mais</td></tr>
+        <tr><td><b>Memória</b></td><td>4 GB</td><td>8 GB ou mais</td></tr>
+        <tr><td><b>Disco livre</b></td><td>1 GB</td><td>10 GB ou mais (os modelos têm de 0,5 a 5 GB)</td></tr>
+        <tr><td><b>Placa de vídeo</b></td><td>não precisa</td><td>opcional: deixa a IA mais rápida</td></tr>
+        <tr><td><b>Internet</b></td><td>qualquer banda larga</td><td>sem limite de dados: cada modelo tem de 0,5 a 5 GB e
+          normalmente é baixado uma vez só</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="carteira" style="border-top:1px solid var(--line)">
+  <div class="inner">
+    <div class="eyebrow">Sua carteira</div>
+    <h2>Sua carteira, do seu jeito.</h2>
+    <p class="muted">Na primeira vez que você abre o Sigma, ele pergunta para onde vão os SIG. São três escolhas:</p>
+    <div class="wallets">
+      <div><b>Criar uma carteira nova</b><p>O jeito mais simples. O Sigma cria a carteira e mostra a chave privada uma vez.
+        Anote e guarde em lugar seguro: ela é a única forma de recuperar seus SIG. Quer ver os SIG na MetaMask? Depois,
+        importe essa chave nela.</p></div>
+      <div><b>Usar minha chave</b><p>Tem uma carteira só para o Sigma? Cole a chave privada dela. Não use a chave da conta
+        onde você guarda outras criptomoedas: ela fica salva neste computador.</p></div>
+      <div><b>Só colar um endereço</b><p>Cole só o endereço (<code>sig…</code> ou <code>0x…</code>). O Sigma minera e hospeda
+        para ele sem guardar chave nenhuma. Mas do app você não vai poder usar a IA, publicar sites nem apadrinhar modelos:
+        para gastar, use a MetaMask na <a href="/carteira">Carteira</a> do site.</p></div>
+    </div>
+    <p class="muted">Mudou de ideia? No painel, em Carteira, o cartão “Carteira que recebe” tem “Importar a chave desta
+      carteira” e “Trocar carteira”.</p>
+    <div class="callout"><b>A MetaMask funciona com o mesmo endereço.</b> O endereço do Sigma é o mesmo de uma conta
+      Ethereum, só muda o começo: <code>sig7e5f…</code> é o mesmo que <code>0x7e5f…</code>. Na <a href="/carteira">Carteira</a>
+      do site, um clique adiciona a rede Sigma na sua MetaMask.</div>
+    <div class="callout warn"><b>Sua chave privada é só sua.</b> O app só pede a chave na tela dele, no seu computador, e só
+      se você escolher “Usar minha chave”. Ninguém do Sigma vai pedir a sua chave, nem no fórum, nem por mensagem: quem
+      pedir está tentando roubar você.</div>
+
+    <div class="more">
+      <details><summary>Servidor ou PC sem tela</summary><div>
+        <p>Tem um servidor ou um computador sempre ligado sem monitor? Rode sem janela, minerando direto para o seu endereço:</p>
+        <div class="cmd"><code>python3 sigma.pyz --headless --wallet 0xSEU_ENDERECO</code><button type="button" data-copy>copiar</button></div>
+        <p class="muted">Opções úteis: <code>--cpu 50</code> (porcentagem do processador), <code>--disk-gb 50</code> (espaço para a
+          rede), <code>--no-ai</code> (sem modelos de IA), <code>--name meu-servidor</code>. Para continuar rodando depois de
+          fechar o terminal, use <code>tmux</code>, <code>nohup</code> ou um serviço do systemd.</p>
+      </div></details>
+      <details><summary>Prefere ler o código antes</summary><div>
+        <p>O código-fonte está disponível: o <code>sigma.pyz</code> é um arquivo zip com o código em Python. Abra com
+          qualquer descompactador e leia cada linha. Ele usa só a biblioteca padrão do Python, sem pacotes de terceiros.
+          Quem já tem o código-fonte pode rodar direto: <code>python -m sigma.app</code>.</p>
+      </div></details>
+      <details><summary>Como desinstalar</summary><div>
+        <ol>
+          <li>Se você criou a carteira no app, guarde a chave antes: no painel, Carteira → Mostrar minha chave. Sem ela,
+              seus SIG ficam inacessíveis.</li>
+          <li>No painel, em Configurações, desmarque “Iniciar o Sigma junto com o computador”, clique em <b>Salvar</b> e
+              depois em <b>Desligar</b>.</li>
+          <li>Apague o <code>Sigma.exe</code> (ou o <code>sigma.pyz</code>) e a pasta de dados: <code>%LOCALAPPDATA%\Sigma</code> no
+              Windows, <code>~/.sigma</code> no Linux e no macOS.</li>
+        </ol>
+      </div></details>
+    </div>
+  </div>
+</section>
+
+<section class="band-red grain sec band-end" style="text-align:center">
+  <div class="inner">
+    <h2>Cada computador ligado conta.</h2>
+    <p style="font-size:18px;max-width:52ch;margin:0 auto 24px">Queremos que os donos dos robôs sejam as pessoas, não as
+      Big Techs. Baixe, informe sua carteira e pronto: você é uma delas.</p>
+    <a class="btn ink big" href="#conteudo">Voltar ao download <span class="arrow" aria-hidden="true">↑</span></a>
+  </div>
+</section>
+</main>
+
+<footer class="footer">
+  <span class="motto">Queremos que os donos dos robôs sejam <span>as pessoas</span>, não as Big Techs.</span>
+  <nav aria-label="Rodapé"><a href="/">Manifesto</a><a href="/baixar">Baixar</a><a href="/tutorial">Como funciona</a><a href="/forum">Fórum</a><a href="/carteira">Carteira</a></nav>
+  <p style="margin:14px 0 0">Σ Sigma · código-fonte disponível · feito por gente, para gente</p>
+</footer>
+<div id="toast" role="status"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function toast(msg, ms = 2500) {
+  const t = $("toast"); t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.style.display = "none", ms);
+}
+// a API de área de transferência só existe em https/localhost; fora disso, o jeito antigo
+async function copy(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch {}
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;opacity:0";
+  document.body.appendChild(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch {}
+  ta.remove();
+  return ok;
+}
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-copy]");
+  if (!b) return;
+  const text = b.dataset.copy || b.previousElementSibling.textContent;
+  toast(await copy(text) ? "Copiado" : "Não deu para copiar: selecione o texto e copie à mão");
+});
+$("copy-link").onclick = async () => toast(await copy(location.href) ? "Link copiado. Abra no seu computador." : "Copie o endereço da barra do navegador");
+
+// ---------------------------------------------------------------- qual sistema é este
+function detectOS() {
+  const ua = navigator.userAgent || "";
+  const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+  if (/Android|iPhone|iPad|iPod/i.test(ua)) return "mobile";
+  if (/Win/i.test(p) || /Windows/i.test(ua)) return "windows";
+  if (/Mac/i.test(p) || /Macintosh/i.test(ua)) return navigator.maxTouchPoints > 1 ? "mobile" : "mac";   // iPad se diz Mac
+  if (/Linux|X11|CrOS/i.test(p + " " + ua)) return "linux";
+  return "unknown";
+}
+const OS = {
+  windows: {name: "Windows", file: "Sigma.exe", meta: "Windows 10 e 11 · 64 bits · não precisa instalar"},
+  linux: {name: "Linux", file: "sigma.pyz", meta: "precisa do Python 3.11 ou mais novo", cmd: "python3 sigma.pyz"},
+  mac: {name: "macOS", file: "sigma.pyz", meta: "precisa do Python 3.11 ou mais novo e do passo dos certificados (veja abaixo)",
+        cmd: "cd ~/Downloads && python3 sigma.pyz"},
+};
+const os = detectOS(), info = OS[os];
+if (info) {
+  $("get-main").hidden = false;
+  $("get-flag").hidden = false;
+  $("get-flag").textContent = "Detectamos: " + info.name;
+  $("get-btn").href = "/downloads/" + info.file;
+  $("get-btn").dataset.dl = info.file;
+  $("get-btn").firstChild.textContent = "Baixar para " + info.name + " ";
+  $("get-meta").innerHTML = info.file + '<span data-size="' + info.file + '"></span> · ' + info.meta;
+  if (info.cmd) { $("get-cmd").hidden = false; $("get-cmd-text").textContent = info.cmd; }
+  $("get-others-title").textContent = "Outro sistema?";
+  document.querySelector(`.os-card[data-os="${os}"]`)?.classList.add("match");
+} else if (os === "mobile") {
+  $("get-mobile").hidden = false;
+  $("get-others-title").textContent = "Ou baixe agora e passe para o computador";
+}
+
+// ---------------------------------------------------------------- endereço oficial
+// Um site falso pode copiar esta página e a lista de SHA-256: o que protege é o endereço. Se o endereço oficial
+// mudar, mude aqui e nos textos acima. Rede local (127.0.0.1, localhost) não recebe o aviso.
+const OFFICIAL = "sigma.195-35-29-232.sslip.io";
+(() => {
+  const host = location.hostname;
+  const local = !host || /^(localhost|127(\.\d+){3}|\[::1\])$/.test(host) || host.endsWith(".localhost");
+  if (host === OFFICIAL || local) return;
+  const p = $("not-official");
+  p.textContent = `Atenção: ${host} não é o endereço oficial do Sigma. O oficial é ${OFFICIAL}. Só baixe de lá.`;
+  p.hidden = false;
+})();
+
+// ---------------------------------------------------------------- tamanho e disponibilidade dos arquivos
+const mb = (n) => (n / 1048576).toLocaleString("pt-BR", {maximumFractionDigits: 1}) + " MB";
+async function probe(file) {
+  try {
+    const r = await fetch("/downloads/" + file, {method: "HEAD", cache: "no-store"});
+    if (r.status === 404) return {missing: true};
+    const n = Number(r.headers.get("Content-Length"));
+    return r.ok && n > 0 ? {size: n} : {};
+  } catch { return {}; }   // sem rede ou sem HEAD: deixa o link como está
+}
+for (const file of ["Sigma.exe", "sigma.pyz"]) {
+  probe(file).then((p) => {
+    if (p.size) document.querySelectorAll(`[data-size="${file}"]`).forEach((e) => e.textContent = " · " + mb(p.size));
+    if (!p.missing) return;
+    document.querySelectorAll(`[data-dl="${file}"]`).forEach((a) => {
+      a.removeAttribute("href"); a.setAttribute("aria-disabled", "true");
+      a.title = "Ainda não publicado neste servidor";
+    });
+    document.querySelectorAll(`[data-size="${file}"]`).forEach((e) => {
+      e.innerHTML = ' · <span class="warnx">ainda não publicado neste servidor</span>';
+    });
+  });
+}
+
+// ---------------------------------------------------------------- lista de SHA-256
+(async () => {
+  const box = $("sums");
+  try {
+    const r = await fetch("/downloads/SHA256SUMS.txt", {cache: "no-store"});
+    if (!r.ok) throw new Error();
+    const rows = (await r.text()).split(/\r?\n/)
+      .map((l) => l.trim().match(/^([0-9a-fA-F]{64})\s+\*?(.+)$/)).filter(Boolean);
+    if (!rows.length) throw new Error();
+    const table = document.createElement("table");
+    table.innerHTML = "<tr><th>Arquivo</th><th>SHA-256</th><th></th></tr>";
+    for (const [, hash, name] of rows) {
+      const tr = table.insertRow();
+      const a = tr.insertCell(), b = tr.insertCell(), c = tr.insertCell();
+      a.className = "file"; a.textContent = name;
+      b.className = "hash"; b.textContent = hash.toLowerCase();
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.textContent = "copiar"; btn.dataset.copy = hash.toLowerCase();
+      c.appendChild(btn);
+    }
+    box.replaceChildren(table);
+  } catch {
+    box.innerHTML = '<p class="state">A lista ainda não está disponível neste servidor. Volte daqui a pouco, e só abra o arquivo depois de conferir.</p>';
+  }
+})();
+</script>
+</body>
+</html>
