@@ -1,9 +1,10 @@
 // Processos do Sigma no pm2 (mesmo gerenciador do GardenCounties neste servidor).
 // O nó fica só em 127.0.0.1: o acesso público passa pelo nginx (HTTPS).
-// Não existe faucet: todo SIG nasce da mineração. A VPS não minera nem roda IA, para não disputar
-// CPU com o GardenCounties; ela valida os blocos, serve o site/downloads e hospeda sites da rede.
+// Não existe faucet: todo SIG nasce da mineração. A VPS valida os blocos, serve o site/downloads, hospeda sites da
+// rede e minera com todos os núcleos, mas só com a sobra: o app roda na classe "idle" do Linux (chrt --idle), que
+// só ganha o processador quando nenhum outro programa o quer. O GardenCounties e o nó validador nunca esperam.
 const DATA = "/opt/sigma/data";
-// Carteira que recebe o que a VPS ganha hospedando (o deploy_vps.sh passa PAYOUT, já conferido).
+// Carteira que recebe o que a VPS minera e ganha hospedando (o deploy_vps.sh passa PAYOUT, já conferido).
 // Sem ela, o app cria e guarda uma carteira própria em /opt/sigma/data/host.
 const PAYOUT = (process.env.PAYOUT || "").trim();
 
@@ -27,12 +28,13 @@ module.exports = {
       max_memory_restart: "1500M",
     },
     {
-      // A máquina do próprio servidor: o mesmo app que as pessoas baixam, sem janela, sem minerar e sem IA.
+      // A máquina do próprio servidor: o mesmo app que as pessoas baixam, sem janela e sem IA, minerando com 100%
+      // dos núcleos na classe idle (os processos do minerador herdam a classe).
       name: "sigma-hosting",
       cwd: "/opt/sigma/app",
-      script: "python3",
-      args: `-m sigma.app --headless --no-mine --no-ai --node http://127.0.0.1:8700 --data-dir ${DATA}/host ` +
-            `--disk-gb 5 --name servidor-sigma` + (PAYOUT ? ` --wallet ${PAYOUT}` : ""),
+      script: "chrt",
+      args: `--idle 0 python3 -m sigma.app --headless --no-ai --cpu 100 --node http://127.0.0.1:8700 ` +
+            `--data-dir ${DATA}/host --disk-gb 5 --name servidor-sigma` + (PAYOUT ? ` --wallet ${PAYOUT}` : ""),
       interpreter: "none",
       env: { PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" },
       max_memory_restart: "300M",
