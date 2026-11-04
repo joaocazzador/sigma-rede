@@ -50,6 +50,9 @@ Exemplo: mudar a fórmula do aluguel.
    SCHEDULE = {"<hash do genesis>": {2: 120000}}
    ```
 
+   O genesis da rede principal (sigma.195-35-29-232.sslip.io, recriada na v2.4 em 04/11/2026) é
+   `a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029`.
+
    Escolha uma altura com folga para todo mundo baixar a versão nova (o painel avisa assim que ela for
    publicada). Com blocos de ~25 s, 3.500 blocos dão ~1 dia.
 4. **Teste** que a chain antiga continua batendo (veja `tests/test_upgrades.py`, que faz exatamente isso com uma
