@@ -219,6 +219,9 @@ def show_catalog(items):
         print(f"{x['id']:<24} {TASK_NAMES.get(x.get('task'), 'texto'):<6} {fmt_size(size):>8}  "
               f"{x.get('license', ''):<11} {x.get('description', '')}")
     print("\napadrinhe com: python -m sigma.cli model-register --catalog <id> --budget <SIG>")
+    print("\ngigantes (só rodam divididos entre várias máquinas; ainda não dá para apadrinhar):")
+    for x in load_catalog().SPLIT_CATALOG:
+        print(f"  {x['id']:<22} {fmt_size(x['size']):>8}  {x['license']:<11} {x['description']}")
 
 
 # ---------------------------------------------------------------- ajudantes

@@ -72,6 +72,31 @@ CATALOG = [
           "qwen2.5-coder-7b-instruct-q4_k_m.gguf", 4683073536,
           "509287f78cb4d4cf6b3843734733b914b2c158e43e22a7f4bf5e963800894d3c", "Apache-2.0",
           "Um dos melhores modelos abertos de programação do seu tamanho; pede uns 6 GB de memória."),
+    _item("qwen3-8b", "Qwen3 8B", "Qwen/Qwen3-8B-GGUF", "Qwen3-8B-Q4_K_M.gguf", 5027783488,
+          "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785", "Apache-2.0",
+          "Geração nova da Qwen: pensa antes de responder quando a pergunta pede; pede uns 7 GB de memória."),
+    _item("phi-4", "Phi-4 14B", "bartowski/phi-4-GGUF", "phi-4-Q4_K_M.gguf", 9053114816,
+          "009aba717c09d4a35890c7d35eb59d54e1dba884c7c526e7197d9c13ab5911d9", "MIT",
+          "Da Microsoft: muito bom em matemática, lógica e código; pede uns 12 GB de memória."),
+    _item("qwen3-14b", "Qwen3 14B", "Qwen/Qwen3-14B-GGUF", "Qwen3-14B-Q4_K_M.gguf", 9001752960,
+          "500a8806e85ee9c83f3ae08420295592451379b4f8cf2d0f41c15dffeb6b81f0", "Apache-2.0",
+          "Generalista forte, bom em português e com raciocínio passo a passo; pede uns 12 GB de memória."),
+    _item("gpt-oss-20b", "gpt-oss 20B", "ggml-org/gpt-oss-20b-GGUF", "gpt-oss-20b-MXFP4.gguf", 12109566624,
+          "27cd6c432c7672cb812a92f611cf3ba7bbc35928262bb1e1253ff4ee6ae35901", "Apache-2.0",
+          "O modelo aberto da OpenAI: raciocina bem e é rápido para o tamanho (só parte dele trabalha em cada "
+          "palavra); pede uns 15 GB de memória."),
+    _item("mistral-small-3.1-24b", "Mistral Small 3.1 24B", "bartowski/mistralai_Mistral-Small-3.1-24B-Instruct-2503-GGUF",
+          "mistralai_Mistral-Small-3.1-24B-Instruct-2503-Q4_K_M.gguf", 14333910496,
+          "c5743c1bf39db0ae8a5ade5df0374b8e9e492754a199cfdad7ef393c1590f7c0", "Apache-2.0",
+          "Da Mistral: escreve muito bem, segue instruções com cuidado e tem contexto longo; pede uns 18 GB de "
+          "memória."),
+    _item("qwen3-30b-a3b", "Qwen3 30B-A3B", "Qwen/Qwen3-30B-A3B-GGUF", "Qwen3-30B-A3B-Q4_K_M.gguf", 18556685824,
+          "0d003f6662faee786ed5da3e31b29c978de5ae5d275c8794c606a7f3c01aa8f5", "Apache-2.0",
+          "Grande mas ágil: só 3B dos 30B trabalham em cada palavra, então responde rápido até no processador; "
+          "pede uns 23 GB de memória."),
+    _item("qwen3-32b", "Qwen3 32B", "Qwen/Qwen3-32B-GGUF", "Qwen3-32B-Q4_K_M.gguf", 19762149024,
+          "efd971561896866f0e910cce52761ca77b1b138090c7f15fe284676d57d1f689", "Apache-2.0",
+          "O maior Qwen3 que cabe num computador só: o mais caprichado da lista; pede uns 24 GB de memória."),
     # ---- imagem e vídeo (regras v2, stable-diffusion.cpp)
     _item("z-image-turbo", "Z-Image Turbo", "leejet/Z-Image-Turbo-GGUF", "z_image_turbo-Q4_K.gguf", 3864250304,
           "14b375ab4f226bc5378f68f37e899ef3c2242b8541e61e2bc1aff40976086fbd", "Apache-2.0",
@@ -98,6 +123,53 @@ CATALOG = [
                  ("t5xxl", "city96/umt5-xxl-encoder-gguf", "umt5-xxl-encoder-Q4_K_M.gguf", 3655145312,
                   "17cf97a5bbbc60a646d6105b832b6f657ce904a8a1ad970e4b59df0c67584a40")),
           recipe={"steps": 20, "cfg": 6.0, "sampler": "euler", "size": "832x480", "flow_shift": 3.0}),
+    _item("flux.1-schnell", "FLUX.1 schnell", "city96/FLUX.1-schnell-gguf", "flux1-schnell-Q4_K_S.gguf", 6783943712,
+          "4fd16477b3a5296d0cf722c4b92a9fd7f30d09ac7495826e4465d8de9c9fd973", "Apache-2.0",
+          "Um dos melhores geradores de imagem abertos, em só 4 passos; pede uns 14 GB de memória.",
+          task="image",
+          files=(("vae", "Comfy-Org/Z-Image-Turbo", "split_files/vae/ae.safetensors", 335304388,
+                  "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38"),
+                 ("clip_l", "comfyanonymous/flux_text_encoders", "clip_l.safetensors", 246144152,
+                  "660c6f5b1abae9dc498ac2d21e1347d2abdb0cf6c0c0c8576cd796491d9a6cdd"),
+                 ("t5xxl", "city96/t5-v1_1-xxl-encoder-gguf", "t5-v1_1-xxl-encoder-Q4_K_M.gguf", 2896123072,
+                  "6be2b0b7e2de7cf2919340c88cb802a103a997ce46c53131cec91958c1db1af4")),
+          recipe={"steps": 4, "cfg": 1.0, "sampler": "euler", "size": "1024x1024"}),
+    _item("sdxl-1.0", "Stable Diffusion XL 1.0", "stabilityai/stable-diffusion-xl-base-1.0",
+          "sd_xl_base_1.0.safetensors", 6938078334,
+          "31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b", "OpenRAIL++",
+          "Imagens em 1024x1024 com muitos estilos (foto, ilustração, pintura); pede uns 10 GB de memória.",
+          task="image", recipe={"steps": 25, "cfg": 7.0, "sampler": "euler_a", "size": "1024x1024"}),
+    _item("wan2.1-t2v-14b", "Wan 2.1 Texto para Vídeo 14B", "city96/Wan2.1-T2V-14B-gguf",
+          "wan2.1-t2v-14b-Q4_K_M.gguf", 10124581504,
+          "c9a64d612831debbac77af93744d4b5196b840bf65e9f9f5b958d03fc3baddf2", "Apache-2.0",
+          "A versão grande do Wan: vídeos bem melhores, mas lenta sem placa de vídeo; pede uns 21 GB de memória.",
+          task="video",
+          files=(("vae", "Comfy-Org/Wan-2.1", "split_files/vae/wan_2.1_vae.safetensors", 253815318,
+                  "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b"),
+                 ("t5xxl", "city96/umt5-xxl-encoder-gguf", "umt5-xxl-encoder-Q4_K_M.gguf", 3655145312,
+                  "17cf97a5bbbc60a646d6105b832b6f657ce904a8a1ad970e4b59df0c67584a40")),
+          recipe={"steps": 20, "cfg": 6.0, "sampler": "euler", "size": "832x480", "flow_shift": 3.0}),
+]
+
+# Gigantes: não cabem em nenhum computador comum e só rodam divididos entre várias máquinas (a divisão aberta,
+# docs/PENDENCIAS.md). Aparecem no catálogo para mostrar aonde a rede vai, mas ainda não se apadrinham: a chain só
+# aceita um arquivo de até 60 GB por modelo. `size` é a soma das partes; `parts`, quantos arquivos o GGUF tem.
+def _giant(id_, name, repo, size, parts, license, description):
+    return {"id": id_, "name": name, "repo": repo, "url": f"{HF}/{repo}", "size": size, "parts": parts,
+            "license": license, "description": description, "ram_mb": ram_mb(size), "task": "text", "split": True}
+
+
+SPLIT_CATALOG = [
+    _giant("gpt-oss-120b", "gpt-oss 120B", "ggml-org/gpt-oss-120b-GGUF", 63387346208, 1, "Apache-2.0",
+           "O maior modelo aberto da OpenAI, perto dos modelos fechados em raciocínio."),
+    _giant("qwen3-235b-a22b", "Qwen3 235B-A22B", "Qwen/Qwen3-235B-A22B-GGUF", 142154074176, 5, "Apache-2.0",
+           "O topo da família Qwen3: conversa, raciocina e programa no nível dos melhores."),
+    _giant("glm-4.5", "GLM-4.5 355B", "unsloth/GLM-4.5-GGUF", 216455572672, 5, "MIT",
+           "Da Zhipu: forte em agentes, ferramentas e programação."),
+    _giant("qwen3-coder-480b", "Qwen3 Coder 480B-A35B", "unsloth/Qwen3-Coder-480B-A35B-Instruct-GGUF",
+           290058826208, 6, "Apache-2.0", "O maior modelo aberto de programação: projetos inteiros, não só trechos."),
+    _giant("deepseek-r1-0528", "DeepSeek R1 671B", "unsloth/DeepSeek-R1-0528-GGUF", 404941900832, 9, "MIT",
+           "O DeepSeek R1 completo, 671 bilhões de parâmetros: pensa longamente antes de responder."),
 ]
 
 

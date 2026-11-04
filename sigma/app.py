@@ -1970,7 +1970,8 @@ class App:
         tasks = self._model_tasks(network)
         media = self._net_media()
         # media_note: o porquê de imagem e vídeo ainda não valerem (o painel não oferece Apadrinhar para eles)
-        return {"network": network, "catalog": [dict(i) for i in catalog.CATALOG],
+        # os gigantes (split: só divididos entre máquinas) vêm no fim, sem botão de apadrinhar
+        return {"network": network, "catalog": [dict(i) for i in catalog.CATALOG + catalog.SPLIT_CATALOG],
                 "ai": {"prices": self._ai_prices(), "context": AI_CONTEXT, "tasks": tasks, "units": dict(UNITS),
                        "limits": MEDIA_LIMITS, "media": media, "media_note": None if media else self._no_media_yet()}}
 
