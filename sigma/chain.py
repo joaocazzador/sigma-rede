@@ -51,8 +51,9 @@ RULES = 3                   # a versão mais nova das regras que este código sa
 # já nasce na versão RULES; as entradas daqui só valem para a rede cujo genesis tem aquele hash.
 # rede principal (genesis a8eabe25…1029, recriada na 2.4): a v2 (imagem e vídeo, reserva dos fundadores, votações
 # decididas antes) entra no bloco 1950, marcado na publicação da 2.5 em 04/11/2026 (~1 h de aviso); a v3 (caução dos
-# coordenadores) no bloco 8000, marcado na publicação da 2.6 no mesmo dia, no bloco 2647 (~36 h de aviso, 24 s por bloco)
-SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 8000}}
+# coordenadores) no bloco 2780, marcado no mesmo dia no bloco 2679 (~40 min de aviso, 24 s por bloco; a primeira
+# marcação da 2.6 era o bloco 8000 e foi antecipada antes de qualquer bloco nas regras v3)
+SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780}}
 UPGRADE_HISTORY_KEEP = 50
 # saldos que uma atualização cria na altura dela, uma vez só: hash do genesis -> {versão: [(endereço, µSIG)]}.
 # A v2 da rede principal cria a carteira dos fundadores: 1 milhão de SIG (1% do teto) para as primeiras despesas do
