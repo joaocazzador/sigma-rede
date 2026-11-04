@@ -26,7 +26,7 @@ import urllib.parse
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import hardware, media, netsafe, tasks
+from . import grupo, hardware, media, netsafe, tasks
 from .chain import FUNDED_ABOVE, MEDIA_CLAIM_TIMEOUT, MEDIA_PRICES, MIN_FUNDED_SECONDS, TASK_PRICE, canon
 from .client import Client, SigmaError
 from .crypto import is_sealed, norm_address, seal
@@ -155,7 +155,15 @@ class Host:
         self.settings = dict(DEFAULTS, **(settings or {}))
         self.miner = miner
         self.log = log
+        # grupo (sigma/grupo.py): coordenador usa a memória de outros PCs; trabalhador empresta a sua e não serve IA
+        self.group = grupo.from_settings(self.settings.get("group"), machine_wallet, self.client, data_dir,
+                                         self.settings["ai_threads"], log)
+        if self.group and self.group.role == "coordinator":
+            self.settings["engine"] = "llamacpp"      # o Ollama não divide camadas entre máquinas
+        if self.group and self.group.role == "worker":
+            self.settings["ai_enabled"] = False
         self.engine = EngineManager(data_dir, self.settings["engine"], log, self.settings["ai_threads"])
+        self.engine.rpc_provider = self.group.rpc if self.group else None
         # v2: imagem e vídeo (stable-diffusion.cpp); com o motor "mock" dos testes, o gerador de teste
         self.media = media.MediaManager(data_dir, self.settings["engine"], log, self.settings["ai_threads"])
         self.models_dir = os.path.join(data_dir, "models")
@@ -205,6 +213,8 @@ class Host:
         os.makedirs(self.models_dir, exist_ok=True)
         os.makedirs(self.blob_dir, exist_ok=True)
         self._start_server()
+        if self.group:
+            self.group.start()
         for target, name in ((self._main_loop, "registro"), (self._models_loop, "modelos"),
                              (self._jobs_loop, "jobs"), (self._ai_loop, "ia"), (self._media_loop, "midia"),
                              (self._answers_loop, "respostas")):
@@ -229,6 +239,8 @@ class Host:
         self._stop_server()
         self.engine.shutdown()
         self.media.shutdown()
+        if self.group:
+            self.group.stop()
         with self._lock:
             if self._we_paused and self.miner:
                 self.miner.resume()
@@ -370,6 +382,8 @@ class Host:
         ai_ram = hardware.gb_to_mb(s["ai_ram_gb"])   # GB como o Windows mostra (2^30 bytes) -> MB da chain
         # nunca mais do que existe (nem que o teto da chain)
         ai_ram = max(0, min(ai_ram, max(hw["ram_mb"] - 1000, hw["vram_mb"]), MAX_AI_RAM_MB))
+        if self.group:   # coordenador: soma a memória que os trabalhadores conectados emprestam
+            ai_ram = min(ai_ram + self.group.lent_mb(), MAX_AI_RAM_MB)
         used = self._disk_used_mb()
         disk = max(0, min(hardware.gb_to_mb(s["disk_gb"]), used + max(0, hw["disk_free_mb"] - 2000)))
         want_ai = bool(s["ai_enabled"]) and ai_ram >= MIN_AI_RAM_MB
@@ -395,7 +409,7 @@ class Host:
         s = self.settings
         return (data["payout"], data["name"], data["ai"], data["compute"], data["endpoint"],
                 json.dumps(data["prices"], sort_keys=True), s["disk_gb"], s["ai_ram_gb"],
-                tuple(data.get("tasks") or ()))
+                tuple(data.get("tasks") or ()), data["hw"]["ai_ram_mb"])
 
     def _register_if_needed(self):
         data = self._registration()
@@ -1086,6 +1100,7 @@ class Host:
         self._swap = False
         old, old_media = self.engine, self.media
         self.engine = EngineManager(self.data_dir, self.settings["engine"], self.log, self.settings["ai_threads"])
+        self.engine.rpc_provider = self.group.rpc if self.group else None
         self.media = media.MediaManager(self.data_dir, self.settings["engine"], self.log, self.settings["ai_threads"])
         self._engine_desc = self._media_desc = (0.0, None)
         old_media.shutdown()

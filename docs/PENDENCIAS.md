@@ -51,8 +51,10 @@ reputação. Falta escrever e revisar o desenho completo, com estas partes:
 
 ## 5. Máquina
 
-- **Túnel cifrado.** O trabalhador disca para o coordenador (TLS 1.3 PSK, canais, retomada em até 120 s). Já tem
-  1.516 linhas em `wip/tunnel.py`, mas não tem testes nem revisão; está fora do pacote e do GitHub.
+- **Grupo (2.7, docs/GRUPO.md).** Coordenador e trabalhadores pelo túnel cifrado já funcionam (texto idêntico com o
+  llama.cpp real). Falta: testes de estresse do túnel (quedas, retomada, muitos canais), revisão de segurança do
+  `sigma/tunnel.py`, o grupo no painel (hoje só pela linha de comando), o rateio do pagamento entre os membros e o
+  que fazer quando um trabalhador cai no meio de uma resposta.
 - **Porteiro** de verdade em `sigma/porteiro.py`. Falta decidir de onde vem a política de grafos de cada modelo.
 - Job Object no trabalhador e PC trabalhador sem a chave da carteira (opção no painel).
 - Planejador de camadas e supervisor do grupo.

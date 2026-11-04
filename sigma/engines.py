@@ -470,6 +470,7 @@ class _LlamaCpp:
         self.override = os.environ.get("SIGMA_LLAMA_SERVER")   # llama-server próprio (ex.: build com CUDA)
         self.variants = llama_variants()
         self.failed = set()          # variantes que não subiram nesta execução
+        self.rpc_provider = None     # grupo (sigma/grupo.py): função -> ["127.0.0.1:<ponte>", ...]
         self.procs = {}              # nome -> {"proc", "port", "variant", "path", "logf"}
         self.lock = threading.RLock()
         self.install_lock = threading.Lock()
@@ -552,9 +553,18 @@ class _LlamaCpp:
             self.log(f"[motor] llama.cpp {LLAMA_BUILD} ({variant}) pronto")
             return find_server(folder)
 
-    def _command(self, exe, variant, path, port):
+    def _rpc(self):
+        """Grupo (sigma/grupo.py): os rpc-servers dos trabalhadores conectados, pelas pontes do túnel."""
+        try:
+            return list(self.rpc_provider()) if self.rpc_provider else []
+        except Exception:
+            return []
+
+    def _command(self, exe, variant, path, port, rpc=()):
         cmd = [exe, "-m", path, "--host", "127.0.0.1", "--port", str(port), "-c", str(CONTEXT), "--jinja",
                "-t", str(self.threads), "-np", "1"]
+        if rpc:   # as camadas vão para os trabalhadores; a saída (logits) fica aqui
+            cmd += ["--rpc", ",".join(rpc), "-ot", r"^output\.weight$=CPU"]
         if "vulkan" in variant:   # cabe inteiro na placa: todas as camadas na GPU
             _, vram = hardware.gpu()
             if os.path.getsize(path) * 1.2 / 1e6 + 500 <= vram:
@@ -562,8 +572,8 @@ class _LlamaCpp:
         return cmd
 
     def _start(self, name, exe, variant, path):
-        port = free_port()
-        cmd = self._command(exe, variant, path, port)
+        port, rpc = free_port(), self._rpc()
+        cmd = self._command(exe, variant, path, port, rpc)
         nice = shutil.which("nice") if os.name != "nt" else None
         if nice:   # prioridade baixa desde o primeiro instante (no Windows vem pelo creationflags)
             cmd = [nice, "-n", "10", *cmd]
@@ -601,7 +611,7 @@ class _LlamaCpp:
                 logf.close()
                 raise EngineError("o llama-server não ficou pronto a tempo")
             time.sleep(0.5)
-        return {"proc": proc, "port": port, "variant": variant, "path": path, "logf": logf}
+        return {"proc": proc, "port": port, "variant": variant, "path": path, "logf": logf, "rpc": rpc}
 
     def _log_path(self, name):
         return os.path.join(self.root, "logs", re.sub(r"[^\w.-]", "_", name) + ".log")
@@ -619,7 +629,7 @@ class _LlamaCpp:
     def load(self, name, path, sha256):
         with self.lock:
             p = self.procs.get(name)
-            if p and p["proc"].poll() is None and p["path"] == path:
+            if p and p["proc"].poll() is None and p["path"] == path and p.get("rpc", []) == self._rpc():
                 return
         if not os.path.isfile(path):
             raise EngineError(f"arquivo do modelo não encontrado: {path}")
@@ -905,6 +915,7 @@ class EngineManager:
         self.threads = int(threads) if threads else max(1, hardware.cpu_cores() // 2)
         self._impl = None
         self._lock = threading.Lock()
+        self.rpc_provider = None     # grupo: só o llama.cpp gerenciado divide camadas (o Ollama não tem RPC)
 
     def _engine(self):
         with self._lock:   # escolhido uma vez: o Ollama, se estiver no ar; senão o llama.cpp gerenciado
@@ -919,6 +930,8 @@ class EngineManager:
                     ollama = _Ollama(self.log)
                     self._impl = ollama if ollama.available() else _LlamaCpp(self.data_dir, self.log, self.threads)
                 self.log(f"[motor] motor de IA: {self._impl.kind}")
+                if hasattr(self._impl, "rpc_provider"):
+                    self._impl.rpc_provider = self.rpc_provider
             return self._impl
 
     @property

@@ -40,7 +40,7 @@ from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, catalog, chain, netsafe, securestore
+from . import __version__, catalog, chain, grupo, netsafe, securestore
 from .chain import UNIT
 from .client import Client, SigmaError
 from .crypto import N, Wallet, checksum_ok, norm_address, to_eth
@@ -1298,6 +1298,16 @@ class App:
             o["mining_enabled"] = False
         if a.no_ai:
             o["ai_enabled"] = False
+        self.group = {}   # só desta execução, como o resto da linha de comando
+        try:
+            if getattr(a, "coordinate", None):
+                self.group = {"listen": a.coordinate,
+                              "workers": dict(grupo.parse_worker(w) for w in a.group_worker)}
+            elif getattr(a, "worker_of", None):
+                coord, endpoint = grupo.parse_coordinator(a.worker_of)
+                self.group = {"coordinator": coord, "endpoint": endpoint}
+        except grupo.GroupError as e:
+            raise AppError(str(e)) from None
         self.overrides = {k: self._clean(k, v) for k, v in o.items()}
         self.settings = {**self.saved, **self.overrides}
         self._save_config()
@@ -1480,7 +1490,7 @@ class App:
         return {"ai_enabled": s["ai_enabled"], "compute_enabled": s["compute_enabled"], "disk_gb": s["disk_gb"],
                 "ai_ram_gb": s["ai_ram_gb"], "public_url": s["public_url"], "engine": s["engine"],
                 "ai_threads": s["ai_threads"] or None, "name": s["name"], "ai_image": s["ai_image"],
-                "ai_video": s["ai_video"], **self.hidden}
+                "ai_video": s["ai_video"], **self.hidden, "group": getattr(self, "group", None) or None}
 
     def start_services(self):
         """Liga o que falta (Host e minerador). Pode ser chamado de novo: só completa o que não subiu."""
@@ -2980,6 +2990,12 @@ def parse_args(argv=None):
     ap.add_argument("--port", type=int, help=f"porta do painel local (padrão {DEFAULT_PORT})")
     ap.add_argument("--engine", choices=ENGINES, help="motor de IA (padrão auto: Ollama se houver, senão llama.cpp)")
     ap.add_argument("--public-url", help="URL pública desta máquina, para servir arquivos de sites (opcional)")
+    # grupo (sigma/grupo.py): um coordenador roda modelos que não cabem nele com a memória de outros PCs
+    ap.add_argument("--coordinate", metavar="HOST:PORTA", help="coordenar um grupo: escuta os trabalhadores aqui")
+    ap.add_argument("--group-worker", action="append", default=[], metavar="ENDEREÇO=GB",
+                    help="trabalhador do grupo (máquina da rede) e quantos GB ele empresta; um por trabalhador")
+    ap.add_argument("--worker-of", metavar="ENDEREÇO@HOST:PORTA",
+                    help="emprestar memória para o coordenador (endereço da máquina dele e onde ele escuta)")
     args = ap.parse_args(argv)
     if args.port is not None and not 0 < args.port < 65536:
         ap.error("--port deve estar entre 1 e 65535")
