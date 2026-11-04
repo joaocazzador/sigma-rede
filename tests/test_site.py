@@ -122,7 +122,9 @@ class TestTextosDosAchados(unittest.TestCase):
         self.assertIn("Hoje um único servidor do projeto ainda assina os blocos", self.txt["index.html"])
         tut = self.txt["tutorial.html"]
         self.assertIn("hoje um servidor do projeto assina os blocos e entrega os sites", tut)
-        self.assertIn("reiniciar a rede do zero", tut)
+        # v2.4: mudar as regras não zera nada, mas o validador único ainda poderia recriar a rede (dito com todas as letras)
+        self.assertIn("mudar as regras não zera nada", tut)
+        self.assertIn("poderia recriar a rede do zero, com todos os saldos", tut)
         self.assertIn("Sites passam pelo servidor da rede.", tut)
         self.assertIn("A rede pode zerar os saldos?", tut)
         self.nao_tem("não zerar os saldos")   # §14: sem essa promessa

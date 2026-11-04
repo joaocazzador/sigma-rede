@@ -368,10 +368,10 @@ class TestProduceNeverHalts(unittest.TestCase):
         bomb = net.send(Wallet.generate(), "register_machine", machine_data(random_address()))
         real = nodemod.make_block
 
-        def make_block(wallet, height, prev, txs, root, t):
+        def make_block(wallet, height, prev, txs, root, t, **kw):
             if any(tx["id"] == bomb for tx in txs):
                 raise UnicodeEncodeError("utf-8", "\ud800", 0, 1, "surrogates not allowed")
-            return real(wallet, height, prev, txs, root, t)
+            return real(wallet, height, prev, txs, root, t, **kw)
 
         with mock.patch.object(nodemod, "make_block", make_block), mock.patch("sys.stderr", io.StringIO()):
             h = n.height
@@ -1283,6 +1283,7 @@ class TestMainAndDeploy(unittest.TestCase):
         self.assertIn('cp -p "$OLD"/no/forum.db* /opt/sigma/data/no/', sh)       # RESET=1 guarda o fórum
         self.assertIn("sigma/netsafe.py", sh)                                    # confere antes de empacotar
         self.assertIn('"ram_per_mb_window" not in', sh)                          # chain até a v2.2 só com RESET=1
+        self.assertIn('"rules" not in g', sh)                                    # e até a v2.3 também
         bash = shutil.which("bash")
         try:
             ok = bool(bash) and subprocess.run([bash, "-c", "true"], capture_output=True,

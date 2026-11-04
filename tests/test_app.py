@@ -35,7 +35,7 @@ from urllib.parse import parse_qs, urlparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
-from sigma import __version__, app, catalog, crypto, securestore  # noqa: E402
+from sigma import __version__, app, catalog, chain, crypto, securestore  # noqa: E402
 from sigma.chain import canon  # noqa: E402
 from sigma.client import Client  # noqa: E402
 from sigma.crypto import Wallet, address_of  # noqa: E402
@@ -69,6 +69,7 @@ class FakeNet:
         self.keys, self.behavior, self.script, self.requests = {}, {}, [], []
         self.txs = []
         self.cost = 1234
+        self.rules, self.upgrades = 1, []    # versão das regras da rede e as atualizações marcadas (/status)
 
     def reset(self):
         with self.lock:
@@ -76,6 +77,7 @@ class FakeNet:
                 d.clear()
             del self.script[:], self.requests[:], self.txs[:]
             self.down, self.version = False, __version__
+            self.rules, self.upgrades = 1, []
 
     def add_machine(self, models, price=2000, behavior="answer", seen=0, pub=True, ai=True):
         key = Wallet.generate()
@@ -110,7 +112,9 @@ class FakeNet:
     def get(self, parts):
         if parts == ["status"]:
             return {"network": "sigma", "version": self.version, "height": 10, "time": time.time(),
-                    "machines": len(self.machines), "supply": {"minted": 10 ** 9, "cap": 10 ** 14}}
+                    "machines": len(self.machines), "supply": {"minted": 10 ** 9, "cap": 10 ** 14},
+                    "block_interval": 25.0, "rules": self.rules, "rules_known": self.rules,
+                    "upgrades": list(self.upgrades), "upgrade_required": None}
         if parts == ["mining"]:
             return self.mining()
         if parts == ["mining", "epochs"]:
@@ -790,6 +794,28 @@ class AppTest(unittest.TestCase):
         self.poll()
         self.assertIsNone(self.state()["update"])
         self.assertEqual(self.app.update_line(), "")
+
+    def test_mudanca_de_regras_marcada_e_atrasada(self):
+        """docs/ATUALIZACOES.md: o app avisa antes da altura marcada e depois, se ficou para trás."""
+        self.assertEqual(self.state()["rules"], {"known": chain.RULES, "network": 1, "notice": None})
+        NET.upgrades = [{"rules": chain.RULES + 1, "height": 1010}]   # 1.000 blocos de ~25 s
+        self.poll()
+        self.assertEqual(self.state()["rules"]["notice"], {"rules": chain.RULES + 1, "height": 1010,
+                                                           "blocks_left": 1000, "seconds_left": 25_000,
+                                                           "late": False})
+        self.assertEqual(self.app.update_line(), f"A rede muda de regras (v{chain.RULES + 1}) no bloco 1010: baixe a "
+                                                 "versão nova do Sigma antes disso. Ela fecha esta e continua de onde "
+                                                 "parou.")
+        NET.upgrades = [{"rules": chain.RULES, "height": 1010}]       # uma que este Sigma já conhece: nada a fazer
+        self.poll()
+        self.assertIsNone(self.state()["rules"]["notice"])
+        NET.upgrades, NET.rules = [], chain.RULES + 1                  # a rede já passou
+        self.poll()
+        self.assertTrue(self.state()["rules"]["notice"]["late"])
+        self.assertIn("este Sigma não as conhece", self.app.update_line())
+        NET.upgrades, NET.rules = ["lixo", {"rules": "2", "height": 5}, {"rules": True, "height": 5}], 1
+        self.poll()
+        self.assertIsNone(self.state()["rules"]["notice"])             # resposta estranha do nó não vira aviso
 
     # ------------------------------------------------------------------- IA
     def test_modelos_mostram_o_teto_de_preco(self):

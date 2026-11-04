@@ -32,7 +32,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from . import __version__, chain, netsafe, rpc
-from .chain import UNIT, State, TxError, block_hash, canon, genesis_block, make_block, tx_id, tx_summary
+from .chain import (UNIT, State, TxError, UpgradeRequired, block_hash, canon, genesis_block, make_block, tx_id,
+                    tx_summary)
 from .crypto import Wallet, norm_address, to_eth, verify
 from .evm import DEFAULT_CHAIN_ID, SYSTEM_ADDRESS, system_call
 from .forum import CATEGORIES, Forum, ForumError
@@ -415,6 +416,7 @@ class Node:
         self.quotas = Quotas()
         self._cache = (None, {})                     # respostas prontas do estado atual (/jobs, /machines...)
         self._gc_busy, self._last_gc = False, time.time() - BLOB_GC_EVERY + 600   # 1ª limpeza ~10 min depois
+        self.upgrade_required = None   # {rules, height, message}: a rede passou para regras que este código não tem
         self._load_chain()
         with os.scandir(self.blob_dir) as it:
             self.blob_bytes = sum(e.stat().st_size for e in it if e.is_file())
@@ -472,6 +474,8 @@ class Node:
                 return None
             st = State.from_dict(self.genesis, snap["state"])
             st.height, st.now = h, b["time"]   # fora do to_dict: o pendente precisa deles
+            if st.rules > chain.RULES:         # gravado por um Sigma mais novo: reexecuta e para onde precisar
+                return None
             if st.root() != b["state_root"]:
                 return None
             return h, st, history, b
@@ -500,7 +504,12 @@ class Node:
                     except ValueError:
                         raise ValueError(f"{self.chain_file}: bloco {h} corrompido") from None
                     # o arquivo é deste nó: o hash do bloco e o state_root ainda são conferidos
-                    self._apply_block(b, persist=False, check_clock=False, verify_sig=False)
+                    try:
+                        self._apply_block(b, persist=False, check_clock=False, verify_sig=False)
+                    except UpgradeRequired as e:   # gravado por um Sigma mais novo: para aqui, sem apagar nada
+                        self._need_upgrade(e)
+                        del self.offsets[h:]
+                        return
                     continue
                 full = h > total - RECENT_PARSE or h == snap_h
                 if not (full or b'"evm"' in line):
@@ -644,11 +653,24 @@ class Node:
         if block_hash(block) != block.get("hash") or (verify_sig and not verify(
                 block["producer"], block["hash"].encode(), block.get("sig", ""))):
             raise ValueError("assinatura do bloco inválida")
+        rules = block.get("rules", 1)
+        if not chain._is_int(rules) or rules < 1:
+            raise ValueError("versão das regras do bloco inválida")
+        if rules > chain.RULES:      # bloco assinado pelo validador numa versão que este código não tem
+            raise UpgradeRequired(rules, block["height"])
         s = self.state.clone()
         settled, _, credits = self._run_block(s, block["height"], t, block["prev"], block["txs"], strict=True)
+        if s.rules != rules:
+            raise ValueError(f"versão das regras divergente (o bloco diz v{rules}, este nó chegou na v{s.rules})")
         if s.root() != block["state_root"]:
             raise ValueError("state_root divergente")
         self._commit(block, s, settled, credits, persist)
+
+    def _need_upgrade(self, e):
+        """Para de produzir e de sincronizar na altura da atualização (nada é descartado) e avisa no /status."""
+        if self.upgrade_required is None:
+            print(f"[sigma] {e}", file=sys.stderr)
+        self.upgrade_required = {"rules": e.rules, "height": e.height, "message": str(e)}
 
     def _commit(self, block, s, settled, credits=(), persist=True, line=None):
         if persist:  # primeiro no disco: bloco na memória sem estar no arquivo sumiria ao reiniciar
@@ -798,6 +820,8 @@ class Node:
         """Fecha um bloco com a fila. Nunca para de produzir: se aplicar, calcular o state_root ou montar o
         bloco der erro, as transações desse lote saem da fila (com o motivo) e o próximo bloco segue sem elas."""
         with self.lock:
+            if self.upgrade_required:   # o resto da chain (no disco ou no validador) é de regras que não temos
+                return False
             for _ in range(3):   # erro inesperado numa tx: ela sai e o bloco é refeito sem ela
                 prev = self.head
                 h = prev["height"] + 1
@@ -806,10 +830,13 @@ class Node:
                 s = self.state.clone()
                 try:
                     settled, included, credits = self._run_block(s, h, t, prev["hash"], batch, strict=False)
-                    block = make_block(self.producer, h, prev["hash"], included, s.root(), t)
+                    block = make_block(self.producer, h, prev["hash"], included, s.root(), t, rules=s.rules)
                     line = (json.dumps(block) + "\n").encode()
                 except _BadTx:
                     continue
+                except UpgradeRequired as e:   # a fila fica como está: volta a andar com o código novo
+                    self._need_upgrade(e)
+                    return False
                 except Exception as e:
                     reason = f"erro interno ao fechar o bloco: {e}"
                     ids = {tx["id"] for tx in batch}
@@ -827,6 +854,8 @@ class Node:
             return False
 
     def sync_from_peers(self):
+        if self.upgrade_required:
+            return
         for peer in self.peers:
             try:
                 blocks = http_json(f"{peer}/blocks?from={self.height + 1}", timeout=10)["blocks"]
@@ -838,6 +867,9 @@ class Node:
                 for b in blocks:
                     try:
                         self._apply_block(b)
+                    except UpgradeRequired as e:
+                        self._need_upgrade(e)
+                        break
                     except Exception as e:
                         h = b.get("height") if isinstance(b, dict) else None
                         print(f"[sync] bloco {h} de {peer} rejeitado: {e}", file=sys.stderr)
@@ -849,7 +881,9 @@ class Node:
             start = time.time()
             try:
                 # bloco quando há transações; sem elas, só a cada `heartbeat` segundos
-                if self.producer and (self.mempool or self.clock() - self.head["time"] >= self.heartbeat):
+                if self.upgrade_required:   # parado na altura da atualização até rodar o Sigma novo
+                    pass
+                elif self.producer and (self.mempool or self.clock() - self.head["time"] >= self.heartbeat):
                     self.produce_block()
                 elif not self.producer:
                     self.sync_from_peers()
@@ -1454,7 +1488,11 @@ def make_handler(node):
                             "jobs": len(st.jobs), "sites": len(st.sites), "models": len(st.models),
                             "chain_id": st.chain_id, "time": head["time"],
                             "block_interval": round((head["time"] - past["time"]) / max(1, min(100, h - 1)), 2)
-                            if past else 1}
+                            if past else 1,
+                            # versão das regras: a desta chain, a mais nova que este programa conhece, as marcadas
+                            "genesis": st.genesis_hash, "rules": st.rules, "rules_known": chain.RULES,
+                            "upgrades": chain.upcoming_upgrades(st.genesis_hash, h),
+                            "upgrade_required": node.upgrade_required}
                     info = node.mining(st)
                     body.update(supply={k: info[k] for k in SUPPLY_KEYS}, now=info["now"],
                                 forum=node.cached(st, "forum", node.forum.stats))
@@ -1638,11 +1676,13 @@ def cmd_init(args):
         raise SystemExit("--hosting-per-mb-window precisa estar entre 1 e 100 µSIG")
     producer = Wallet.load_or_create(os.path.join(args.dir, "producer.key"))
     genesis = {"network": "sigma", "chain_id": DEFAULT_CHAIN_ID, "time": time.time(),
-               "validators": [producer.pub], "alloc": {}, "params": params}
+               "validators": [producer.pub], "alloc": {}, "params": params, "rules": chain.RULES}
     with open(os.path.join(args.dir, "genesis.json"), "w", encoding="utf-8") as f:
         json.dump(genesis, f, indent=2)
     pct = f"{params['mint_bps'] / 100:g}".replace(".", ",")
     print(f"genesis criado em {args.dir}\n  validador: {producer.address}\n"
+          f"  regras:    v{chain.RULES} (atualizações marcam-se em chain.SCHEDULE com o hash do genesis: "
+          f"{chain.sha(canon(genesis))})\n"
           f"  emissão:   só pela mineração, {pct}% do que falta dos {_pt(params['supply_cap'] // UNIT)} SIG "
           f"a cada {params['epoch_seconds']} s, saindo aos poucos em todo bloco\n"
           f"  janelas:   {params['window_seconds']} s, shares de pelo menos {params['min_share_bits']} bits\n"

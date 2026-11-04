@@ -5,13 +5,19 @@ decidido aqui, de forma determinística, para que qualquer nó consiga
 reexecutar a chain e chegar exatamente no mesmo estado.
 
 Não existe SIG fora da mineração: o genesis nasce sem saldos e a única fonte
-de SIG é a emissão de cada época (0,5% do que falta dos 100 milhões), dividida
-pelos pontos de prova de trabalho de cada carteira. Depois disso o SIG só
-circula: quem usa IA, computação e hospedagem paga as máquinas que hospedam.
-Não há taxa, queima nem stake.
+de SIG é a emissão contínua (0,01% do que falta dos 100 milhões a cada 12 h,
+saindo um pouco em todo bloco), dividida pelos pontos de prova de trabalho de
+cada carteira. Depois disso o SIG só circula: quem usa IA, computação e
+hospedagem paga as máquinas que hospedam. Não há taxa, queima nem stake.
 
-Ciclo de cada bloco: begin_block (janela, época, aluguel, atribuições, limpeza)
-→ apply_tx de cada transação → end_block (prazos dos jobs).
+Ciclo de cada bloco: begin_block (atualização das regras, janela, época,
+aluguel, atribuições, limpeza) → apply_tx de cada transação → end_block
+(prazos dos jobs e votações).
+
+Atualizações sem recomeçar a rede (docs/ATUALIZACOES.md): cada bloco diz a
+versão das regras que valia nele. Uma regra nova entra numa altura marcada em
+SCHEDULE e o código mantém a antiga para os blocos de antes, então a chain
+inteira continua reexecutando igual e ninguém perde saldo.
 
 Formato estrito: cada tipo de transação aceita só os campos do contrato e todo
 inteiro tem limite. Cada handler `_tx_*` primeiro valida tudo e só depois
@@ -32,6 +38,14 @@ from .crypto import address_of, norm_address, verify
 from .pow import report_points, share_ok
 
 UNIT = 1_000_000            # 1 SIG = 1.000.000 µSIG
+# ---- atualizações das regras (docs/ATUALIZACOES.md)
+RULES = 1                   # a versão mais nova das regras que este código sabe executar
+# atualizações marcadas: hash do genesis da rede -> {versão: altura do primeiro bloco com ela}. Uma rede nova
+# já nasce na versão RULES; as entradas daqui só valem para a rede cujo genesis tem aquele hash.
+SCHEDULE = {}
+UPGRADE_HISTORY_KEEP = 50
+# As chaves do genesis ficam congeladas: um parâmetro novo entra por uma atualização (no estado, na altura dela),
+# nunca em DEFAULT_PARAMS — senão o estado do genesis muda e a chain antiga deixa de bater.
 DEFAULT_PARAMS = {"epoch_seconds": 43200, "window_seconds": 300, "min_share_bits": 12, "max_shares": 32,
                   "supply_cap": 100_000_000 * UNIT,
                   "mint_bps": 1,                  # 0,01% do que falta a cada 12 h, saindo aos poucos em todo bloco
@@ -281,6 +295,31 @@ class TxError(Exception):
     pass
 
 
+class UpgradeRequired(Exception):
+    """A rede passou para uma versão das regras que este programa não conhece: é preciso baixar o Sigma novo.
+    Não é erro do bloco: o nó para naquela altura (sem descartar nada) até ser atualizado."""
+
+    def __init__(self, rules, height):
+        super().__init__(f"a rede passou para as regras v{rules} no bloco {height}; este programa só conhece até "
+                         f"a v{RULES}: baixe a versão nova do Sigma")
+        self.rules, self.height = rules, height
+
+
+def scheduled_rules(genesis_hash, height, current):
+    """Versão das regras no bloco `height` pelo que está marcado no código (nunca volta para trás)."""
+    rules = current
+    for version, at in (SCHEDULE.get(genesis_hash) or {}).items():
+        if version > rules and height >= at:
+            rules = version
+    return rules
+
+
+def upcoming_upgrades(genesis_hash, height):
+    """Atualizações marcadas no código que ainda não chegaram: [{rules, height}] em ordem."""
+    return [{"rules": v, "height": at} for v, at in sorted((SCHEDULE.get(genesis_hash) or {}).items())
+            if at > height]
+
+
 def _need(cond, msg):
     if not cond:
         raise TxError(msg)
@@ -390,13 +429,24 @@ def window_seed(prev_hash, window):
 
 
 class State:
+    # Congeladas: uma chave nova aqui mudaria o state root de todos os blocos antigos. Dado novo de uma atualização
+    # vai em `ext` (criado na altura dela) — veja docs/ATUALIZACOES.md.
     STATE_KEYS = ("balances", "nonces", "machines", "jobs", "sites", "models", "retired_models",
-                  "mining", "miners", "points", "epochs", "params", "proposals")
+                  "mining", "miners", "points", "epochs", "params", "proposals", "upgrade", "ext")
 
     def __init__(self, genesis):
         if genesis.get("alloc"):
             raise ValueError("genesis inválido: 'alloc' deve ser vazio (nenhum SIG existe fora da mineração)")
         self.params = _check_params(genesis)
+        rules = genesis.get("rules", 1)
+        if not (_is_int(rules) and 1 <= rules):
+            raise ValueError("genesis inválido: rules deve ser um inteiro a partir de 1")
+        if rules > RULES:
+            raise UpgradeRequired(rules, 0)
+        self.genesis_hash = sha(canon(genesis))   # transitório: escolhe as atualizações de SCHEDULE desta rede
+        # versão das regras em vigor e quando cada uma entrou (a do genesis no bloco 0)
+        self.upgrade = {"rules": rules, "history": [{"rules": rules, "height": 0, "time": genesis["time"]}]}
+        self.ext = {}              # dados criados por atualizações futuras (vazio até lá)
         self.chain_id = genesis.get("chain_id", evm.DEFAULT_CHAIN_ID)
         self.balances = {}
         self.nonces = {}
@@ -505,12 +555,35 @@ class State:
         need = _ceil_div(m["size"], per_window) if _is_int(per_window) else math.ceil(m["size"] / per_window)
         return max(ASSIGN_WINDOWS, need)
 
+    # ------------------------------------------------- versão das regras
+    @property
+    def rules(self):
+        return self.upgrade["rules"]
+
+    def rule(self, version):
+        """A regra da versão `version` já vale? É assim que o código escolhe entre a regra nova e a antiga:
+        `if self.rule(2): <regra nova> else: <regra de antes>` (os blocos antigos continuam batendo)."""
+        return self.upgrade["rules"] >= version
+
+    def _activate_rules(self, height):
+        """Chegou a altura de uma atualização marcada: o bloco já roda na versão nova (e fica no histórico)."""
+        u = self.upgrade
+        target = scheduled_rules(self.genesis_hash, height, u["rules"])
+        if target == u["rules"]:
+            return
+        if target > RULES:                       # só por segurança: SCHEDULE só marca versões que o código tem
+            raise UpgradeRequired(target, height)
+        u["rules"] = target
+        u["history"].append({"rules": target, "height": height, "time": self.now})
+        del u["history"][1:-UPGRADE_HISTORY_KEEP]
+
     # ---------------------------------------------------------- ciclo do bloco
     def begin_block(self, height, time, prev_hash):
         """Abre o bloco: o relógio dele avança janela e época; na virada, a rede se reorganiza."""
         self.height, self.now = height, time
         self.last_settlement = None
         self.credits = []
+        self._activate_rules(height)             # antes de tudo: o bloco inteiro já roda nas regras dele
         m, p = self.mining, self.params
         W, E = p["window_seconds"], p["epoch_seconds"]
         self._emit()                             # a fatia de emissão do tempo desde o bloco anterior
@@ -1429,9 +1502,11 @@ def make_tx(wallet, type_, data, nonce):
     return tx
 
 
-def make_block(wallet, height, prev, txs, state_root, timestamp):
+def make_block(wallet, height, prev, txs, state_root, timestamp, rules=1):
+    """`rules`: a versão das regras em que o bloco rodou. Um nó que não conhece essa versão para e avisa que
+    precisa ser atualizado, em vez de recusar o bloco como inválido."""
     block = {"height": height, "prev": prev, "time": timestamp, "txs": txs,
-             "state_root": state_root, "producer": wallet.pub}
+             "state_root": state_root, "producer": wallet.pub, "rules": rules}
     block["hash"] = block_hash(block)
     block["sig"] = wallet.sign(block["hash"].encode())
     return block

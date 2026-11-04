@@ -7,8 +7,9 @@
 #   PAYOUT=sig… bash deploy/deploy_vps.sh  o que o servidor ganhar hospedando vai para essa carteira (fica gravada
 #                                          em /opt/sigma/payout e vale para os próximos deploys)
 #
-# A v2.3 muda as regras da chain (emissão contínua, aluguel pela demanda, votações): a primeira publicação dela precisa
-# de RESET=1. Sem ele, o script para antes de mexer em qualquer coisa se a chain da VPS for de uma versão anterior.
+# A v2.4 grava a versão das regras em cada bloco (atualizações sem recomeçar a rede, docs/ATUALIZACOES.md): a primeira
+# publicação dela precisa de RESET=1. Sem ele, o script para antes de mexer em qualquer coisa se a chain da VPS for de
+# uma versão anterior. Daí em diante, as mudanças de regra entram por altura marcada, sem RESET.
 #
 # Se existir dist/ (python packaging/build_pyz.py e python packaging/build_windows.py), os instaladores vão
 # para /opt/sigma/downloads e a página /baixar passa a oferecê-los.
@@ -68,12 +69,13 @@ ADDR_RE='^(0[xX][0-9a-fA-F]{40}|sig[0-9a-fA-F]{40})$'
 # 1) Chain de uma versão com outras regras? O nó novo não roda nela: só com RESET=1. Conferido antes de mexer
 #    em qualquer coisa. A v1 tinha SIG fora da mineração (alloc); a v2.0 não tinha o preço de hospedagem da rede
 #    no genesis (params.hosting_per_mb_window); até a v2.2 a emissão saía de 12 em 12 h (sem
-#    params.ram_per_mb_window, que a v2.3 grava junto com a emissão contínua e as votações).
+#    params.ram_per_mb_window, que a v2.3 grava junto com a emissão contínua e as votações); até a v2.3 o genesis
+#    não tinha "rules" (a v2.4 grava a versão das regras para poder atualizá-las sem recomeçar).
 if [ "$RESET" != "1" ] && [ -f data/no/genesis.json ] && \
-   python3 -c 'import json, sys; g = json.load(open(sys.argv[1])); sys.exit(0 if g.get("alloc") or "ram_per_mb_window" not in (g.get("params") or {}) else 1)' data/no/genesis.json; then
+   python3 -c 'import json, sys; g = json.load(open(sys.argv[1])); sys.exit(0 if g.get("alloc") or "ram_per_mb_window" not in (g.get("params") or {}) or "rules" not in g else 1)' data/no/genesis.json; then
   rm -f deploy.tar.gz
   rm -rf downloads/.envio
-  echo "ERRO: a chain da VPS é de uma versão anterior do Sigma (as regras mudaram na v2.3)."
+  echo "ERRO: a chain da VPS é de uma versão anterior do Sigma (a v2.4 grava a versão das regras em cada bloco)."
   echo "      Rode de novo com RESET=1 para recriar a rede (o fórum é preservado). Nada foi alterado."
   exit 1
 fi

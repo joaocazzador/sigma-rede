@@ -105,6 +105,8 @@ CENARIOS = {
     "codigo-linhas": "Sigma Code: comando hostil de várias linhas (a última é perigosa) esperando aprovação",
     "preco-rede": "preço de hospedagem da rede diferente do padrão (7 µSIG por MB por janela)",
     "demanda-alta": "preços no teto e a rede cheia (aluguel 11x): a conta do aluguel passa de 2^53",
+    "regras": "a rede muda para as regras v2 no bloco 130.000 e este Sigma só conhece a v1 (docs/ATUALIZACOES.md)",
+    "regras-atrasado": "a rede já passou para as regras v2 e este Sigma só conhece a v1",
 }
 
 
@@ -446,6 +448,12 @@ class Mock:
                                     "next_mint": next_mint, "mint_per_hour": per_hour, "miners_epoch": 61,
                                     "hashrate": 1_372_400.0}},
              "update": {"version": "2.2.0", "url": self.node_url() + "/baixar"} if c == "versao" else None,
+             # versão das regras (v2.4): o aviso vem do app.rules_notice, no mesmo formato
+             "rules": {"known": 1, "network": 2 if c == "regras-atrasado" else 1,
+                       "notice": {"rules": 2, "height": 130_000, "blocks_left": 3_456, "seconds_left": 86_400 * 3,
+                                  "late": False} if c == "regras"
+                       else {"rules": 2, "height": None, "blocks_left": 0, "seconds_left": 0, "late": True}
+                       if c == "regras-atrasado" else None},
              "features": dict(self.features),
              "limits": {"ai_ram_gb": self.ram_top(), "disk_gb": 100_000},
              "mining": {"enabled": mining_on, "running": running, "paused": False, "workers": 4 if running else 0,
@@ -1559,6 +1567,12 @@ SCENARIO_TEXTS = [
     ("versao", "rede", ["Saiu uma versão nova do Sigma (2.2.0). Baixe e abra: ela fecha esta e continua de onde parou.",
                         "Baixar a versão nova"], []),
     ("versao", "ia", ["Saiu uma versão nova do Sigma (2.2.0)."], []),
+    ("regras", "inicio", ["A rede muda de regras (v2) no bloco 130.000 (faltam 3.456 blocos, ~3 dias).",
+                          "Baixe a versão nova antes disso", "Baixar a versão nova"], []),
+    ("regras", "votacoes", ["A rede muda de regras (v2) no bloco 130.000"], []),
+    ("regras-atrasado", "inicio", ["A rede passou para as regras v2 e este Sigma não as conhece.",
+                                   "Baixar a versão nova"], ["A rede muda de regras"]),
+    ("pronto", "inicio", [], ["A rede muda de regras", "A rede passou para as regras"]),
     ("motor", "maquina", ["IA: baixando o motor · 31%"], ["preparando"]),
     ("esperando", "maquina", ["IA: esperando a rede",
                               "A IA está ligada. Quando a rede colocar um modelo aqui, o Sigma baixa o motor e o modelo sozinho."], ["preparando"]),

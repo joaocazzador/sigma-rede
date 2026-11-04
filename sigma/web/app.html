@@ -1246,12 +1246,20 @@ function miningState() {
 const safeUrl = (u) => /^https?:\/\/[^\s"'<>]+$/i.test(String(u || "")) ? String(u) : "";
 // avisos que aparecem em todas as abas
 function renderTopNotes() {
-  const notes = [], up = S.update || {};
+  const notes = [], up = S.update || {}, rn = S.rules?.notice;
   const v = [up.version, S.network?.version].find((x) => x && newer(x, S.version));
-  if (v) {
-    const url = safeUrl(up.url) || (nodeUrl() ? nodeUrl() + "/baixar" : "");
-    notes.push(`<div class="top-note" role="status"><p>Saiu uma versão nova do Sigma (${esc(v)}). Baixe e abra: ela fecha esta e continua de onde parou.</p>`
-      + (url ? `<a class="btn small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Baixar a versão nova</a>` : "") + `</div>`);
+  const url = safeUrl(up.url) || (nodeUrl() ? nodeUrl() + "/baixar" : "");
+  const dl = url ? `<a class="btn small" href="${esc(url)}" target="_blank" rel="noopener noreferrer">Baixar a versão nova</a>` : "";
+  if (rn) {
+    // a rede muda (ou já mudou) para regras que este Sigma não conhece: docs/ATUALIZACOES.md
+    const when = rn.late ? "" : ` no bloco ${esc(num(N(rn.height)))}`
+      + (Number.isFinite(rn.blocks_left) ? ` (faltam ${esc(num(N(rn.blocks_left)))} blocos` + (N(rn.seconds_left) > 0 ? `, ${esc(lasts(N(rn.seconds_left)))})` : ")") : "");
+    notes.push(`<div class="top-note red" role="alert"><p>`
+      + (rn.late ? `A rede passou para as regras v${esc(N(rn.rules))} e este Sigma não as conhece. Baixe a versão nova para continuar minerando e hospedando direito.`
+        : `A rede muda de regras (v${esc(N(rn.rules))})${when}. Baixe a versão nova antes disso: ela fecha esta e continua de onde parou, sem perder nada.`)
+      + `</p>${dl}</div>`);
+  } else if (v) {
+    notes.push(`<div class="top-note" role="status"><p>Saiu uma versão nova do Sigma (${esc(v)}). Baixe e abra: ela fecha esta e continua de onde parou.</p>${dl}</div>`);
   }
   if (S.code?.pending && tab !== "programar")
     notes.push(`<div class="top-note red" role="alert"><p>O Sigma Code está esperando a sua aprovação para continuar.</p><button type="button" class="small" data-go="programar">Ver o pedido</button></div>`);

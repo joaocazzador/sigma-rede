@@ -227,7 +227,9 @@ class TestGenesis(unittest.TestCase):
         self.assertEqual(genesis_block(net.genesis)["state_root"], s.root())
         self.assertEqual(set(s.to_dict()), {"balances", "nonces", "machines", "jobs", "sites", "models",
                                             "retired_models", "mining", "miners", "points", "epochs", "params",
-                                            "proposals"})
+                                            "proposals", "upgrade", "ext"})
+        self.assertEqual(s.upgrade, {"rules": 1, "history": [{"rules": 1, "height": 0, "time": T0}]})
+        self.assertEqual(s.ext, {})
         self.assertEqual((s.height, s.now, s.last_settlement, s.credits), (0, T0, None, []))
 
     def test_v1_money_paths_are_gone(self):

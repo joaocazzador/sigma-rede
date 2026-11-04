@@ -446,9 +446,10 @@ dl.gloss dd { color: var(--muted); }
          <a href="/forum?c=desenvolvimento">Desenvolvimento</a> do fórum.</p>
       <ul class="ticks">
         <li><b>Um validador só.</b> Hoje um único servidor, mantido pelo projeto, assina os blocos. Na prática, ele pode
-            atrasar ou recusar transações e, numa troca de versão, reiniciar a rede do zero. As votações rodam no código,
-            mas também dependem dele. O próximo passo é ter vários validadores, para a rede não depender de ninguém, nem
-            de nós.</li>
+            atrasar ou recusar transações, e é ele quem decide se adota uma mudança de regras. Desde a 2.4 as regras mudam
+            sem reiniciar a rede: a regra nova entra num bloco marcado e a chain antiga continua valendo, com todos os
+            saldos. As votações rodam no código, mas também dependem dele. O próximo passo é ter vários validadores,
+            para a rede não depender de ninguém, nem de nós.</li>
         <li><b>Sites passam pelo servidor da rede.</b> As máquinas guardam cópias e recebem aluguel, mas quem visita um site
             ainda recebe os arquivos pelo servidor do projeto. Se ele cair, os sites saem do ar até ele voltar. Falta a entrega
             direta pelas máquinas.</li>
@@ -552,9 +553,11 @@ dl.gloss dd { color: var(--muted); }
           “Minerar SIG” em alguns computadores.</p></div></details>
         <details><summary>Como eu desligo o Sigma?</summary><div><p>Na janelinha de controle, clique em <b>Desligar</b>. O que você já ganhou fica na carteira, e o trabalho das últimas janelas de 5 minutos ainda é pago nos minutos seguintes.</p></div></details>
         <details><summary>E se eu perder a chave privada?</summary><div><p>A carteira e os SIG nela ficam inacessíveis. Não existe “recuperar senha” numa rede em que só você tem a chave. Faça backup.</p></div></details>
-        <details><summary>A rede pode zerar os saldos?</summary><div><p>Pode, e preferimos dizer antes. Hoje um único servidor
-          do projeto assina os blocos, e numa troca de versão a rede pode ser reiniciada do zero, com todos os saldos.
-          Dividir esse poder entre muitos validadores é a próxima etapa. <a href="#limites">Veja o que falta.</a></p></div></details>
+        <details><summary>A rede pode zerar os saldos?</summary><div><p>Desde a 2.4, mudar as regras não zera nada: a regra
+          nova entra num bloco marcado, a chain antiga continua valendo e o painel avisa antes para você baixar a versão
+          nova. Ainda assim, preferimos dizer: hoje um único servidor do projeto assina os blocos e, tecnicamente, ele
+          poderia recriar a rede do zero, com todos os saldos. Dividir esse poder entre muitos validadores é a próxima
+          etapa. <a href="#limites">Veja o que falta.</a></p></div></details>
         <details><summary>Por que meu site saiu do ar?</summary><div><p>Provavelmente o orçamento acabou. Recarregue na aba Sites
           do painel ou em <a href="/carteira">Carteira</a> → Meus sites, em até 7 dias, para ele voltar com o mesmo nome;
           depois disso a rede apaga o site, devolve o que sobrou do orçamento e o nome fica livre para qualquer pessoa usar.

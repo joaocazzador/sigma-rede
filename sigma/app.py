@@ -1599,6 +1599,26 @@ class App:
         v = (self.cache.get("status") or {}).get("version")
         return v if isinstance(v, str) and version_tuple(v) > version_tuple(VERSION) else None
 
+    def rules_notice(self):
+        """A rede já passou (late) ou vai passar, num bloco marcado, para regras que este Sigma não conhece
+        (docs/ATUALIZACOES.md). Devolve {"rules", "height", "blocks_left", "seconds_left", "late"} ou None."""
+        st = self.cache.get("status") or {}
+
+        def num(v):
+            return isinstance(v, int) and not isinstance(v, bool)
+        now, net = st.get("height"), st.get("rules")
+        if num(net) and net > chain.RULES:
+            return {"rules": net, "height": None, "blocks_left": 0, "seconds_left": 0, "late": True}
+        for u in st.get("upgrades") or []:
+            if isinstance(u, dict) and num(u.get("rules")) and num(u.get("height")) and u["rules"] > chain.RULES:
+                left = max(0, u["height"] - now) if num(now) else None
+                every = st.get("block_interval")
+                secs = (round(left * every) if left is not None and isinstance(every, (int, float))
+                        and not isinstance(every, bool) and 0 < every < 86400 else None)
+                return {"rules": u["rules"], "height": u["height"], "blocks_left": left, "seconds_left": secs,
+                        "late": False}
+        return None
+
     def download_url(self):
         return f"{self.settings['node']}/baixar"
 
@@ -1631,6 +1651,9 @@ class App:
                      "fix": self.node_state.get("fix")},
             "network": c["status"],
             "update": {"version": newer, "url": self.download_url()} if newer else None,
+            # versão das regras: a que este Sigma conhece e o aviso de atualização da rede (rules_notice)
+            "rules": {"known": chain.RULES, "network": (c["status"] or {}).get("rules"),
+                      "notice": self.rules_notice()},
             "features": {"autostart": autostart_supported(), "pick_folder": self.window_up},
             # máximos que as Configurações aceitam (GB do Windows): o painel usa os mesmos nos controles
             "limits": {"ai_ram_gb": self._ram_top(), "disk_gb": DISK_TOP},
@@ -1706,6 +1729,13 @@ class App:
         return f"Σ SIGMA · {mid} · {tail}"
 
     def update_line(self):
+        r = self.rules_notice()
+        if r and r["late"]:
+            return (f"A rede passou para as regras v{r['rules']} e este Sigma não as conhece: baixe a versão nova "
+                    "para continuar minerando e hospedando direito.")
+        if r:
+            return (f"A rede muda de regras (v{r['rules']}) no bloco {r['height']}: baixe a versão nova do Sigma "
+                    "antes disso. Ela fecha esta e continua de onde parou.")
         v = self.update_available()
         return f"Saiu uma versão nova do Sigma ({v}). Baixe e abra: ela fecha esta e continua de onde parou." \
             if v else ""

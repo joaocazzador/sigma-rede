@@ -53,6 +53,14 @@ O `Sigma.exe` não tem assinatura digital, então o Windows e o antivírus podem
   somam. O limite é de 256 relatórios de mineração por janela de 5 minutos para cada conexão de internet; com
   CGNAT (comum no celular e em muitas fibras), vizinhos dividem esse limite.
 
+## Novidades da 2.4
+
+- **A rede muda de regras sem recomeçar do zero.** Cada bloco diz a versão das regras em que rodou. Uma regra
+  nova entra num bloco marcado e o código guarda a antiga para os blocos de antes: a chain continua valendo e
+  ninguém perde SIG. O painel avisa, em todas as abas, quando uma mudança de regras está marcada e falta baixar
+  a versão nova. Um Sigma desatualizado para no bloco da mudança, sem perder nada, e continua de onde parou
+  quando é atualizado. Como fazer uma atualização: [docs/ATUALIZACOES.md](docs/ATUALIZACOES.md).
+
 ## Novidades da 2.3
 
 - **Emissão contínua e 50 vezes menor.** A rede imprime 0,01% do que falta dos 100 milhões a cada 12 horas (era
@@ -92,8 +100,9 @@ O `Sigma.exe` não tem assinatura digital, então o Windows e o antivírus podem
 Dizemos o que funciona e o que ainda não funciona (a lista completa está em `/tutorial#limites`):
 
 - **Um validador só.** Hoje um único servidor, mantido pelo projeto, assina os blocos. Na prática, ele pode atrasar
-  ou recusar transações e, numa troca de versão, reiniciar a rede do zero (`RESET=1`), com todos os saldos. O
-  próximo passo é ter vários validadores.
+  ou recusar transações, e é ele quem decide se adota uma atualização de regras. Desde a 2.4 as mudanças de
+  regra entram sem recomeçar a rede; reiniciar do zero (`RESET=1`, com todos os saldos) só para o que não cabe
+  nesse modelo (veja [docs/ATUALIZACOES.md](docs/ATUALIZACOES.md)). O próximo passo é ter vários validadores.
 - **Sites passam pelo servidor da rede.** As máquinas guardam cópias e recebem aluguel, mas quem visita um site
   recebe os arquivos pelo servidor do projeto. Se ele cair, os sites saem do ar até ele voltar.
 - **Sem prova de armazenamento e sem auditoria dos tokens cobrados.** A rede ainda confia no que cada máquina diz
@@ -150,7 +159,8 @@ As regras da rede são votadas por quem participa.
 - **Aprovada** com mais “sim” que “não” e votos de pelo menos **1% do SIG que existe** (o quórum).
 - **De parâmetro:** se aprovada, a regra muda na hora. Dá para votar: a emissão (`mint_bps`, 0 a 0,5%), o aluguel
   de disco e de memória, quanto a demanda sobe o aluguel, a dificuldade mínima da mineração, o depósito e o
-  quórum. **De texto:** registra a decisão da rede, sem mexer no código.
+  quórum. **De texto:** registra a decisão da rede, sem mexer no código — é assim que a rede aprova uma mudança
+  de regra antes de ela ser programada e marcada num bloco ([docs/ATUALIZACOES.md](docs/ATUALIZACOES.md)).
 - **Não se vota:** o teto de 100 milhões e o tempo da rede (janelas de 5 minutos, períodos de 12 horas). Nenhuma
   votação mexe no saldo de ninguém.
 - **Como votar:** no app, na aba **Votações**, ou pela linha de comando: `python -m sigma.cli governance` (lista),
@@ -189,8 +199,8 @@ Python 3.11+ puro, só biblioteca padrão (nada de pip).
 | `python tests/mock_app_api.py --check` | confere o painel (`app.html`) contra a API do app; com o Edge instalado, abre todas as abas e os cenários de falha sem internet |
 | `python packaging/build_pyz.py` | gera `dist/sigma.pyz` e atualiza `dist/SHA256SUMS.txt` |
 | `python packaging/build_windows.py` | gera `dist/Sigma.exe` com ícone Σ (precisa do PyInstaller, no Windows) |
-| `bash deploy/deploy_vps.sh` | atualiza a VPS e publica o que houver em `dist/` |
-| `RESET=1 bash deploy/deploy_vps.sh` | recria a chain da VPS do zero, sem nenhum SIG pré-minerado: todos os saldos recomeçam em zero (os dados antigos são guardados, o fórum continua) |
+| `bash deploy/deploy_vps.sh` | atualiza a VPS e publica o que houver em `dist/` (a chain e os saldos continuam; inclusive numa atualização de regras, ver [docs/ATUALIZACOES.md](docs/ATUALIZACOES.md)) |
+| `RESET=1 bash deploy/deploy_vps.sh` | recria a chain da VPS do zero, sem nenhum SIG pré-minerado: todos os saldos recomeçam em zero (os dados antigos são guardados, o fórum continua). Só para o que uma atualização de regras não resolve |
 | `PAYOUT=sig… bash deploy/deploy_vps.sh` | define a carteira que recebe o que a VPS ganha hospedando sites |
 
 Onde fica cada coisa: `sigma/chain.py` (ledger: emissão, trabalho, máquinas, jobs, modelos, sites, aluguel, votações),
