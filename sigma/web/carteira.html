@@ -841,14 +841,14 @@ function render() {
 const PARAM = {mint_bps: "Emissão a cada 12 horas", hosting_per_mb_window: "Aluguel de disco por MB",
   ram_per_mb_window: "Aluguel de memória por MB", demand_max_bps: "Quanto a demanda sobe o aluguel",
   min_share_bits: "Dificuldade mínima da mineração", proposal_deposit: "Depósito para abrir votação",
-  quorum_bps: "Mínimo de votos (quórum)"};
+  quorum_bps: "Mínimo de votos (quórum)", min_bond: "Caução mínima de coordenador"};
 function paramVal(k, v) {
   v = Number(v);
   if (!isFinite(v)) return "—";
   if (k === "mint_bps" || k === "quorum_bps") return nf(v / 100, 2) + "%";
   if (k === "hosting_per_mb_window" || k === "ram_per_mb_window") return nf(v) + " µSIG";
   if (k === "demand_max_bps") return "até " + nf(1 + v / 10000, 2) + "x";
-  if (k === "proposal_deposit") return sig(v);
+  if (k === "proposal_deposit" || k === "min_bond") return sig(v);
   return nf(v);
 }
 function leftTxt(sec) {

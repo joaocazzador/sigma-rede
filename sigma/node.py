@@ -7,7 +7,8 @@ blocos, guarda blobs (conteúdo endereçado por hash), serve o site, os download
 
 O genesis tem `alloc` vazio. O SIG nasce da emissão contínua (0,01% do que falta dos 100 milhões a cada 12 h,
 um pouco em cada bloco, dividido pelo trabalho de quem minerou) e, uma vez só, da carteira dos fundadores que a
-atualização v2 da rede principal cria (chain.UPGRADE_GRANTS; aparece em /status como `grants`).
+atualização v2 da rede principal cria (chain.UPGRADE_GRANTS; aparece em /status como `grants`). Nas regras v3, as
+cauções dos coordenadores ficam públicas em /bonds (e o total travado nelas, em /mining e no `supply` do /status).
 
 Memória limitada: só os últimos MEM_BLOCKS blocos ficam na RAM; os mais antigos são lidos do chain.jsonl
 quando alguém pede (`offsets` guarda a posição de cada altura no arquivo).
@@ -80,7 +81,8 @@ NAME_KINDS = ("rent", "royalty", "budget")          # créditos cuja referência
 MACHINE_DEFAULTS = {"pub": None, "jobs_failed": 0}  # máquinas antigas: os campos novos aparecem mesmo assim
 # gravados no genesis: a rede fica definida pelo arquivo, não pelos padrões do código
 GENESIS_PARAMS = dict(chain.DEFAULT_PARAMS)
-SUPPLY_KEYS = ("minted", "cap", "epoch", "epoch_ends", "next_mint", "mint_per_hour", "miners_epoch", "hashrate")
+SUPPLY_KEYS = ("minted", "cap", "epoch", "epoch_ends", "next_mint", "mint_per_hour", "miners_epoch", "hashrate",
+               "bonded")
 PAGES = {"": "index.html", "carteira": "carteira.html", "wallet": "carteira.html", "forum": "forum.html",
          "tutorial": "tutorial.html", "baixar": "baixar.html", "download": "baixar.html", "sigma.css": "sigma.css"}
 HASH_RE = re.compile(r"^[0-9a-f]{64}\Z")
@@ -251,7 +253,37 @@ def mining_info(st):
             "ai_default_price": chain.DEFAULT_PRICES["ai_per_1k_tokens"],
             # v2: preço de referência por imagem e por segundo de vídeo, e se a rede já aceita essas classes
             "media_default_prices": dict(chain.MEDIA_PRICES), "media": st.rule(2),
+            # v3: se a rede já aceita caução, o SIG travado nelas, quantas máquinas podem coordenar agora, a caução
+            # mínima para isso (None antes da v3) e a espera de uma retirada
+            "bonding": st.rule(3), "bonded": st.bonded(), "coordinators": coordinators(st),
+            "min_bond": st.params.get("min_bond"), "unbond_seconds": chain.UNBOND_SECONDS,
             "now": time.time()}
+
+
+def coordinators(st):
+    """Quantas máquinas podem coordenar a divisão de um modelo gigante agora (State.is_coordinator)."""
+    return sum(1 for a in (st.ext.get("bonds") or {}) if st.is_coordinator(a))
+
+
+def bond_info(st, machine):
+    """Uma caução como o nó mostra: o ativo, as retiradas em espera (quando cada uma volta), o total, quanto já
+    foi cortado e se a máquina pode coordenar agora. None se a máquina não tem caução."""
+    b = (st.ext.get("bonds") or {}).get(machine) if isinstance(machine, str) else None
+    if b is None:
+        return None
+    pending = sum(u["amount"] for u in b["unbonding"])
+    return dict(b, machine=machine, unbonding=[dict(u) for u in b["unbonding"]], pending=pending,
+                total=b["amount"] + pending, coordinator=st.is_coordinator(machine))
+
+
+def bonds_info(st):
+    """/bonds: as cauções (as maiores primeiro), o total travado, quantas máquinas podem coordenar, as regras (caução
+    mínima e espera da retirada) e os últimos cortes (o mais novo primeiro)."""
+    bonds = [bond_info(st, a) for a in sorted(st.ext.get("bonds") or {})]
+    bonds.sort(key=lambda b: -b["amount"])
+    return {"bonding": st.rule(3), "bonds": bonds, "bonded": st.bonded(), "coordinators": coordinators(st),
+            "min_bond": st.params.get("min_bond"), "unbond_seconds": chain.UNBOND_SECONDS,
+            "slashes": list(reversed(st.ext.get("slashes") or []))}
 
 
 def proposal_info(st, pid, full=True):
@@ -269,10 +301,12 @@ def proposal_info(st, pid, full=True):
 
 
 def governance_info(st):
-    """Lista das votações (abertas primeiro, depois as encerradas mais novas) e as regras de votar."""
+    """Lista das votações (abertas primeiro, depois as encerradas mais novas) e as regras de votar. Só os
+    parâmetros que se votam na versão em vigor (o min_bond só existe a partir da v3)."""
     props = sorted(st.proposals.values(), key=lambda p: (p["status"] != "open", -p["created"]))
     return {"proposals": [proposal_info(st, p["id"], full=False) for p in props],
-            "governable": {k: {"min": lo, "max": hi, "now": st.params[k]} for k, (lo, hi) in chain.GOVERNABLE.items()},
+            "governable": {k: {"min": lo, "max": hi, "now": st.params[k]}
+                           for k, (lo, hi) in chain.governable(st.rules).items() if k in st.params},
             "params": dict(st.params), "vote_seconds": chain.VOTE_SECONDS,
             "max_open": chain.MAX_OPEN_PROPOSALS, "deposit": st.params["proposal_deposit"],
             "quorum_bps": st.params["quorum_bps"], "locked": st.locked()}
@@ -1014,9 +1048,10 @@ class Node:
             return self._warm_work(tx["data"])
         # só confere a assinatura (e enche o cache do _sig_ok) de um tipo assinado conhecido com pub/sig no
         # formato HEX128: senão uma rajada de lixo recusado encheria o cache sem nunca virar bloco
-        # (achado sig-cache-guarda-lixo). O corpo já está limitado a 32 KB pelo normalize_tx.
+        # (achado sig-cache-guarda-lixo). O corpo já está limitado a 32 KB pelo normalize_tx. "Conhecido" é na
+        # versão das regras em vigor: um bond antes da v3 é recusado como tipo desconhecido.
         pub, sig = tx.get("pub"), tx.get("sig")
-        if kind in chain.SIGNED_TYPES and isinstance(pub, str) and chain.HEX128.match(pub) \
+        if kind in chain.signed_types(self.state.rules) and isinstance(pub, str) and chain.HEX128.match(pub) \
                 and isinstance(sig, str) and chain.HEX128.match(sig):
             try:
                 chain._sig_ok(pub, canon(chain.tx_body(tx)), sig)
@@ -1538,6 +1573,12 @@ def make_handler(node):
                     if len(parts) == 2:
                         g = proposal_info(st, parts[1])
                         return self._send(200 if g else 404, g or {"error": "votação não existe"})
+                if parts[0] == "bonds":   # v3: cauções dos coordenadores (antes da v3, a lista vem vazia)
+                    if len(parts) == 1:
+                        return self._send(200, node.cached(st, "bonds", lambda: json_bytes(bonds_info(st))))
+                    if len(parts) == 2:
+                        b = bond_info(st, norm_address(parts[1]))
+                        return self._send(200 if b else 404, b or {"error": "esta máquina não tem caução"})
                 if parts[0] in ("machines", "providers") and len(parts) == 1:
                     return self._send(200, node.cached(st, "machines", lambda: json_bytes(machines_info(st))))
                 if parts[0] == "machine" and len(parts) == 2:

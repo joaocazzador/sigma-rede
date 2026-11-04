@@ -47,8 +47,12 @@ from urllib.request import ProxyHandler, Request, build_opener
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
-from sigma.chain import GOVERNABLE  # noqa: E402
+from sigma import chain  # noqa: E402
 from sigma.crypto import Wallet, checksum_ok, norm_address, to_eth  # noqa: E402
+
+# o que se vota na rede principal: as regras das versões já marcadas em chain.SCHEDULE, como o /governance do nó
+# mostra (o min_bond da v3 só aparece quando a v3 for marcada, e aí o painel precisa do nome dele em português)
+GOVERNABLE = chain.governable(max([1, *chain.SCHEDULE.get(chain.MAINNET_GENESIS, {})]))
 
 PORT = 47960                 # --check e o uso à mão; o unittest usa TEST_PORT
 TEST_PORT = 47961

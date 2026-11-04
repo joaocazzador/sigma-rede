@@ -15,6 +15,8 @@ ele minera, hospeda a rede e mostra tudo num painel.
     python -m sigma.cli model-register meu-modelo --url <URL> --sha256 <hash> --size <bytes> --budget 100
     python -m sigma.cli model-fund <nome> <SIG> | model-update <nome> --royalty 5 | model-retire <nome>
     python -m sigma.cli deploy-site <pasta> <nome> --budget 50 | site-fund <nome> <SIG>
+    python -m sigma.cli bond <máquina> <SIG>           caução de uma máquina sua, para ela coordenar modelos gigantes
+    python -m sigma.cli unbond <máquina> <SIG>         retira SIG da caução (eles voltam em 14 dias)
     python -m sigma.cli ask "pergunta" [--model nome]
     python -m sigma.cli compute primes n=1000000 --replicas 3
     python -m sigma.cli status | jobs | sites
@@ -32,12 +34,15 @@ from .client import DEFAULT_NODE, JOB_END, PT, Client, SigmaError, TxDropped, fm
 from .crypto import Wallet, to_eth
 from .sigmacode import visible
 
+BOND = ("bond", "caucionar")
+UNBOND = ("unbond", "retirar-caucao")
 SPEND = {"send", "deploy-site", "site-fund", "ask", "compute", "model-register", "model-fund",
-         "model-update", "model-retire", "propose", "propor", "vote", "votar"}
+         "model-update", "model-retire", "propose", "propor", "vote", "votar", *BOND, *UNBOND}
 NO_LICENSE = "esse modelo não declara a licença no Hugging Face: escolha um que declare"
 NO_LICENSE_GIVEN = ("informe a licença do modelo com --license (ex.: --license apache-2.0): sem ela não dá para "
                     "saber se as máquinas da rede podem cobrar em SIG para servir o modelo")
 NO_MEDIA_YET = "a rede ainda não aceita modelos de imagem e vídeo: eles entram na atualização das regras v2"
+NO_BONDS_YET = "a rede ainda não aceita caução de coordenadores: ela entra na atualização das regras v3"
 TASK_NAMES = {"text": "texto", "image": "imagem", "video": "vídeo"}
 
 
@@ -161,6 +166,22 @@ def show_governance(g):
     print(f"cada votação dura 10 dias · 1 SIG = 1 voto (fica travado até o fim) · depósito para propor "
           f"{fmt(g.get('deposit') or 0)} (volta no fim) · quórum {num((g.get('quorum_bps') or 0) / 100, 2)}% do SIG "
           "que existe")
+
+
+def when(ts):
+    """Data e hora no jeito brasileiro (no relógio deste computador)."""
+    return time.strftime("%d/%m/%Y às %H:%M", time.localtime(ts)) if isinstance(ts, (int, float)) else "?"
+
+
+def bond_status(b, min_bond):
+    """O que a caução da máquina permite agora, numa frase."""
+    if b.get("coordinator"):
+        return ("a máquina já pode coordenar a divisão de modelos gigantes (se trapacear, perde parte da caução e "
+                "reputação)")
+    missing = (min_bond or 0) - (b.get("amount") or 0)
+    if missing > 0:
+        return f"para coordenar, a caução ativa precisa ser de pelo menos {fmt(min_bond)} (faltam {fmt(missing)})"
+    return "a caução já cobre o mínimo; para coordenar, a máquina precisa estar online e com a IA ligada"
 
 
 def show_machines(ms):
@@ -337,6 +358,13 @@ def build_parser():
     p.add_argument("--value", type=int, help="valor novo da regra (inteiro)")
     p = cmd("vote", "vota: 1 SIG = 1 voto, travado até o fim da votação", aliases=["votar"])
     p.add_argument("proposal_id"); p.add_argument("choice", help="sim ou nao"); p.add_argument("amount", help="SIG")
+    p = cmd("bond", "trava SIG como caução de uma máquina sua (só a carteira que recebe os ganhos dela): com a "
+                    "caução mínima da rede, ela pode coordenar a divisão de modelos gigantes; se trapacear, perde "
+                    "parte da caução e reputação", aliases=["caucionar"])
+    p.add_argument("machine", help="endereço da máquina (sig… ou 0x…)"); p.add_argument("amount", help="SIG")
+    p = cmd("unbond", "retira SIG da caução de uma máquina: eles voltam sozinhos para a carteira em 14 dias e, até "
+                      "lá, ainda podem ser cortados se uma fraude dela for provada", aliases=["retirar-caucao"])
+    p.add_argument("machine", help="endereço da máquina (sig… ou 0x…)"); p.add_argument("amount", help="SIG")
     cmd("status", "estado do nó e da rede")
     cmd("jobs", "jobs recentes")
     cmd("sites", "sites publicados")
@@ -423,6 +451,22 @@ def run(a, c):
     elif a.cmd in ("vote", "votar"):
         c.vote(a.proposal_id, a.choice, a.amount)
         print(f"voto registrado: {a.amount} SIG travados até o fim da votação · saldo {fmt(c.balance())}")
+    elif a.cmd in BOND + UNBOND:
+        mining = c.mining()
+        if not (isinstance(mining, dict) and mining.get("bonding")):   # antes da v3 a chain recusaria o tipo
+            raise SigmaError(NO_BONDS_YET)
+        if a.cmd in BOND:
+            c.bond(a.machine, a.amount)
+            b = c.bonds(a.machine)
+            print(f"caução da máquina {short(b.get('machine'))}: {fmt(b.get('amount') or 0)} travados")
+        else:
+            c.unbond(a.machine, a.amount)
+            b = c.bonds(a.machine)      # a retirada em espera segura a caução no estado até voltar
+            release = (b.get("unbonding") or [{}])[-1].get("release")
+            print(f"retirada de {a.amount} SIG começou: eles voltam sozinhos para a sua carteira em {when(release)} "
+                  "(daqui a 14 dias) e, até lá, ainda podem ser cortados se for provada uma fraude da máquina")
+            print(f"caução ativa agora: {fmt(b.get('amount') or 0)}")
+        print(f"{bond_status(b, mining.get('min_bond'))} · saldo {fmt(c.balance())}")
     elif a.cmd == "compute":
         result, job = c.compute({"name": a.task, "params": parse_params(a.params)}, a.replicas)
         print(f"status: {job['status']} · resultado: {result} · custo {fmt(job.get('cost') or 0)}")

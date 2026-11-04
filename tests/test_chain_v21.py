@@ -158,7 +158,7 @@ class TestStrictFormat(unittest.TestCase):
                 "decline_model": {"name": "modelo-y"},
                 "propose": {"kind": "text", "title": "Uma ideia", "text": "x"},
                 "vote": {"proposal_id": H, "choice": "sim", "amount": 1}}
-        self.assertEqual(set(base), set(chain.SIGNED_TYPES) - {"create_job"})
+        self.assertEqual(set(base), set(chain.signed_types(1)) - {"create_job"})   # rede v1: sem bond/unbond (v3)
         for type_, data in base.items():
             with self.subTest(type_), self.assertRaisesRegex(TxError, f"campos desconhecidos em {type_}: lixo"):
                 net.send(CLIENT, type_, dict(data, lixo="x" * 100_000))
@@ -1309,7 +1309,7 @@ class Walk:
                 self.note("votação " + prop["status"])
                 if prop.get("applied"):
                     self.note("parâmetro mudou")
-        t.assertTrue(all(lo <= s.params[k] <= hi for k, (lo, hi) in chain.GOVERNABLE.items()
+        t.assertTrue(all(lo <= s.params[k] <= hi for k, (lo, hi) in chain.governable(s.rules).items()
                          if k != "min_share_bits"), "parâmetro fora dos limites")
         for m in s.models.values():
             if m["cooldown"]:
@@ -1594,7 +1594,7 @@ class TestRandomWalk(unittest.TestCase):
         self.assertEqual(wanted - set(walk.seen), set(), f"o passeio não passou por tudo: {walk.seen}")
         included = [tx for b in walk.blocks for tx in b[3]]
         self.assertEqual({tx["type"] for tx in included} - {"work", "evm"},
-                         set(chain.SIGNED_TYPES), "algum tipo de transação nunca entrou num bloco")
+                         set(chain.signed_types(1)), "algum tipo de transação nunca entrou num bloco")
         evm_to = {chain.decode_evm(tx["data"]["raw"])["to"] for tx in included if tx["type"] == "evm"}
         self.assertIn(evm.SYSTEM_ADDRESS, evm_to)               # operações do Sigma pela MetaMask também
         self.assertTrue(evm_to - {evm.SYSTEM_ADDRESS})          # e transferências comuns

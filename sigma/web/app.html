@@ -3120,6 +3120,7 @@ const GOV_PARAMS = {
   proposal_deposit: {label: "Depósito para abrir uma votação", unit: "em SIG", sig: true, fmt: (v) => `${sig(v)} SIG`},
   quorum_bps: {label: "Quórum: quanto do SIG que existe precisa votar", unit: "em centésimos de 1%: 100 = 1%",
                fmt: (v) => `${bpsPct(v)}% do SIG que existe`},
+  min_bond: {label: "Caução mínima para coordenar modelos gigantes", unit: "em SIG", sig: true, fmt: (v) => `${sig(v)} SIG`},
 };
 const govMeta = (k) => GOV_PARAMS[k] || {label: String(k), unit: "número inteiro", fmt: (v) => num(v)};
 let govKind = "text";

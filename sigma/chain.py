@@ -10,11 +10,14 @@ bloco), dividida pelos pontos de prova de trabalho de cada carteira, e, uma vez
 só, a carteira dos fundadores (1 milhão de SIG, 1% do teto), criada na altura
 da atualização v2 da rede principal (UPGRADE_GRANTS). Depois disso o SIG só
 circula: quem usa IA, computação e hospedagem paga as máquinas que hospedam.
-Não há taxa, queima nem stake.
+Não há taxa nem queima. Nas regras v3, quem coordena a divisão de modelos
+gigantes trava SIG como caução (bond): se trapacear, parte dela é cortada, uma
+fatia vai para quem provou a fraude, outra para quem foi lesado e o resto volta
+para o que falta minerar (sai de `minted` e a emissão o paga de novo).
 
 Ciclo de cada bloco: begin_block (atualização das regras, janela, época,
 aluguel, atribuições, limpeza) → apply_tx de cada transação → end_block
-(prazos dos jobs e votações).
+(prazos dos jobs, votações e retiradas da caução).
 
 Atualizações sem recomeçar a rede (docs/ATUALIZACOES.md): cada bloco diz a
 versão das regras que valia nele. Uma regra nova entra numa altura marcada em
@@ -41,13 +44,15 @@ from .pow import report_points, share_ok
 
 UNIT = 1_000_000            # 1 SIG = 1.000.000 µSIG
 # ---- atualizações das regras (docs/ATUALIZACOES.md)
-RULES = 2                   # a versão mais nova das regras que este código sabe executar
-# v1: a rede da v2.4. v2 (v2.5): modelos de imagem e vídeo, preço por imagem e por segundo de vídeo
+RULES = 3                   # a versão mais nova das regras que este código sabe executar
+# v1: a rede da v2.4. v2 (v2.5): modelos de imagem e vídeo, preço por imagem e por segundo de vídeo.
+# v3 (v2.6): caução dos coordenadores (bond/unbond, corte e reputação)
 # atualizações marcadas: hash do genesis da rede -> {versão: altura do primeiro bloco com ela}. Uma rede nova
 # já nasce na versão RULES; as entradas daqui só valem para a rede cujo genesis tem aquele hash.
 # rede principal (genesis a8eabe25…1029, recriada na 2.4): a v2 (imagem e vídeo, reserva dos fundadores, votações
-# decididas antes) entra no bloco 1950, marcado na publicação da 2.5 em 04/11/2026 (~1 h de aviso)
-SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950}}
+# decididas antes) entra no bloco 1950, marcado na publicação da 2.5 em 04/11/2026 (~1 h de aviso); a v3 (caução dos
+# coordenadores) no bloco 8000, marcado na publicação da 2.6 no mesmo dia, no bloco 2647 (~36 h de aviso, 24 s por bloco)
+SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 8000}}
 UPGRADE_HISTORY_KEEP = 50
 # saldos que uma atualização cria na altura dela, uma vez só: hash do genesis -> {versão: [(endereço, µSIG)]}.
 # A v2 da rede principal cria a carteira dos fundadores: 1 milhão de SIG (1% do teto) para as primeiras despesas do
@@ -57,6 +62,9 @@ FOUNDERS = "sigfd1980713ecf1a514ad3f4a15828bb2d0c00a09e"
 UPGRADE_GRANTS = {MAINNET_GENESIS: {2: [(FOUNDERS, 1_000_000 * 1_000_000)]}}
 # As chaves do genesis ficam congeladas: um parâmetro novo entra por uma atualização (no estado, na altura dela),
 # nunca em DEFAULT_PARAMS — senão o estado do genesis muda e a chain antiga deixa de bater.
+# parâmetros que uma versão cria: versão -> {nome: valor inicial}. Entram em `params` na altura dela (ou desde o
+# genesis, numa rede que já nasce nela); depois disso se votam como os outros (GOVERNABLE).
+UPGRADE_PARAMS = {3: {"min_bond": 1_000 * UNIT}}   # v3: caução mínima para coordenar (1.000 SIG)
 DEFAULT_PARAMS = {"epoch_seconds": 43200, "window_seconds": 300, "min_share_bits": 12, "max_shares": 32,
                   "supply_cap": 100_000_000 * UNIT,
                   "mint_bps": 1,                  # 0,01% do que falta a cada 12 h, saindo aos poucos em todo bloco
@@ -74,7 +82,9 @@ CHOICES = ("sim", "nao")
 # o que uma votação pode mudar, com limites (o teto de 100 milhões e o tempo das janelas não se votam)
 GOVERNABLE = {"mint_bps": (0, 50), "hosting_per_mb_window": (1, MAX_HOSTING_PRICE), "ram_per_mb_window": (0, 100),
               "demand_max_bps": (0, 100_000), "min_share_bits": (8, 32),
-              "proposal_deposit": (UNIT, 10_000 * UNIT), "quorum_bps": (0, 5000)}
+              "proposal_deposit": (UNIT, 10_000 * UNIT), "quorum_bps": (0, 5000),
+              "min_bond": (10 * UNIT, 1_000_000 * UNIT)}
+GOVERNABLE_SINCE = {"min_bond": 3}   # parâmetro que só existe a partir de uma versão: antes dela, não se vota
 MAX_AI_PRICE = 1_000_000    # µSIG por mil tokens: nenhuma máquina engole o escrow com um preço absurdo
 MAX_COMPUTE_PRICE = 1_000_000
 # ---- classes de IA (regras v2): além de texto, modelos que geram imagem e vídeo (stable-diffusion.cpp)
@@ -87,6 +97,13 @@ MEDIA_CLAIM_TIMEOUT = {"image": 1800, "video": 7200}   # gerar leva mais que res
 MEDIA_RAM_MB = {"image": 1536, "video": 4096}      # memória de trabalho além dos pesos (a do texto é 512)
 MODEL_ROLES = ("vae", "clip_l", "clip_g", "t5xxl", "llm")   # arquivos extras de um modelo de imagem/vídeo
 MAX_MODEL_FILES = 4
+# ---- caução dos coordenadores (regras v3): quem coordena a divisão de modelos gigantes trava SIG na rede
+UNBOND_SECONDS = 14 * 86400  # a retirada espera 14 dias e até lá ainda pode ser cortada (o trapaceiro não saca antes)
+MAX_UNBONDING = 20           # retiradas em espera por caução: o estado e a conta de cada bloco não crescem sem limite
+SLASH_REPORTER_BPS = 2000    # do que for cortado, 20% vão para quem provou a fraude
+SLASH_VICTIM_BPS = 3000      # e até 30% para quem foi lesado (no máximo o prejuízo); o resto volta para a emissão
+SLASH_REPUTATION = 10        # reputação que a máquina perde em cada corte
+SLASHES_KEEP = 200           # registro público dos últimos cortes (ext["slashes"])
 MAX_SHARE_BITS = 200
 MAX_NONCE = 2 ** 62
 CLAIM_TIMEOUT = 600         # segundos para entregar um job reivindicado
@@ -155,6 +172,8 @@ TX_FIELDS = {
     "decline_model": {"name"},
     "propose": {"kind", "title", "text", "param", "value"},
     "vote": {"proposal_id", "choice", "amount"},
+    "bond": {"machine", "amount"},       # regras v3 (TYPES_SINCE): caução de uma máquina
+    "unbond": {"machine", "amount"},
     "work": {"miner", "window", "bits", "nonces", "worker"},
     "evm": {"raw"},
 }
@@ -162,6 +181,9 @@ JOB_FIELDS = {"ai": {"kind", "model", "spec_hash", "escrow", "max_price", "max_t
                      "units"},
               "compute": {"kind", "task", "replicas", "escrow", "max_price"}}
 SIGNED_TYPES = frozenset(TX_FIELDS) - {"work", "evm"} | {"create_job"}
+# tipos que só existem a partir de uma versão das regras: antes dela, são recusados como tipo desconhecido, como
+# sempre foram (SIGNED_TYPES sai de TX_FIELDS; sem isto, um tipo novo valeria em qualquer versão)
+TYPES_SINCE = {"bond": 3, "unbond": 3}
 HW_KEYS = frozenset(HW_FIELDS + ("gpu",))
 USAGE_KEYS = ("tokens_in", "tokens_out")
 LIVE = ("open", "running")  # jobs que ainda seguram escrow
@@ -424,6 +446,16 @@ def _fields(type_, d, rules):
     _only(d, {k for k in allowed if since.get(k, 1) <= rules}, f"em {type_}")
 
 
+def signed_types(rules):
+    """Tipos de transação assinada que a versão `rules` das regras aceita (um tipo novo só a partir da dele)."""
+    return frozenset(t for t in SIGNED_TYPES if TYPES_SINCE.get(t, 1) <= rules)
+
+
+def governable(rules):
+    """O que uma votação pode mudar na versão `rules` das regras, com os limites (GOVERNABLE_SINCE)."""
+    return {k: v for k, v in GOVERNABLE.items() if GOVERNABLE_SINCE.get(k, 1) <= rules}
+
+
 def model_task(m):
     """Classe do modelo: texto (o padrão, e todo modelo de antes da v2), imagem ou vídeo."""
     return m.get("task", "text")
@@ -459,7 +491,9 @@ def _check_params(genesis):
           and all(_is_int(p[k]) for k in DEFAULT_PARAMS if k not in ("epoch_seconds", "window_seconds"))
           and 1 <= p["min_share_bits"] <= MAX_SHARE_BITS and p["max_shares"] >= 1
           and p["supply_cap"] >= 0 and 0 <= p["mint_bps"] <= 10000
-          and all(lo <= p[k] <= hi for k, (lo, hi) in GOVERNABLE.items() if k not in ("min_share_bits", "mint_bps")))
+          # só os do genesis: um votável criado por atualização (min_bond, v3) não está em DEFAULT_PARAMS
+          and all(lo <= p[k] <= hi for k, (lo, hi) in GOVERNABLE.items()
+                  if k in DEFAULT_PARAMS and k not in ("min_share_bits", "mint_bps")))
     if not ok:
         raise ValueError("genesis inválido: params fora do formato esperado")
     return p
@@ -485,6 +519,8 @@ class State:
             raise ValueError("genesis inválido: rules deve ser um inteiro a partir de 1")
         if rules > RULES:
             raise UpgradeRequired(rules, 0)
+        for version in range(2, rules + 1):        # rede que já nasce numa versão nova: os parâmetros dela desde já
+            self._upgrade_params(version)
         self.genesis_hash = sha(canon(genesis))   # transitório: escolhe as atualizações de SCHEDULE desta rede
         # versão das regras em vigor e quando cada uma entrou (a do genesis no bloco 0)
         self.upgrade = {"rules": rules, "history": [{"rules": rules, "height": 0, "time": genesis["time"]}]}
@@ -585,6 +621,11 @@ class State:
         """SIG travado em votações abertas (votos + depósitos): conta na oferta."""
         return sum(p["deposit"] + p["yes"] + p["no"] for p in self.proposals.values() if p["status"] == "open")
 
+    def bonded(self):
+        """SIG travado nas cauções dos coordenadores (regras v3), ativo + retiradas em espera: conta na oferta."""
+        return sum(b["amount"] + sum(u["amount"] for u in b["unbonding"])
+                   for b in (self.ext.get("bonds") or {}).values())
+
     def funded(self, m):
         """O orçamento do modelo paga pelo menos MIN_FUNDED_SECONDS de aluguel de todas as cópias? (Modelo até
         FUNDED_ABOVE bytes sempre passa: baixar poucos MB não pesa para ninguém.)"""
@@ -618,7 +659,8 @@ class State:
         old, u["rules"] = u["rules"], target
         u["history"].append({"rules": target, "height": height, "time": self.now})
         del u["history"][1:-UPGRADE_HISTORY_KEEP]
-        for version in range(old + 1, target + 1):   # saldos criados pela atualização (UPGRADE_GRANTS)
+        for version in range(old + 1, target + 1):   # parâmetros (UPGRADE_PARAMS) e saldos (UPGRADE_GRANTS) novos
+            self._upgrade_params(version)
             for addr, amount in (UPGRADE_GRANTS.get(self.genesis_hash) or {}).get(version, ()):
                 amount = min(amount, self.params["supply_cap"] - self.mining["minted"])   # nunca passa do teto
                 if amount > 0:
@@ -626,6 +668,12 @@ class State:
                     self._give(addr, amount, "founders", f"v{version}")
                     self.ext.setdefault("grants", []).append(
                         {"address": addr, "amount": amount, "rules": version, "height": height})
+
+    def _upgrade_params(self, version):
+        """Parâmetros que a versão `version` cria (UPGRADE_PARAMS): entram em `params` na altura dela, nunca em
+        DEFAULT_PARAMS. Um valor que já esteja lá (votado) fica."""
+        for key, value in UPGRADE_PARAMS.get(version, {}).items():
+            self.params.setdefault(key, value)
 
     # ---------------------------------------------------------- ciclo do bloco
     def begin_block(self, height, time, prev_hash):
@@ -786,7 +834,7 @@ class State:
                 del self.retired_models[name]
 
     def end_block(self):
-        """Fecha o bloco: prazos dos jobs (pelo relógio do bloco) e limpeza do estado."""
+        """Fecha o bloco: prazos dos jobs (pelo relógio do bloco), votações, retiradas da caução e limpeza."""
         now = self.now
         for jid in [i for i, j in self.jobs.items()
                     if j["status"] not in LIVE and now - j.get("closed", j["created"]) > JOB_RETENTION]:
@@ -809,6 +857,8 @@ class State:
                 else:
                     self._refund(job, "expired")
         self._close_proposals()
+        if self.rule(3):
+            self._release_bonds()
 
     def _target_deadline(self, job):
         """Pedido direcionado: a máquina escolhida tem TARGET_TIMEOUT para reivindicar e CLAIM_TIMEOUT para
@@ -855,7 +905,8 @@ class State:
             return self._apply_work(tx["data"])
         if type_ == "evm":
             return self._apply_evm(tx)
-        _need(isinstance(type_, str) and type_ in SIGNED_TYPES, f"tipo de transação desconhecido: {str(type_)[:40]}")
+        _need(isinstance(type_, str) and type_ in signed_types(self.rules),   # bond/unbond só a partir da v3
+              f"tipo de transação desconhecido: {str(type_)[:40]}")
         _fields(type_, tx["data"], self.rules)
         pub, sig = tx.get("pub"), tx.get("sig")
         _need(isinstance(pub, str) and HEX128.match(pub) and isinstance(sig, str) and HEX128.match(sig)
@@ -884,7 +935,7 @@ class State:
             _need(e["value"] == 0, "operações do Sigma não levam valor; use os campos da própria operação")
             type_, data = _system_call(e["data"])
             _canon_ok([type_, data])             # o JSON veio de dentro do raw: confere de novo aqui
-            _need(type_ in SIGNED_TYPES, f"operação desconhecida: {type_[:40]}")
+            _need(type_ in signed_types(self.rules), f"operação desconhecida: {type_[:40]}")
             _fields(type_, data, self.rules)
             getattr(self, "_tx_" + type_)(sender, data, txid)
         else:
@@ -1580,9 +1631,10 @@ class State:
                 "yes": 0, "no": 0, "votes": {}}
         if kind == "param":
             param, value = d.get("param"), d.get("value")
-            _need(isinstance(param, str) and param in GOVERNABLE,
-                  f"parâmetro não pode ser votado (os votáveis: {', '.join(sorted(GOVERNABLE))})")
-            lo, hi = GOVERNABLE[param]
+            votable = governable(self.rules)       # min_bond só a partir da v3
+            _need(isinstance(param, str) and param in votable,
+                  f"parâmetro não pode ser votado (os votáveis: {', '.join(sorted(votable))})")
+            lo, hi = votable[param]
             _int_in(value, "value", lo, hi)
             _need(value != self.params[param], "esse já é o valor de agora")
             prop.update(param=param, value=value, old=self.params[param])
@@ -1640,6 +1692,109 @@ class State:
                         key=lambda p: (p["closed"], p["id"]))
         for p in closed[:-CLOSED_PROPOSALS_KEEP]:
             del self.proposals[p["id"]]
+
+    # ------------------------------------------- caução dos coordenadores (regras v3)
+    # ext["bonds"]: máquina -> {owner, amount (ativo), unbonding: [{amount, release}], slashed, since}, criado na
+    # primeira caução. ext["slashes"]: os últimos SLASHES_KEEP cortes, públicos. Quem escolhe os coordenadores de um
+    # pedido, a conferência entre eles e as provas de fraude (que chamam _slash) são a etapa seguinte.
+    def is_coordinator(self, machine):
+        """A máquina pode coordenar a divisão de um modelo gigante: regras v3, caução ativa de pelo menos
+        min_bond, online e com a IA ligada. A caução tem de ser da carteira que recebe os ganhos dela: se o payout
+        mudar, quem passa a receber não responde com o SIG de outro."""
+        if not self.rule(3) or not isinstance(machine, str):
+            return False
+        b, mc = (self.ext.get("bonds") or {}).get(machine), self.machines.get(machine)
+        return bool(b and mc and b["owner"] == mc["payout"] and b["amount"] >= self.params["min_bond"]
+                    and mc["online"] and mc["ai"])
+
+    def _tx_bond(self, sender, d, txid):
+        """Trava SIG como caução de uma máquina. Assinada pela carteira que recebe os ganhos dela (o payout):
+        quem responde pela máquina é quem trava, e uma caução de outra carteira não muda de dono."""
+        machine = _addr(d.get("machine"), "machine")
+        amount = _int_in(d.get("amount"), "amount", 1, self.params["supply_cap"])
+        mc = self.machines.get(machine)
+        _need(mc is not None, "máquina não registrada")
+        _need(mc["payout"] == sender, "só a carteira que recebe os ganhos da máquina (o payout dela) pode caucioná-la")
+        b = (self.ext.get("bonds") or {}).get(machine)
+        _need(b is None or b["owner"] == sender,
+              "a caução desta máquina é de outra carteira: ela precisa retirar tudo antes")
+        _need(self.bal(sender) >= amount, "saldo insuficiente para a caução")
+        self._debit(sender, amount)
+        if b is None:
+            b = self.ext.setdefault("bonds", {})[machine] = {"owner": sender, "amount": 0, "unbonding": [],
+                                                             "slashed": 0, "since": self.now}
+        b["amount"] += amount
+
+    def _tx_unbond(self, sender, d, txid):
+        """Começa a retirar parte da caução: sai do ativo na hora (pode deixar a máquina abaixo do mínimo para
+        coordenar) e volta ao dono UNBOND_SECONDS depois, sozinha, no fim do bloco. Na espera ainda pode ser
+        cortada: quem trapaceou não saca antes de a disputa terminar."""
+        machine = _addr(d.get("machine"), "machine")
+        b = (self.ext.get("bonds") or {}).get(machine)
+        _need(b is not None, "esta máquina não tem caução")
+        _need(b["owner"] == sender, "só a carteira dona da caução pode retirá-la")
+        amount = _int_in(d.get("amount"), "amount", 1, self.params["supply_cap"])
+        _need(amount <= b["amount"], f"a caução ativa desta máquina é de {fmt(b['amount'])}: não dá para retirar mais")
+        _need(len(b["unbonding"]) < MAX_UNBONDING,
+              f"já há {MAX_UNBONDING} retiradas em espera nesta caução: espere a primeira ser liberada")
+        b["amount"] -= amount
+        b["unbonding"].append({"amount": amount, "release": self.now + UNBOND_SECONDS})
+
+    def _release_bonds(self):
+        """Fim do bloco: as retiradas que cumpriram a espera voltam ao dono (crédito "bond", ref = a máquina)."""
+        bonds = self.ext.get("bonds") or {}
+        for machine in sorted(bonds):
+            b = bonds[machine]
+            due = [u for u in b["unbonding"] if u["release"] <= self.now]
+            if due:
+                b["unbonding"] = [u for u in b["unbonding"] if u["release"] > self.now]
+                self._give(b["owner"], sum(u["amount"] for u in due), "bond", machine)
+            self._drop_empty_bond(machine)
+
+    def _drop_empty_bond(self, machine):
+        """Caução sem nada ativo nem em espera sai do estado."""
+        b = self.ext["bonds"][machine]
+        if not b["amount"] and not b["unbonding"]:
+            del self.ext["bonds"][machine]
+
+    def _slash(self, machine, amount, reason, reporter=None, victim=None, victim_cap=0):
+        """Corta até `amount` µSIG da caução da máquina e devolve quanto cortou de fato: primeiro da caução ativa,
+        depois das retiradas em espera (as mais novas primeiro). Do cortado, SLASH_REPORTER_BPS vai para quem
+        provou a fraude, até SLASH_VICTIM_BPS (e no máximo `victim_cap`, o prejuízo) para quem foi lesado, e o
+        resto volta para o que falta minerar: sai de `minted` e a emissão o paga de novo aos mineradores (o Sigma
+        não queima SIG). Quem responde pela máquina (a própria máquina, o dono da caução e o payout) não recebe
+        parte do próprio corte. A máquina perde SLASH_REPUTATION de reputação e o corte entra em ext["slashes"]."""
+        if not _is_int(amount) or amount < 1:
+            return 0
+        b, mc = (self.ext.get("bonds") or {}).get(machine), self.machines.get(machine)
+        cut = 0
+        if b is not None:
+            cut = min(amount, b["amount"])
+            b["amount"] -= cut
+            for u in reversed(b["unbonding"]):       # a lista está na ordem em que as retiradas começaram
+                take = min(amount - cut, u["amount"])
+                u["amount"] -= take
+                cut += take
+            b["unbonding"] = [u for u in b["unbonding"] if u["amount"] > 0]
+            b["slashed"] += cut
+        own = {machine, (b or {}).get("owner"), (mc or {}).get("payout")}   # quem responde pela máquina
+        to_reporter = cut * SLASH_REPORTER_BPS // 10_000 if reporter is not None and reporter not in own else 0
+        to_victim = (min(victim_cap, cut * SLASH_VICTIM_BPS // 10_000)
+                     if victim is not None and victim not in own and _is_int(victim_cap) and victim_cap > 0 else 0)
+        to_mining = cut - to_reporter - to_victim
+        self._give(reporter, to_reporter, "slash_reporter", machine)
+        self._give(victim, to_victim, "slash_victim", machine)
+        self.mining["minted"] -= to_mining
+        if mc is not None:
+            mc["reputation"] -= SLASH_REPUTATION
+        self.ext.setdefault("slashes", []).append(
+            {"machine": machine, "amount": cut, "reason": str(reason)[:200], "height": self.height,
+             "reporter": reporter, "to_reporter": to_reporter, "victim": victim, "to_victim": to_victim,
+             "to_mining": to_mining})
+        del self.ext["slashes"][:-SLASHES_KEEP]
+        if b is not None:
+            self._drop_empty_bond(machine)
+        return cut
 
 
 def make_tx(wallet, type_, data, nonce):

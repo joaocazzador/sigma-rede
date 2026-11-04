@@ -60,10 +60,10 @@ def apply_block(state, height, time, prev, txs):
 
 
 def supply(s):
-    """Todo SIG que existe: saldos + o que está travado em escrows, budgets e votações."""
+    """Todo SIG que existe: saldos + o que está travado em escrows, budgets, votações e cauções (regras v3)."""
     locked = sum(j["escrow"] for j in s.jobs.values() if j["status"] in ("open", "running"))
     locked += sum(x["budget"] for x in [*s.sites.values(), *s.models.values()])
-    return sum(s.balances.values()) + locked + s.locked()
+    return sum(s.balances.values()) + locked + s.locked() + s.bonded()
 
 
 def wp(s):

@@ -488,6 +488,26 @@ class Client:
         a chain tira a atribuição na hora e põe o cooldown, sem punir a reputação (SPEC-v2.2 §3)."""
         return self.send_tx("decline_model", {"name": name})
 
+    # ---------------------------------------------- caução dos coordenadores (regras v3)
+    def bonds(self, machine=None):
+        """Cauções dos coordenadores: todas (com o total travado, quantas máquinas podem coordenar, a caução mínima
+        e os últimos cortes) ou, com `machine`, a daquela máquina (o ativo, as retiradas em espera e se ela pode
+        coordenar agora)."""
+        if machine is None:
+            return self.get("/bonds")
+        return self.get(f"/bonds/{_q(_typed_address(machine))}")
+
+    def bond(self, machine, amount_sig):
+        """Trava SIG como caução da máquina; só a carteira que recebe os ganhos dela (o payout) pode. Com a caução
+        ativa acima do mínimo da rede, a máquina online e com a IA ligada pode coordenar a divisão de modelos
+        gigantes; se trapacear, perde parte da caução e reputação."""
+        return self.send_tx("bond", {"machine": _typed_address(machine), "amount": to_usig(amount_sig)})
+
+    def unbond(self, machine, amount_sig):
+        """Começa a retirar parte da caução: o valor sai do ativo na hora e volta sozinho para a carteira depois de
+        14 dias (chain.UNBOND_SECONDS). Até lá ainda pode ser cortado se for provada uma fraude da máquina."""
+        return self.send_tx("unbond", {"machine": _typed_address(machine), "amount": to_usig(amount_sig)})
+
     # ---------------------------------------------------------------- jobs
     def _wait_job(self, job_id, timeout):
         return self._poll(lambda: self.job(job_id), lambda j: j["status"] in JOB_END, timeout,

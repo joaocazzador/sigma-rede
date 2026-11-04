@@ -15,3 +15,6 @@ __pycache__/
 
 # notas internas de revisão (caminhos locais e detalhes de ataques)
 docs/revisao-*.md
+
+# trabalho em andamento, ainda sem testes nem revisão (docs/PENDENCIAS.md): fora do pacote e do GitHub
+wip/
