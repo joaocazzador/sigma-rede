@@ -53,6 +53,26 @@ O `Sigma.exe` não tem assinatura digital, então o Windows e o antivírus podem
   somam. O limite é de 256 relatórios de mineração por janela de 5 minutos para cada conexão de internet; com
   CGNAT (comum no celular e em muitas fibras), vizinhos dividem esse limite.
 
+## Novidades da 2.5
+
+- **Carteira dos fundadores.** A atualização das regras v2 cria, uma única vez, 1 milhão de SIG (1% do teto) na
+  carteira dos fundadores, para as primeiras necessidades do projeto (marketing, administração, infraestrutura).
+  É pública: veja [Emissão](#emissão).
+- **Votações decididas antes.** Uma votação termina antes dos 10 dias quando um lado passa de metade de todos os
+  votos possíveis (todo o SIG que existe). No começo, a carteira dos fundadores sozinha passa dessa metade.
+
+- **IA que gera imagens e vídeos.** Além dos modelos de texto, a rede hospeda modelos de imagem (Z-Image Turbo,
+  Stable Diffusion 1.5) e de vídeo (Wan 2.1, vídeos de 2 a 5 s), rodando no stable-diffusion.cpp, que o app baixa
+  sozinho (versão fixada, SHA-256 conferido). Paga-se por imagem ou por segundo de vídeo entregue, 100% para a
+  máquina menos o royalty do padrinho; o pedido e o resultado vão cifrados, como no texto. Cada computador escolhe
+  nas Configurações se hospeda imagem (ligado) e vídeo (desligado: é pesado). É a primeira atualização de regras
+  (v2), que entra num bloco marcado, sem recomeçar a rede ([docs/ATUALIZACOES.md](docs/ATUALIZACOES.md)).
+- **Chat e Sigma Code com cara de app de IA.** Conversas guardadas no seu computador, com lista lateral, respostas
+  com formatação completa (listas, tabelas, código com botão de copiar), e no mesmo chat dá para escolher texto,
+  imagem ou vídeo. O Sigma Code mostra cada passo como um agente de terminal e continua a mesma sessão com a
+  próxima instrução.
+- **A VPS da rede minera com a sobra do processador** (classe idle do Linux): os sites do servidor não perdem nada.
+
 ## Novidades da 2.4
 
 - **A rede muda de regras sem recomeçar do zero.** Cada bloco diz a versão das regras em que rodou. Uma regra
@@ -131,8 +151,12 @@ Dizemos o que funciona e o que ainda não funciona (a lista completa está em `/
 
   Nas primeiras 12 horas são uns 833 SIG por hora para a rede inteira. A taxa pode mudar por votação (de 0 a 0,5%);
   o teto, não.
-- **Não existe outro jeito de criar SIG**: sem SIG de boas-vindas, sem faucet, sem pré-mineração (nem para
-  os criadores), sem taxa nem queima.
+- **Reserva dos fundadores, dita às claras**: a rede nasceu com todos os saldos zerados, e a atualização das regras
+  v2 cria uma única vez a carteira dos fundadores (`sigfd1980713ecf1a514ad3f4a15828bb2d0c00a09e`, a mesma
+  `0xfd1980713ecf1a514ad3f4a15828bb2d0c00a09e` na MetaMask), com **1 milhão de SIG, 1% do teto**, para as
+  primeiras necessidades do projeto (marketing, administração, infraestrutura). Ela aparece no `/status` do nó
+  (`grants`) e no histórico da carteira. Fora isso, não existe outro jeito de criar SIG: sem SIG de boas-vindas, sem
+  faucet, sem venda antecipada, sem taxa nem queima.
 - Fora a emissão, o SIG só **circula**: quem usa IA, computação e sites paga quem hospeda; quem coloca um
   modelo na rede (o padrinho) paga a hospedagem dele e recebe royalty de cada uso.
 
@@ -153,7 +177,10 @@ As regras da rede são votadas por quem participa.
 
 - **Qualquer carteira propõe**, deixando um depósito de 10 SIG que volta no fim (aprovada ou não). No máximo 20
   votações abertas ao mesmo tempo.
-- **Cada votação dura 10 dias** (pelo relógio dos blocos).
+- **Cada votação dura 10 dias** (pelo relógio dos blocos), **ou menos**: a partir das regras v2, ela termina na
+  hora em que um lado passa de metade de todos os votos possíveis (todo o SIG que existe), porque o outro lado não
+  teria como virar. No começo, a carteira dos fundadores sozinha passa dessa metade e pode decidir uma votação;
+  esse peso cai à medida que a mineração cria SIG novo.
 - **1 SIG = 1 voto.** O SIG do voto fica travado até o fim e volta inteiro: assim o mesmo SIG não vota duas vezes,
   nem passando por outra carteira. Uma carteira vota uma vez por votação.
 - **Aprovada** com mais “sim” que “não” e votos de pelo menos **1% do SIG que existe** (o quórum).

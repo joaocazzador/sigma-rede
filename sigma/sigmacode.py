@@ -178,6 +178,7 @@ class Agent:
         self._secret_root = any(protected_name(x) for x in _parts(os.path.splitdrive(self.root)[1]))
         self.spent = 0
         self.changed = []                 # arquivos gravados/editados nesta tarefa (caminhos relativos)
+        self.messages = []                # a conversa da sessão (continua com run(..., follow_up=True))
 
     # ------------------------------------------------------------ caminhos
     def _resolve(self, p):
@@ -461,10 +462,18 @@ class Agent:
     def _stopped(self):
         return bool(self.should_stop and self.should_stop())
 
-    def run(self, task):
-        """Faz a tarefa e devolve o texto final (None se parou, deu erro ou chegou ao limite de passos)."""
-        self.changed, self.spent = [], 0
-        messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": str(task)}]
+    def run(self, task, follow_up=False):
+        """Faz a tarefa e devolve o texto final (None se parou, deu erro ou chegou ao limite de passos).
+        `follow_up`: continua a mesma sessão (como no Claude Code): a conversa anterior fica e `task` entra como
+        a próxima instrução. O cliente corta as mensagens do meio se a conversa passar do contexto."""
+        if follow_up and self.messages:
+            messages = self.messages
+            messages.append({"role": "user", "content": "NOVA INSTRUÇÃO DO USUÁRIO (mesma pasta, continue a "
+                                                        "partir do que já fez):\n" + str(task)})
+        else:
+            self.changed, self.spent = [], 0
+            messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": str(task)}]
+        self.messages = messages
         for n in range(1, self.max_steps + 1):
             if self._stopped():
                 return None

@@ -146,8 +146,10 @@ dl.gloss dd { color: var(--muted); }
 
     <section id="emissao">
       <h2><span class="n">03</span> Como o SIG nasce</h2>
-      <p>O SIG é a moeda da rede. Ele só nasce de um jeito: <b>minerando</b>. A rede começou com todos os saldos zerados, sem
-         reserva para os criadores, sem venda antecipada e sem SIG de boas-vindas.</p>
+      <p>O SIG é a moeda da rede. Ele nasce <b>minerando</b>, com uma exceção que dizemos às claras: a rede começou com todos
+         os saldos zerados e a atualização das regras v2 cria, uma única vez, a <b>carteira dos fundadores</b>, com 1 milhão
+         de SIG (1% do teto) para as primeiras necessidades do projeto (marketing, administração e infraestrutura). O
+         endereço é público e os gastos dela aparecem na Carteira. Não há venda antecipada nem SIG de boas-vindas.</p>
       <h3>A regra</h3>
       <p>A cada <b>12 horas</b>, a rede imprime <b>0,01% do que ainda falta</b> para chegar a 100 milhões de SIG. Não existe
          hora marcada para a distribuição: o SIG sai aos poucos, <b>um pouco em cada bloco</b>, na medida do tempo que passou
@@ -241,6 +243,16 @@ dl.gloss dd { color: var(--muted); }
          conversa curta custa milésimos de SIG. Quem pergunta paga, e o pagamento vai <b>100% para a máquina que
          respondeu</b>, menos o royalty que o padrinho do modelo escolheu (de 0 a 50%), que vai para ele. A rede não cobra
          taxa e não queima nada.</p>
+      <h3>Imagens e vídeos</h3>
+      <p>No mesmo chat, escolha um modelo de <b>imagem</b> (como o Z-Image Turbo ou o Stable Diffusion 1.5) ou de
+         <b>vídeo</b> (Wan 2.1) e descreva o que quer. Imagem: de 1 a 4 por pedido, em quadrado, retrato ou paisagem.
+         Vídeo: 2, 3 ou 5 segundos. Paga-se por imagem ou por segundo entregue (preço padrão: <b>0,02 SIG por
+         imagem</b> e <b>0,1 SIG por segundo de vídeo</b>); o que a máquina não entregar volta para você. Como no
+         texto, o pedido e o resultado vão cifrados, e a máquina que gera lê o pedido. Gerar vídeo é pesado: num
+         computador sem placa de vídeo, leva vários minutos.</p>
+      <p>Quer que o seu computador gere imagens para a rede (e ganhe por isso)? Em <b>Configurações</b>, deixe ligado
+         <b>Hospedar IA de imagem</b>; vídeo fica desligado no começo, porque pede muita memória. O Sigma baixa sozinho
+         o motor (stable-diffusion.cpp, versão fixada e conferida) quando a rede colocar o primeiro modelo aqui.</p>
       <div class="callout warn"><b>Sua pergunta vai cifrada, mas alguém precisa ler.</b> Cada pergunta é sorteada para uma
          das máquinas que têm o modelo e vai cifrada para a chave dela, com a conversa inteira junto; ela abre, lê para
          responder, como em qualquer serviço de IA, e a resposta volta cifrada para a sua chave. Como o sorteio se repete a
@@ -398,7 +410,10 @@ dl.gloss dd { color: var(--muted); }
         <li><b>Qualquer pessoa propõe.</b> Basta deixar um depósito de <span data-gov="deposit">10 SIG</span>, que volta
             inteiro no fim, aprovada ou não. O depósito existe para ninguém encher a rede de propostas. Ficam abertas no
             máximo 20 votações ao mesmo tempo.</li>
-        <li><b>Cada votação dura 10 dias.</b> Dá tempo de ler, discutir no fórum e decidir.</li>
+        <li><b>Cada votação dura 10 dias</b>, ou menos: se um lado passa de metade de todo o SIG que existe, o outro não
+            tem como virar e a votação termina na hora. Na maior parte das vezes dá tempo de ler, discutir no fórum e
+            decidir. No começo da rede, a carteira dos fundadores sozinha tem mais da metade do SIG e pode decidir uma
+            votação; esse peso cai com a mineração.</li>
         <li><b>1 SIG = 1 voto.</b> Você escolhe sim ou não e quantos SIG quer usar. Esses SIG ficam travados até o fim da
             votação e depois voltam inteiros para a sua carteira. Por isso o mesmo SIG não vota duas vezes, nem passando
             para outra carteira. Cada carteira vota uma vez em cada votação.</li>
@@ -507,7 +522,7 @@ dl.gloss dd { color: var(--muted); }
         <dt>Sigma Code</dt><dd>Agente de programação que usa a IA da rede. Fica na aba Programar do painel.</dd>
         <dt>Token (de IA)</dt><dd>Pedaço de texto que um modelo lê ou escreve. É a unidade de cobrança da IA.</dd>
         <dt>Validador</dt><dd>Quem assina os blocos da rede. Hoje é um só: um servidor do projeto.</dd>
-        <dt>Votação</dt><dd>Proposta que a rede decide em 10 dias, com 1 SIG = 1 voto. Aprovada, pode mudar uma regra na hora.</dd>
+        <dt>Votação</dt><dd>Proposta que a rede decide em até 10 dias (antes, se um lado passar de metade de todo o SIG), com 1 SIG = 1 voto. Aprovada, pode mudar uma regra na hora.</dd>
       </dl>
     </section>
 

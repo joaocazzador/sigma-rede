@@ -1,7 +1,7 @@
 """Atualizações das regras sem recomeçar a rede (docs/ATUALIZACOES.md).
 
-O "código novo" dos testes é o código de verdade com chain.RULES = 2, a atualização marcada em chain.SCHEDULE e
-uma regra que só vale com rule(2): ela grava em ext quantos blocos já rodaram na v2 (o que muda o state root dali
+O "código novo" dos testes é o código de verdade com chain.RULES = NEXT (a versão depois da atual), a atualização
+marcada em chain.SCHEDULE e uma regra que só vale com rule(NEXT): ela grava em ext quantos blocos já rodaram nela (o que muda o state root dali
 em diante, como uma regra de verdade mudaria)."""
 import contextlib
 import io
@@ -23,19 +23,20 @@ from sigma.crypto import Wallet  # noqa: E402
 from test_node import Net  # noqa: E402
 
 real_end_block = State.end_block
+NEXT = chain.RULES + 1   # a versão "do futuro" que o código de verdade ainda não conhece
 
 
 def end_block_v2(self):
     real_end_block(self)
-    if self.rule(2):
+    if self.rule(NEXT):
         self.ext["blocos_v2"] = self.ext.get("blocos_v2", 0) + 1
 
 
 @contextlib.contextmanager
 def new_code(genesis, at):
-    """O Sigma v2: conhece as regras v2 e sabe que elas entram no bloco `at` desta rede."""
-    with mock.patch.object(chain, "RULES", 2), \
-            mock.patch.object(chain, "SCHEDULE", {sha(canon(genesis)): {2: at}}), \
+    """O Sigma novo: conhece as regras NEXT e sabe que elas entram no bloco `at` desta rede."""
+    with mock.patch.object(chain, "RULES", NEXT), \
+            mock.patch.object(chain, "SCHEDULE", {sha(canon(genesis)): {NEXT: at}}), \
             mock.patch.object(State, "end_block", end_block_v2):
         yield
 
@@ -82,19 +83,19 @@ class TestScheduledUpgrade(unittest.TestCase):
                 self.assertTrue(net.block())
             n = net.node
             rules = {h: n.block(h)["rules"] for h in range(1, n.height + 1)}
-            self.assertEqual({h for h, r in rules.items() if r == 2}, set(range(self.at, n.height + 1)))
+            self.assertEqual({h for h, r in rules.items() if r == NEXT}, set(range(self.at, n.height + 1)))
             self.assertEqual(n.state.ext, {"blocos_v2": n.height - self.at + 1})
             self.assertEqual(n.state.upgrade["history"][-1],
-                             {"rules": 2, "height": self.at, "time": n.block(self.at)["time"]})
+                             {"rules": NEXT, "height": self.at, "time": n.block(self.at)["time"]})
             self.assertGreaterEqual(n.state.bal(self.alice.address), bal)   # ninguém perdeu saldo
             head, root2 = n.head["hash"], n.state.root()
             n = net.reopen()                     # reexecuta passando pela altura da atualização
-            self.assertEqual((n.head["hash"], n.state.root(), n.state.rules), (head, root2, 2))
+            self.assertEqual((n.head["hash"], n.state.root(), n.state.rules), (head, root2, NEXT))
 
     def test_status_announces_upcoming_upgrade(self):
         with new_code(self.net.genesis, self.at):
             n = self.net.reopen()
-            self.assertEqual(chain.upcoming_upgrades(n.state.genesis_hash, n.height), [{"rules": 2, "height": self.at}])
+            self.assertEqual(chain.upcoming_upgrades(n.state.genesis_hash, n.height), [{"rules": NEXT, "height": self.at}])
             for _ in range(3):
                 self.assertTrue(self.net.block())
             self.assertEqual(chain.upcoming_upgrades(n.state.genesis_hash, self.net.node.height), [])
@@ -112,7 +113,7 @@ class TestScheduledUpgrade(unittest.TestCase):
             b.sync_from_peers()
             b.sync_from_peers()                  # parado: nem tenta de novo
         self.assertEqual(b.height, self.at - 1)
-        self.assertEqual(b.upgrade_required["rules"], 2)
+        self.assertEqual(b.upgrade_required["rules"], NEXT)
         self.assertEqual(b.upgrade_required["height"], self.at)
         self.assertIn("baixe a versão nova", b.upgrade_required["message"])
         self.assertEqual(err.getvalue().count("baixe a versão nova"), 1)
@@ -123,7 +124,7 @@ class TestScheduledUpgrade(unittest.TestCase):
             self.assertIsNone(b.upgrade_required)
             self.assertEqual(b.height, self.at - 1)
             b.sync_from_peers()
-            self.assertEqual((b.head["hash"], b.state.rules), (head, 2))
+            self.assertEqual((b.head["hash"], b.state.rules), (head, NEXT))
             self.assertEqual(b.state.root(), net.node.state.root())
 
     def test_old_code_reading_newer_chain_file_stops_without_losing_blocks(self):
@@ -137,7 +138,7 @@ class TestScheduledUpgrade(unittest.TestCase):
         self.assertTrue(os.path.exists(net.node.snapshot_file))
         with mock.patch("sys.stderr", io.StringIO()):
             n = net.reopen()                     # voltou para o Sigma antigo por engano
-        self.assertEqual((n.height, n.upgrade_required["rules"]), (self.at - 1, 2))
+        self.assertEqual((n.height, n.upgrade_required["rules"]), (self.at - 1, NEXT))
         self.assertFalse(net.block())            # não grava nada por cima dos blocos da v2
         with new_code(net.genesis, self.at):
             n = net.reopen()
@@ -150,12 +151,12 @@ class TestScheduledUpgrade(unittest.TestCase):
             b.sync_from_peers()
         self.assertEqual(b.height, net.node.height)
         prev = b.head
-        with mock.patch.object(chain, "RULES", 2):   # conhece a v2, mas nenhuma está marcada para esta rede
+        with mock.patch.object(chain, "RULES", NEXT):   # conhece a NEXT, mas nenhuma está marcada para esta rede
             forged = make_block(net.producer, prev["height"] + 1, prev["hash"], [], "0" * 64, prev["time"] + 1,
-                                rules=2)
+                                rules=NEXT)
             with self.assertRaisesRegex(ValueError, "versão das regras divergente"):
                 b._apply_block(forged, check_clock=False)
-        with self.assertRaises(UpgradeRequired):  # o código de agora nem conhece a v2
+        with self.assertRaises(UpgradeRequired):  # o código de agora nem conhece a NEXT
             b._apply_block(forged, check_clock=False)
         bad = make_block(net.producer, prev["height"] + 1, prev["hash"], [], "0" * 64, prev["time"] + 1, rules=0)
         with self.assertRaisesRegex(ValueError, "versão das regras do bloco inválida"):

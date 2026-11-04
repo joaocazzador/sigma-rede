@@ -14,6 +14,7 @@ quem perguntou recebe o dinheiro de volta e a máquina não leva falta.
 O arquivo de um modelo baixado fica guardado enquanto o modelo existir na rede, mesmo sem atribuição: se a
 rede colocar o modelo aqui de novo, ele volta em segundos, sem baixar tudo outra vez.
 """
+import base64
 import json
 import multiprocessing
 import os
@@ -25,8 +26,8 @@ import urllib.parse
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import hardware, netsafe, tasks
-from .chain import FUNDED_ABOVE, MIN_FUNDED_SECONDS, canon
+from . import hardware, media, netsafe, tasks
+from .chain import FUNDED_ABOVE, MEDIA_CLAIM_TIMEOUT, MEDIA_PRICES, MIN_FUNDED_SECONDS, TASK_PRICE, canon
 from .client import Client, SigmaError
 from .crypto import is_sealed, norm_address, seal
 from .engines import (CONTEXT, ContextOverflow, EngineError, EngineManager, RefusedFile, check_gguf, fetch,
@@ -34,14 +35,17 @@ from .engines import (CONTEXT, ContextOverflow, EngineError, EngineManager, Refu
 
 PRICES = {"ai_per_1k_tokens": 2000, "compute_per_unit": 500}   # a hospedagem tem preço da rede, não da máquina
 MAX_PRICE = 1_000_000       # teto da chain para os dois preços
+MAX_MEDIA_PRICE = 100_000_000   # teto da chain por imagem e por segundo de vídeo (v2)
 DEFAULTS = {"ai_enabled": True, "compute_enabled": True, "disk_gb": 20, "ai_ram_gb": 4, "public_url": "",
-            "engine": "auto", "ai_threads": None, "name": "", "port": None, "cheat": False}
+            "engine": "auto", "ai_threads": None, "name": "", "port": None, "cheat": False,
+            "ai_image": True, "ai_video": False}   # v2: aceitar modelos de imagem (padrão) e de vídeo (pesado)
 MIN_AI_RAM_MB = 1500        # abaixo disso a rede não coloca modelo aqui
 MAX_AI_RAM_MB = 1_048_576   # teto da chain para hw.ai_ram_mb
 MAX_TOKENS = 10 ** 9        # teto da chain para tokens_in e tokens_out
 COMPUTE_DEADLINE = 480      # s: o claim expira em 600 s, então uma tarefa que demora mais é abandonada antes
 CLAIM_TIMEOUT = 600         # s, o mesmo da chain: pedido reivindicado e sem resposta depois disso vira falta
 MAX_QUEUE = 3               # pedidos de IA na fila (contando o que está sendo respondido): os novos voltam "busy"
+MAX_MEDIA_QUEUE = 2         # imagem/vídeo têm fila própria (minutos cada): o texto não espera atrás deles
 MIN_ANSWER_TOKENS = 64      # se o escrow não paga nem isto de resposta, volta "busy" (não trabalha de graça)
 CLAIM_TRIES = 5             # tentativas de reivindicar um pedido direcionado (o nó pode falhar por um instante)
 MODEL_WAIT = 90             # s que um pedido espera o modelo terminar de carregar (logo depois de ligar o PC)
@@ -54,7 +58,7 @@ MINING_EVERY = 30           # s: sem esse /mining, o host consulta o nó no máx
 NETWORK_EVERY = 60          # s entre leituras do /models para decidir que arquivo guardado sai do disco
 UNDERFUNDED_RETRY = 600     # s até olhar de novo o orçamento de um modelo em espera (chain.MIN_FUNDED_SECONDS)
 HASH_RE = re.compile(r"^[0-9a-f]{64}\Z")
-MODEL_FILE = re.compile(r"^([0-9a-f]{64})\.gguf(?:\.ok|\.part)?\Z")
+MODEL_FILE = re.compile(r"^([0-9a-f]{64})\.(?:gguf|safetensors)(?:\.ok|\.part)?\Z")
 LOADING = ("na fila", "conferindo", "baixando", "carregando", "anunciando")
 
 
@@ -76,7 +80,8 @@ def _gb(mb):
 
 
 REFUSED_TEXT = {"sha": "Modelo recusado: o arquivo não confere com o que o padrinho registrou",
-                "gguf": "Modelo recusado: o arquivo não é um GGUF válido"}
+                "gguf": "Modelo recusado: o arquivo não é um GGUF válido",
+                "weights": "Modelo recusado: um dos arquivos não é um safetensors nem um GGUF válido"}
 UNDERFUNDED_TEXT = ("Modelo em espera: o orçamento dele não paga nem um dia de hospedagem. "
                     "Este computador baixa quando o padrinho recarregar.")
 FAIL_TEXT = {   # o "error" da resposta de falha (o cliente mostra o de "context"; nos outros tenta outra máquina)
@@ -134,6 +139,11 @@ class _Unreadable(Exception):
     """O pedido não abre com a chave desta máquina ou não é um JSON de pedido."""
 
 
+# o que um pedido malformado levanta ao ser lido: além de JSON e campos inválidos, número infinito (Infinity e
+# 1e999 passam no json do Python) virando inteiro (OverflowError) e JSON aninhado demais (RecursionError)
+MALFORMED = (ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError)
+
+
 class Host:
     def __init__(self, node_url, machine_wallet, payout, data_dir, settings, miner=None, log=print):
         self.wallet = machine_wallet
@@ -146,6 +156,8 @@ class Host:
         self.miner = miner
         self.log = log
         self.engine = EngineManager(data_dir, self.settings["engine"], log, self.settings["ai_threads"])
+        # v2: imagem e vídeo (stable-diffusion.cpp); com o motor "mock" dos testes, o gerador de teste
+        self.media = media.MediaManager(data_dir, self.settings["engine"], log, self.settings["ai_threads"])
         self.models_dir = os.path.join(data_dir, "models")
         self.blob_dir = os.path.join(data_dir, "blobs")
         self.refused_path = os.path.join(self.models_dir, "recusados.json")
@@ -162,12 +174,12 @@ class Host:
         self._reg_hw = None
         self._hw = None
         self._seen_window = None
-        self._last_ai = False                 # o último register_machine desta execução foi com IA?
+        self._last_text = False               # o último register_machine desta execução foi com o motor de texto?
         self._engine_down_since = None        # desde quando o motor de IA não responde (None = respondendo)
         self._mining = (0.0, None)            # (quando, /mining) consultado pelo próprio host
         self._network = (0.0, None)           # (quando, {sha256: nome}) dos modelos que existem na rede
         self._names = {}                      # sha256 -> nome do modelo, para o registro dizer qual arquivo saiu
-        self._refused = None                  # sha256 -> {"until", "reason"} (recusados.json, lido sob demanda)
+        self._refused = None                  # sha256 -> recusas do arquivo (recusados.json, lido sob demanda)
         self._models = {}                     # nome -> estado local do modelo
         self._site_cooldown = {}
         self._swap = False
@@ -178,6 +190,9 @@ class Host:
         self._queue = deque()                 # pedidos de IA já reivindicados, na ordem em que chegaram
         self._fails = deque()                 # falhas a mandar (job, código, msg): a thread de respostas entrega
         self._current = None                  # o pedido sendo respondido agora
+        self._mqueue = deque()                # pedidos de imagem/vídeo já reivindicados (fila própria, v2)
+        self._mcurrent = None                 # o pedido de imagem/vídeo sendo gerado agora
+        self._media_desc = (0.0, None)
         self._handled = {}                    # id do job -> hora em que foi reivindicado, respondido ou ignorado
         self._claim_fails = {}                # id do job direcionado -> tentativas de claim que não deram certo
         self._compute = None                  # thread da tarefa de computação em andamento
@@ -191,7 +206,8 @@ class Host:
         os.makedirs(self.blob_dir, exist_ok=True)
         self._start_server()
         for target, name in ((self._main_loop, "registro"), (self._models_loop, "modelos"),
-                             (self._jobs_loop, "jobs"), (self._ai_loop, "ia"), (self._answers_loop, "respostas")):
+                             (self._jobs_loop, "jobs"), (self._ai_loop, "ia"), (self._media_loop, "midia"),
+                             (self._answers_loop, "respostas")):
             t = threading.Thread(target=target, name=f"sigma-maquina-{name}", daemon=True)
             t.start()
             self._threads.append(t)
@@ -212,6 +228,7 @@ class Host:
         self._fail_queue("engine", "esta máquina foi desligada antes de responder")
         self._stop_server()
         self.engine.shutdown()
+        self.media.shutdown()
         with self._lock:
             if self._we_paused and self.miner:
                 self.miner.resume()
@@ -238,12 +255,14 @@ class Host:
                                                                                 key=lambda m: m["name"])]
             recent = [e for e in self._errors.values() if time.time() - e[0] < 600]
             queue = len(self._queue) + (1 if self._current else 0)
+            mqueue = len(self._mqueue) + (1 if self._mcurrent else 0)
         return {"registered": bool(self._registered) and bool(rec), "machine": self.address, "payout": self.payout,
                 "online": bool(rec.get("online")), "engine": self._describe_engine(), "models": models,
                 "sites": list(rec.get("sites") or []), "jobs_done": rec.get("jobs_done", 0),
                 "jobs_failed": rec.get("jobs_failed", 0), "earned": rec.get("earned", 0),
                 "reputation": rec.get("reputation", 0), "ai": bool(rec.get("ai")),
-                "compute": bool(rec.get("compute")), "hw": self._hw, "ai_queue": queue,
+                "compute": bool(rec.get("compute")), "hw": self._hw, "ai_queue": queue, "media_queue": mqueue,
+                "media_engine": self._describe_media(), "tasks": list(rec.get("tasks") or ["text"]),
                 "engine_down": self._engine_down_since is not None,
                 "last_error": max(recent)[1] if recent else None}
 
@@ -255,6 +274,16 @@ class Host:
             except Exception as e:
                 desc = {"kind": "?", "ready": False, "detail": str(e), "installing": False, "install_progress": 0.0}
             self._engine_desc = (time.time(), desc)
+        return desc
+
+    def _describe_media(self):
+        t, desc = self._media_desc
+        if desc is None or time.time() - t > 5:
+            try:
+                desc = self.media.describe()
+            except Exception as e:
+                desc = {"kind": "?", "ready": False, "detail": str(e), "installing": False, "install_progress": 0.0}
+            self._media_desc = (time.time(), desc)
         return desc
 
     def _error(self, origin, msg):
@@ -273,27 +302,59 @@ class Host:
             return self.client.send_tx(type_, data, wait=wait)
 
     # ------------------------------------------------- registro e presença
-    def _prices(self, rec=None):
-        """Preços desta máquina (só IA e computação), dentro do teto da chain. Com `rec`: os que a chain guardou."""
+    def _prices(self, rec=None, media=False):
+        """Preços desta máquina (só IA e computação), dentro do teto da chain. Com `rec`: os que a chain guardou.
+        `media` (rede na v2): também por imagem e por segundo de vídeo."""
         base = (rec or {}).get("prices") or self.settings.get("prices") or {}
         out = {}
-        for k, v in PRICES.items():
+        media = media or (isinstance(base, dict) and any(k in base for k in MEDIA_PRICES))
+        for k, v in {**PRICES, **(MEDIA_PRICES if media else {})}.items():
             try:
                 p = int(base.get(k, v)) if isinstance(base, dict) else v
             except (TypeError, ValueError):
                 p = v
-            out[k] = max(1, min(MAX_PRICE, p))
+            out[k] = max(1, min(MAX_PRICE if k in PRICES else MAX_MEDIA_PRICE, p))
         return out
 
+    def _mining_info(self):
+        """O /mining mais novo que o host ou o minerador tem (consulta o nó se não tiver nenhum)."""
+        info = self._mining[1]
+        get = getattr(self.miner, "last_mining", None)
+        if callable(get):
+            try:
+                info = (get() or (None, 0.0))[0] or info
+            except Exception:
+                pass
+        if info is None:
+            try:
+                info = self.client.mining()
+                self._mining = (time.time(), info)
+            except SigmaError:
+                return {}
+        return info if isinstance(info, dict) else {}
+
+    def _net_media(self):
+        """A rede já está nas regras v2 (aceita modelos de imagem e vídeo)? Antes disso, registrar "tasks" ou
+        preços de imagem seria recusado."""
+        return bool(self._mining_info().get("media"))
+
+    def _media_tasks(self):
+        """Imagem e vídeo que esta máquina aceita: os ligados nas configurações, se o motor de imagem existe. Não
+        dependem do motor de texto: o stable-diffusion.cpp roda sozinho, com o Ollama fechado ou não."""
+        if not self.media.available():
+            return []
+        return [t for t, key in (("image", "ai_image"), ("video", "ai_video")) if self.settings.get(key)]
+
     def _engine_ok(self):
-        """O motor responde? Fora do ar por pouco tempo (até ENGINE_GRACE) ainda conta como ligado: um Ollama que
-        reinicia não tira os modelos da rede. No primeiro registro desta execução, motor fora = sem IA."""
+        """O motor de texto responde? Fora do ar por pouco tempo (até ENGINE_GRACE) ainda conta como ligado: um
+        Ollama que reinicia não tira os modelos da rede. No primeiro registro desta execução, motor fora = sem
+        texto (imagem e vídeo seguem, com o motor deles)."""
         if self.engine.available():
             if self._engine_down_since is not None:
                 self._engine_down_since = None
                 self.log("[máquina] o motor de IA voltou a responder")
             return True
-        if not self._last_ai:
+        if not self._last_text:
             return False
         now = time.time()
         if self._engine_down_since is None:
@@ -314,18 +375,27 @@ class Host:
         want_ai = bool(s["ai_enabled"]) and ai_ram >= MIN_AI_RAM_MB
         if not want_ai:
             self._engine_down_since = None
-        ai = want_ai and self._engine_ok()
+        text = want_ai and self._engine_ok()
         name = str(s["name"] or f"maquina-{self.address[3:9]}")[:40]   # sem o nome do PC: ele fica público
-        return {"payout": self.payout, "name": name,
+        net_media = self._net_media()
+        # v2: imagem e vídeo têm motor próprio; com o de texto fora do ar a máquina segue com eles, e a rede só tira
+        # daqui os modelos de texto (não os de imagem, que teriam de ser baixados de novo em outra máquina)
+        extra = self._media_tasks() if want_ai and net_media else []
+        data = {"payout": self.payout, "name": name,
                 "hw": {"cpu_cores": hw["cpu_cores"], "ram_mb": hw["ram_mb"], "ai_ram_mb": ai_ram,
                        "vram_mb": hw["vram_mb"], "disk_mb": disk, "gpu": hw["gpu"]},
-                "ai": ai, "compute": bool(s["compute_enabled"]), "endpoint": str(s["public_url"] or "").rstrip("/"),
-                "prices": self._prices(), "pub": self.wallet.pub}
+                "ai": text or bool(extra), "compute": bool(s["compute_enabled"]),
+                "endpoint": str(s["public_url"] or "").rstrip("/"), "prices": self._prices(media=net_media),
+                "pub": self.wallet.pub}
+        if net_media:   # v2: quais classes de IA esta máquina hospeda
+            data["tasks"] = (["text"] if text else []) + extra
+        return data
 
     def _fingerprint(self, data):
         s = self.settings
         return (data["payout"], data["name"], data["ai"], data["compute"], data["endpoint"],
-                json.dumps(data["prices"], sort_keys=True), s["disk_gb"], s["ai_ram_gb"])
+                json.dumps(data["prices"], sort_keys=True), s["disk_gb"], s["ai_ram_gb"],
+                tuple(data.get("tasks") or ()))
 
     def _register_if_needed(self):
         data = self._registration()
@@ -333,12 +403,17 @@ class Host:
         if fp == self._registered:
             return
         self._tx("register_machine", data)
-        self._registered, self._reg_hw, self._last_ai = fp, data["hw"], data["ai"]
+        tasks_ = data.get("tasks", ["text"])
+        self._registered, self._reg_hw = fp, data["hw"]
+        self._last_text = data["ai"] and "text" in tasks_
         try:
             self._seen_window = self._window()   # o registro já conta como sinal desta janela
         except (SigmaError, KeyError, TypeError, AttributeError):
             pass
         ai = f"sim ({_gb(data['hw']['ai_ram_mb'])} de memória para IA)" if data["ai"] else "não"
+        extra = " e ".join({"image": "imagem", "video": "vídeo"}[t] for t in tasks_ if t != "text")
+        if extra and data["ai"]:
+            ai += f" · também {extra}" if "text" in tasks_ else f" · só {extra} (o motor de texto não responde)"
         self.log(f"[máquina] registrada como '{data['name']}': IA {ai}, computação "
                  f"{'sim' if data['compute'] else 'não'}, disco {_gb(data['hw']['disk_mb'])}")
         self._refresh()
@@ -455,8 +530,35 @@ class Host:
         return budget // rent * self._window_seconds() < MIN_FUNDED_SECONDS
 
     # -------------------------------------------------------------- modelos
-    def _model_path(self, sha):
-        return os.path.join(self.models_dir, f"{sha}.gguf")
+    def _model_path(self, sha, ext=".gguf"):
+        return os.path.join(self.models_dir, f"{sha}{ext}")
+
+    def _parts(self, m):
+        """Arquivos do modelo: o GGUF (texto) ou, para imagem/vídeo (v2), o principal mais os extras (VAE,
+        codificadores de texto), cada um com o papel, o endereço, o SHA-256, o tamanho e onde fica no disco."""
+        if m["task"] == "text":
+            return [{"role": "main", "url": m["url"], "sha256": m["sha256"], "size": m["size"],
+                     "path": self._model_path(m["sha256"])}]
+        parts = [{"role": "main", "url": m["url"], "sha256": m["sha256"], "size": m["main_size"]}]
+        parts += [{"role": f.get("role"), "url": f.get("url"), "sha256": str(f.get("sha256")).lower(),
+                   "size": f.get("size")} for f in m["files"]]
+        for x in parts:
+            ext = media.weight_ext(x["url"])
+            if (ext is None or not HASH_RE.match(x["sha256"]) or not isinstance(x["size"], int)
+                    or (x["role"] != "main" and x["role"] not in media.ROLE_FLAGS)):
+                raise RefusedFile("arquivo de modelo de imagem/vídeo que não é .safetensors nem .gguf", "weights")
+            x["path"] = self._model_path(x["sha256"], ext)
+        return parts
+
+    def _all_paths(self, m):
+        try:
+            paths = [x["path"] for x in self._parts(m)]
+        except RefusedFile:
+            paths = [self._model_path(m["sha256"])]
+        return [q for p in paths for q in (p, p + ".ok", p + ".part")]
+
+    def _engine_of(self, m):
+        return self.engine if m.get("task", "text") == "text" else self.media
 
     def _disk_used_bytes(self):
         total = 0
@@ -549,18 +651,34 @@ class Host:
         for name, a in sorted(assigned.items()):
             if self._stop.is_set() or self._swap:
                 break
-            if self.settings["ai_enabled"]:
-                self._ensure(name, a)
-            else:
-                self._pause_model(name, a)
+            try:
+                if self.settings["ai_enabled"]:
+                    self._ensure(name, a)
+                else:
+                    self._pause_model(name, a)
+            except Exception as e:   # um erro que ninguém previu num modelo não impede os outros de carregar
+                with self._lock:
+                    m = self._models.get(name)
+                err = f"erro inesperado: {type(e).__name__}: {e}"
+                if m is None:
+                    self._error(f"modelo {name}", f"modelo '{name}': {err}")
+                else:
+                    self._retry_later(m, name, err)
+
+    @staticmethod
+    def _model_info(name, a):
+        """O modelo atribuído, como o host guarda: classe (texto, se a rede não disser) e arquivos extras (v2)."""
+        return {"name": name, "sha256": a["sha256"], "size": int(a["size"]), "url": a.get("url"),
+                "task": a.get("task") if a.get("task") in ("image", "video") else "text",
+                "files": list(a.get("files") or []), "main_size": int(a.get("main_size") or a["size"])}
 
     def _state(self, name, a):
         with self._lock:
             m = self._models.get(name)
             if m is None:
-                m = self._models[name] = {"name": name, "sha256": a["sha256"], "size": int(a["size"]),
-                                          "status": "na fila", "progress": 0.0, "error": None, "loaded": False,
-                                          "retry_at": 0.0, "fails": 0}
+                m = self._models[name] = dict(self._model_info(name, a), status="na fila", progress=0.0, error=None,
+                                              loaded=False, retry_at=0.0, fails=0,
+                                              declined=False)   # já recusou esta atribuição na rede?
                 self._names[a["sha256"]] = name
             return m
 
@@ -570,20 +688,29 @@ class Host:
             if progress is not None:
                 m["progress"] = progress
 
+    def _retry_later(self, m, name, err):
+        """Não deu para hospedar agora (rede, disco, motor): mostra o erro e tenta de novo, cada vez mais devagar."""
+        m["fails"] += 1
+        m["retry_at"] = time.time() + min(600, 15 * 2 ** m["fails"])
+        self._set(m, "erro", error=str(err))
+        self._error(f"modelo {name}", f"modelo '{name}': {err}")
+
     def _ensure(self, name, a):
         """Arquivo baixado e conferido -> carregado no motor -> pin_model (só então a rede manda jobs)."""
         m = self._state(name, a)
+        if m["task"] != "text":
+            return self._ensure_media(m, name, a)
         loaded = m["loaded"] and name in self.engine.loaded()
         if loaded and a["status"] == "pinned":
             self._set(m, "hospedando", 1.0)
             return
         if time.time() < m["retry_at"]:
             return
-        refused = self._refused_reason(m["sha256"])
+        main = self._parts(m)[0]
+        refused = self._refused_reason(main, "gguf")
         if refused:   # arquivo recusado há menos de 24 h: nem baixa de novo
-            self._set(m, "recusado", 0.0, REFUSED_TEXT[refused])
-            return
-        path = self._model_path(m["sha256"])
+            return self._hold_refused(m, a, refused)
+        path = main["path"]
         try:
             if not loaded:
                 if not self._verified(path, m["size"]):
@@ -606,30 +733,100 @@ class Host:
             self._set(m, "hospedando", 1.0)
             m["fails"] = 0
         except RefusedFile as e:
-            self._refuse(m, e.reason)
+            self._refuse(m, a, e.reason, main)
         except (EngineError, SigmaError, OSError) as e:
-            m["fails"] += 1
-            m["retry_at"] = time.time() + min(600, 15 * 2 ** m["fails"])   # tenta de novo, cada vez mais devagar
-            self._set(m, "erro", error=str(e))
-            self._error(f"modelo {name}", f"modelo '{name}': {e}")
+            self._retry_later(m, name, e)
 
-    def _download(self, m, url, path):
+    def _ensure_media(self, m, name, a):
+        """Imagem/vídeo (v2): baixa e confere cada arquivo (principal + extras), entrega ao stable-diffusion.cpp e
+        anuncia (pin_model), como no texto."""
+        engine = self.media
+        try:
+            parts = self._parts(m)
+        except RefusedFile as e:   # cadastro errado (extensão ou papel): nada foi baixado, nada a anotar nem apagar
+            return self._hold_refused(m, a, e.reason)
+        # o sd-cli abre os arquivos a cada pedido: carregado só vale com todos eles no disco, conferidos (um arquivo
+        # que sumiu é baixado de novo, em vez de o modelo seguir "hospedando" com todo pedido falhando)
+        loaded = m["loaded"] and name in engine.loaded() and all(self._verified(x["path"], x["size"]) for x in parts)
+        if loaded and a["status"] == "pinned":
+            self._set(m, "hospedando", 1.0)
+            return
+        if time.time() < m["retry_at"]:
+            return
+        refused = next((r for r in (self._refused_reason(x, "weights") for x in parts) if r), None)
+        if refused:
+            return self._hold_refused(m, a, refused)
+        current = None   # o arquivo sendo baixado agora: se ele for recusado, a recusa é só dele
+        try:
+            if not loaded:
+                missing = [x for x in parts if not self._verified(x["path"], x["size"])]
+                if missing and self._underfunded(a):
+                    m["retry_at"] = time.time() + UNDERFUNDED_RETRY
+                    self._set(m, "recusado", 0.0, UNDERFUNDED_TEXT)
+                    self._decline(name)
+                    return
+                for x in missing:
+                    current = x
+                    self._download(m, x["url"], x["path"], sha=x["sha256"], size=x["size"], kind="weights",
+                                   label=x["role"])
+                current = None
+                self._set(m, "carregando", 1.0)
+                engine.load(name, m["task"], {x["role"]: x["path"] for x in parts})
+                m["loaded"] = True
+                for x in parts:
+                    self._touch(x["path"])
+            if a["status"] == "assigned":
+                self._set(m, "anunciando", 1.0)
+                self._tx("pin_model", {"name": name})
+                what = "de imagem" if m["task"] == "image" else "de vídeo"
+                self.log(f"[máquina] hospedando o modelo {what} '{name}': a rede já pode mandar pedidos para cá")
+                self._refresh()
+                self._jobs_wake.set()
+            self._set(m, "hospedando", 1.0)
+            m["fails"] = 0
+        except RefusedFile as e:   # sem `current`, quem recusou foi o check_weights do motor, num arquivo já conferido
+            self._refuse(m, a, e.reason, current or self._culprit(parts))
+        except (EngineError, SigmaError, OSError) as e:
+            self._retry_later(m, name, e)
+
+    @staticmethod
+    def _culprit(parts):
+        """Qual arquivo do modelo não passa no check_weights (o do load do motor não diz qual); None se nenhum."""
+        for x in parts:
+            if os.path.isfile(x["path"]):
+                try:
+                    media.check_weights(x["path"])
+                except RefusedFile:
+                    return x
+        return None
+
+    def _download(self, m, url, path, sha=None, size=None, kind="gguf", label=None):
+        """Baixa um arquivo do modelo e confere SHA-256 e formato (GGUF do texto, ou safetensors/GGUF da
+        imagem e do vídeo). `sha`/`size`: do arquivo (sem eles, os do modelo de texto)."""
+        sha, size = sha or m["sha256"], m["size"] if size is None else size
+        check = check_gguf if kind == "gguf" else media.check_weights
+        what = f"'{m['name']}'" + (f" ({label})" if label and label != "main" else "")
         if not self._url_allowed(url):
             raise EngineError("a URL do modelo aponta para a rede interna; recusada")
         if os.path.exists(path):   # tamanho errado ou não conferido: confere agora
             self._set(m, "conferindo", 1.0)
-            if os.path.getsize(path) == m["size"] and sha256_file(path) == m["sha256"]:
-                check_gguf(path)
+            real = os.path.getsize(path)
+            if real == size and sha256_file(path) == sha:
+                check(path)
                 self._mark_verified(path)
                 return
+            if real != size and (self._verified(path, real) or sha256_file(path) == sha):
+                # o arquivo com este SHA-256 já está aqui, com outro tamanho: quem errou foi o cadastro deste
+                # modelo. O arquivo certo fica (pode ser o VAE que outro modelo daqui usa)
+                raise RefusedFile("o tamanho registrado não confere com o do arquivo de mesmo SHA-256", "sha")
             os.remove(path)
         part = path + ".part"
         have = os.path.getsize(part) if os.path.exists(part) else 0
-        need = max(0, m["size"] - have)
-        self._gc_models(need=need, keep=(m["sha256"],))   # abre espaço tirando os modelos guardados mais antigos
+        need = max(0, size - have)
+        self._gc_models(need=need, keep=(m["sha256"], sha))   # abre espaço tirando os modelos guardados mais antigos
         if hardware.disk_free_mb(self.models_dir) * 1_000_000 < need + 1_000_000_000:
             raise EngineError("sem espaço em disco para baixar o modelo")
-        self.log(f"[máquina] baixando o modelo '{m['name']}' ({_mb(m['size'])})"
+        self.log(f"[máquina] baixando o modelo {what} ({_mb(size)})"
                  + (f", continuando de {_mb(have)}" if have else ""))
         marks = {"next": 0.1}
 
@@ -638,16 +835,35 @@ class Host:
             self._set(m, "baixando", frac)
             if frac >= marks["next"]:
                 marks["next"] = int(frac * 10 + 1) / 10
-                self.log(f"[máquina] '{m['name']}': {frac:.0%}")
+                self.log(f"[máquina] {what}: {frac:.0%}")
 
-        self._set(m, "baixando", have / m["size"] if m["size"] else 0.0)
-        fetch(url, path, m["sha256"], size=m["size"], progress=progress, should_stop=self._stop.is_set,
+        self._set(m, "baixando", have / size if size else 0.0)
+        fetch(url, path, sha, size=size, progress=progress, should_stop=self._stop.is_set,
               opener=self._download_opener())
-        check_gguf(path)   # depois do SHA-256 e antes de qualquer motor abrir o arquivo
+        check(path)   # depois do SHA-256 e antes de qualquer motor abrir o arquivo
         self._mark_verified(path)
-        self.log(f"[máquina] '{m['name']}' baixado e conferido (SHA-256 e formato GGUF ok)")
+        self.log(f"[máquina] {what} baixado e conferido (SHA-256 e formato "
+                 + ("GGUF" if kind == "gguf" else "do arquivo") + " ok)")
 
-    # -- arquivos recusados (recusados.json): o mesmo arquivo ruim não é baixado de novo por 24 h
+    # -- arquivos recusados (recusados.json): o mesmo arquivo ruim não é baixado de novo por 24 h. Cada sha256 guarda
+    # a recusa mais nova do arquivo ({until, reason, url?, size?}, o formato de antes da 2.5) e, em "others", as outras
+    # que ainda valem para ele (outra classe, outro endereço ou tamanho): uma recusa nunca apaga a outra
+    @staticmethod
+    def _refusals(v):
+        """As recusas de um arquivo no recusados.json (a do registro e as de "others"), cada uma sem "others"."""
+        if not isinstance(v, dict):
+            return []
+        others = v.get("others") if isinstance(v.get("others"), list) else []
+        return [{k: x for k, x in e.items() if k != "others"} for e in [v, *others] if isinstance(e, dict)]
+
+    @staticmethod
+    def _nest(refusals):
+        """O contrário de _refusals: a primeira recusa é o registro, e as outras vão em "others"."""
+        top = dict(refusals[0])
+        if refusals[1:]:
+            top["others"] = refusals[1:]
+        return top
+
     def _load_refused(self):
         if self._refused is None:
             try:
@@ -664,46 +880,86 @@ class Host:
                 return float(v.get("until") or 0) > now
             except (TypeError, ValueError):
                 return False
-        self._refused = {k: v for k, v in self._refused.items() if alive(v)}
+        live = ((k, [e for e in self._refusals(v) if alive(e)]) for k, v in self._refused.items())
+        self._refused = {k: self._nest(es) for k, es in live if es}
         return self._refused
 
-    def _refused_reason(self, sha):
+    def _refused_reason(self, x, kind):
+        """Por que o arquivo `x` ({sha256, url, size}) foi recusado nas últimas 24 h, para um modelo que confere
+        com `kind` ("gguf": texto; "weights": imagem/vídeo); None se não foi. Cada recusa só vale para o que deu
+        errado: o arquivo que não é GGUF pode ser o safetensors certo de um modelo de imagem, e o endereço que não
+        entregou aquele SHA-256 (ou aquele tamanho) não barra outro modelo que declara o arquivo certo."""
         with self._lock:
-            entry = self._load_refused().get(sha)
-        if not entry:
-            return None
-        return entry.get("reason") if entry.get("reason") in REFUSED_TEXT else "sha"
+            refusals = self._refusals(self._load_refused().get(x["sha256"]))
+        for entry in refusals:
+            reason = entry.get("reason") if entry.get("reason") in REFUSED_TEXT else "sha"
+            # na falha de SHA-256, o endereço e o tamanho que falharam (sem eles, de antes da 2.5: qualquer um)
+            if reason == kind or (reason == "sha" and all(entry.get(k) in (None, x[k]) for k in ("url", "size"))):
+                return reason
+        return None
 
-    def _refuse(self, m, reason):
-        """Arquivo que não confere ou não é GGUF: apaga, anota por 24 h e mostra o porquê no painel."""
+    def _refuse(self, m, a, reason, x):
+        """O arquivo `x` do modelo (None: não se sabe qual) não confere ("sha") ou não é do formato certo ("gguf",
+        "weights"): anota por 24 h só esse arquivo, apaga os bytes ruins (nunca um arquivo que outro modelo daqui
+        usa, como o mesmo VAE) e mostra o porquê no painel."""
         reason = reason if reason in REFUSED_TEXT else "sha"
-        path = self._model_path(m["sha256"])
-        self._remove_files((path, path + ".ok", path + ".part"))
-        with self._lock:
-            refused = self._load_refused()
-            refused[m["sha256"]] = {"until": time.time() + REFUSED_FOR, "reason": reason}
-            data = dict(refused)
-        try:
-            os.makedirs(self.models_dir, exist_ok=True)
-            with open(self.refused_path + ".tmp", "w", encoding="utf-8") as f:
-                json.dump(data, f)
-            os.replace(self.refused_path + ".tmp", self.refused_path)
-        except OSError as e:
-            self.log(f"[máquina] não consegui anotar o arquivo recusado em {self.refused_path}: {e}")
+        if x is not None:
+            # na falha de SHA-256 o fetch já descartou o que baixou, e o que estiver no disco é o arquivo certo
+            if reason != "sha":
+                keep = self._paths_in_use(m["name"])
+                self._remove_files([p for p in (x["path"], x["path"] + ".ok", x["path"] + ".part") if p not in keep])
+            entry = {"until": time.time() + REFUSED_FOR, "reason": reason}
+            if reason == "sha":   # vale só para esta declaração (endereço e tamanho), não para o arquivo certo
+                entry.update(url=x["url"], size=x["size"])
+            with self._lock:
+                refused = self._load_refused()
+                # a recusa nova vai na frente, e as outras do mesmo arquivo ficam: cada declaração recusada segue
+                # sem baixar de novo pelas 24 h dela (senão duas recusas se apagariam e cada volta baixaria as duas)
+                refused[x["sha256"]] = self._nest([entry, *self._refusals(refused.get(x["sha256"]))])
+                data = dict(refused)
+            try:
+                os.makedirs(self.models_dir, exist_ok=True)
+                with open(self.refused_path + ".tmp", "w", encoding="utf-8") as f:
+                    json.dump(data, f)
+                os.replace(self.refused_path + ".tmp", self.refused_path)
+            except OSError as e:
+                self.log(f"[máquina] não consegui anotar o arquivo recusado em {self.refused_path}: {e}")
+        self._hold_refused(m, a, reason)
+        self._error(f"modelo {m['name']}", f"modelo '{m['name']}': {REFUSED_TEXT[reason]}"
+                    + ("; este computador não baixa esse arquivo de novo nas próximas 24 h" if x is not None else ""))
+
+    def _hold_refused(self, m, a, reason):
+        """O modelo não vai ser hospedado aqui (arquivo recusado, cadastro errado): mostra o porquê e recusa a
+        atribuição na rede uma vez. Parada, ela venceria e, sem ninguém hospedando, contaria contra o modelo."""
         self._set(m, "recusado", 0.0, REFUSED_TEXT[reason])
-        self._decline(m["name"])   # avisa a rede: tira a atribuição e põe cooldown, sem punir a reputação
-        self._error(f"modelo {m['name']}", f"modelo '{m['name']}': {REFUSED_TEXT[reason]}; este computador não "
-                                           "baixa esse arquivo de novo nas próximas 24 h")
+        if a.get("status") == "assigned" and not m["declined"]:
+            m["declined"] = self._decline(m["name"])
+
+    def _paths_in_use(self, name):
+        """Arquivos que outro modelo daqui usa (hospedado, baixando ou só atribuído): o mesmo VAE ou codificador
+        pode servir a dois modelos, e recusar um nunca apaga o arquivo do outro."""
+        with self._lock:
+            others = [m for n, m in self._models.items() if n != name]
+            known = set(self._models)
+        for a in (self._record or {}).get("assignments") or []:
+            if a.get("name") not in known and a.get("name") != name:
+                try:
+                    others.append(self._model_info(a["name"], a))
+                except (KeyError, TypeError, ValueError):
+                    pass
+        return {p for m in others for p in self._all_paths(m)}
 
     def _decline(self, name):
         """Recusa o modelo na rede (`decline_model`): a atribuição sai na hora e entra em cooldown, sem punição
         de reputação. Recusar um arquivo ruim (sha/GGUF errado, URL interna, sem orçamento) deixa de custar
         reputação (SPEC-v2.2 §3). O aviso vai sem esperar o bloco (wait=False) e uma falha dele não para o laço:
-        se não entrar, a atribuição expira sozinha depois, também sem punição."""
+        se não entrar, a atribuição expira sozinha depois, sem punir esta máquina. True se a tx foi aceita."""
         try:
             self._tx("decline_model", {"name": name}, wait=False)
+            return True
         except SigmaError as e:
             self.log(f"[máquina] não consegui recusar o modelo '{name}' na rede ({e}); a atribuição expira sozinha")
+            return False
 
     # -- arquivos guardados: ficam enquanto o modelo existir na rede, e saem os mais antigos se faltar disco
     def _model_files(self):
@@ -736,6 +992,11 @@ class Host:
         if not isinstance(models, dict):
             return None
         net = {str(x.get("sha256")).lower(): n for n, x in models.items() if isinstance(x, dict)}
+        for n, x in models.items():   # v2: os arquivos extras (VAE, codificadores) também são da rede
+            if isinstance(x, dict) and isinstance(x.get("files"), list):
+                for f in x["files"]:
+                    if isinstance(f, dict):
+                        net.setdefault(str(f.get("sha256")).lower(), n)
         self._network = (time.time(), net)
         self._names.update({s: n for s, n in net.items()})
         return net
@@ -744,8 +1005,12 @@ class Host:
         """Arquivos que não saem: os que a rede atribuiu a esta máquina (ou que ela hospeda) e os que estão em uso."""
         rec = self._record or {}
         keep = {str(a.get("sha256")) for a in rec.get("assignments") or []}
+        keep |= {str(f.get("sha256")).lower() for a in rec.get("assignments") or []
+                 for f in a.get("files") or [] if isinstance(f, dict)}
         with self._lock:
             keep |= {m["sha256"] for m in self._models.values()}
+            keep |= {str(f.get("sha256")).lower() for m in self._models.values() for f in m.get("files") or []
+                     if isinstance(f, dict)}
         return keep
 
     def _label(self, sha):
@@ -784,7 +1049,7 @@ class Host:
         m = self._state(name, a)
         if m["loaded"]:
             try:
-                self.engine.unload(name)
+                self._engine_of(m).unload(name)
             except EngineError as e:
                 self.log(f"[máquina] aviso ao descarregar '{name}': {e}")
             m["loaded"] = False
@@ -798,13 +1063,19 @@ class Host:
             m = self._models.pop(name)
             still_used = any(x["sha256"] == m["sha256"] for x in self._models.values())
         try:
-            self.engine.unload(name)
+            self._engine_of(m).unload(name)
         except EngineError as e:
             self.log(f"[máquina] aviso ao descarregar '{name}': {e}")
         network = None if still_used else self._network_models(fresh=True)
         if network is not None and m["sha256"] not in network:
-            path = self._model_path(m["sha256"])
-            self._remove_files((path, path + ".ok", path + ".part"))
+            # os extras (VAE, codificadores) que outro modelo da rede ou desta máquina usa ficam
+            keep = self._protected()
+            gone = []
+            for p in self._all_paths(m):
+                sha = os.path.basename(p).split(".", 1)[0]
+                if sha not in keep and (sha == m["sha256"] or sha not in network):
+                    gone.append(p)
+            self._remove_files(gone)
             self.log(f"[máquina] o modelo '{name}' saiu da rede: arquivo apagado")
         else:
             self.log(f"[máquina] o modelo '{name}' saiu deste computador; o arquivo fica guardado caso a rede o "
@@ -813,9 +1084,11 @@ class Host:
     def _swap_engine(self):
         """Mudou o motor nas configurações: descarrega tudo e recarrega no novo."""
         self._swap = False
-        old = self.engine
+        old, old_media = self.engine, self.media
         self.engine = EngineManager(self.data_dir, self.settings["engine"], self.log, self.settings["ai_threads"])
-        self._engine_desc = (0.0, None)
+        self.media = media.MediaManager(self.data_dir, self.settings["engine"], self.log, self.settings["ai_threads"])
+        self._engine_desc = self._media_desc = (0.0, None)
+        old_media.shutdown()
         with self._lock:
             for m in self._models.values():
                 m.update(loaded=False, status="na fila", retry_at=0.0)
@@ -990,8 +1263,10 @@ class Host:
                         n = seen_by_client[job.get("client")] = seen_by_client.get(job.get("client"), 0) + 1
                         self._take_targeted(job, force_busy=n > MAX_QUEUE)
                     continue   # direcionado a outra máquina: não é para esta
-                if job.get("model") in ready and self._engine_down_since is None and not self._queue_size() \
-                        and prices["ai_per_1k_tokens"] <= job.get("max_price", 0):
+                kind = job.get("media") or "text"
+                free = not self._queue_size(kind) and (kind != "text" or self._engine_down_since is None)
+                if job.get("model") in ready and free \
+                        and prices.get(TASK_PRICE.get(kind, "?"), 10 ** 18) <= job.get("max_price", 0):
                     self._take_public(job)
             elif job.get("kind") == "compute" and compute and len(claims) < job.get("replicas", 1) \
                     and prices["compute_per_unit"] <= job.get("max_price", 0) and not self._computing():
@@ -1027,9 +1302,12 @@ class Host:
         except SigmaError:
             return False
 
-    def _queue_size(self):
+    def _queue_size(self, kind="text"):
+        """Pedidos na fila (contando o que está sendo respondido): a de texto ou a de imagem/vídeo."""
         with self._lock:
-            return len(self._queue) + (1 if self._current else 0)
+            if kind == "text":
+                return len(self._queue) + (1 if self._current else 0)
+            return len(self._mqueue) + (1 if self._mcurrent else 0)
 
     def _take_targeted(self, job, force_busy=False):
         """Pedido direcionado a esta máquina: reivindica na hora (sem travar, wait=False) e responde em ordem. O
@@ -1044,7 +1322,8 @@ class Host:
                 self._handled.pop(jid, None)
             return
         self._claim_fails.pop(jid, None)
-        if force_busy or self._queue_size() >= MAX_QUEUE:
+        kind = job.get("media") or "text"
+        if force_busy or self._queue_size(kind) >= (MAX_QUEUE if kind == "text" else MAX_MEDIA_QUEUE):
             return self._fail_async(job, "busy")
         why = self._why_not(job.get("model"))
         if why:
@@ -1056,6 +1335,9 @@ class Host:
             return self._fail_async(job, "unreadable")
         except SigmaError:
             pass   # o nó não entregou o pedido agora: a fila tenta de novo na hora de responder
+        except Exception as e:   # o job já é desta máquina: sem resposta, viraria falta no prazo
+            self._error("ia", f"IA: o pedido do job {jid[:10]} não abriu: {type(e).__name__}")
+            return self._fail_async(job, "unreadable")
         else:
             code, msg = self._over_limit(item)
             if code:
@@ -1086,6 +1368,10 @@ class Host:
     def _over_limit(self, item):
         """Por que o pedido não pode ser respondido: "context" (a conversa não cabe no contexto do modelo) ou
         "busy" (o escrow não paga nem MIN_ANSWER_TOKENS de resposta). (código, mensagem) ou (None, None)."""
+        if item.get("media"):   # imagem/vídeo: o escrow precisa pagar o que foi pedido no preço desta máquina
+            if item.get("pays", 1) < 1:
+                return "busy", "o valor reservado não paga este pedido no preço desta máquina"
+            return None, None
         if item["est"] > CONTEXT - 32:
             return "context", None
         if item.get("pays", CONTEXT) < MIN_ANSWER_TOKENS:
@@ -1094,7 +1380,14 @@ class Host:
 
     def _why_not(self, model):
         """Por que esta máquina não consegue responder pedidos deste modelo agora (None = consegue ou já vai)."""
-        if self._engine_down_since is not None:
+        with self._lock:
+            m = self._models.get(model)
+            task = m["task"] if m else next((a.get("task") for a in (self._record or {}).get("assignments") or []
+                                             if a.get("name") == model), "text")
+        if task in ("image", "video"):
+            if not self.media.available():
+                return "esta máquina não tem o motor de imagem e vídeo"
+        elif self._engine_down_since is not None:
             return FAIL_TEXT["engine"]
         if not self.settings["ai_enabled"]:
             return "a IA desta máquina foi desligada"
@@ -1128,6 +1421,8 @@ class Host:
                 blob = self.wallet.unseal(blob)
             except ValueError:
                 raise _Unreadable() from None
+        if job.get("media") in ("image", "video"):
+            return self._prepare_media(item, blob)
         try:
             spec = json.loads(blob)
             raw = spec["messages"]
@@ -1136,7 +1431,7 @@ class Host:
             messages = [{"role": str(x["role"]), "content": str(x["content"])} for x in raw]
             want = int(spec.get("max_tokens") or 512)
             json_mode = bool(spec.get("json"))
-        except (ValueError, KeyError, TypeError, AttributeError):
+        except MALFORMED:
             raise _Unreadable() from None
         jmax = job.get("max_tokens")   # teto público do job (a chain confere que o escrow o cobre)
         if isinstance(jmax, int) and not isinstance(jmax, bool) and jmax > 0:
@@ -1150,10 +1445,30 @@ class Host:
         item.update(messages=messages, est=est, json=json_mode, pays=pays,
                     max_tokens=min(want, pays, CONTEXT - est))
 
+    def _prepare_media(self, item, blob):
+        """Pedido de imagem/vídeo (v2): o spec vira o que o motor roda (media.clean_spec: listas fechadas e
+        limites) e nunca pede mais do que o job pagou (`units`)."""
+        job = item["job"]
+        units = job.get("units")
+        if not isinstance(units, int) or isinstance(units, bool) or units < 1:
+            raise _Unreadable()
+        try:
+            spec = media.clean_spec(job["media"], json.loads(blob), units)
+        except MALFORMED:
+            raise _Unreadable() from None
+        want = spec["count"] if spec["task"] == "image" else spec["seconds"]
+        price = self._prices(self._record, media=True)[TASK_PRICE[job["media"]]]
+        escrow = job.get("escrow")
+        pays = (escrow // price - want + 1) if isinstance(escrow, int) and not isinstance(escrow, bool) else 1
+        item.update(media=job["media"], spec=spec, pays=pays, units=want)
+
     def _enqueue(self, item):
         with self._queue_cv:
-            self._queue.append(item)
-            self._queue_cv.notify_all()   # acorda o laço "ia" (e o de respostas, que vê a fila dele vazia)
+            if item["job"].get("media"):
+                self._mqueue.append(item)
+            else:
+                self._queue.append(item)
+            self._queue_cv.notify_all()   # acorda o laço "ia"/"midia" (e o de respostas, que vê a fila dele vazia)
 
     def _fail_async(self, job, code, msg=None):
         """Enfileira uma falha para a thread de respostas mandar (wait=False), sem travar o laço de jobs: num
@@ -1209,7 +1524,8 @@ class Host:
             blob = self._seal(job, data)
         except ValueError:
             blob = data   # a falha não leva nada do pedido: pode ir sem cifra
-        self._deliver(job, blob, {"tokens_in": 0, "tokens_out": 0}, failed=True, wait=wait)
+        usage = {"units": 0} if job.get("media") else {"tokens_in": 0, "tokens_out": 0}
+        self._deliver(job, blob, usage, failed=True, wait=wait)
         self.log(f"[máquina] IA {job.get('model')} job {job['id'][:10]}: não respondido ({code}: {text})")
 
     def _deliver(self, job, blob, usage, failed=False, wait=True):
@@ -1246,7 +1562,7 @@ class Host:
     def _answer(self, item):
         """Responde um pedido da fila. A resposta vai cifrada para quem perguntou; só tokens e tempo vão ao log."""
         job = item["job"]
-        if "messages" not in item:   # o pedido não tinha chegado na hora do claim
+        if "messages" not in item and "spec" not in item:   # o pedido (texto ou mídia) não tinha chegado no claim
             for attempt in range(3):
                 try:
                     self._prepare(item)
@@ -1256,12 +1572,17 @@ class Host:
                 except SigmaError as e:
                     if attempt == 2 or self._stop.wait(5):
                         return self._fail(job, "unreadable", f"não consegui baixar o pedido do nó: {e}")
+                except Exception as e:   # nenhum pedido reivindicado fica sem resposta (viraria falta no prazo)
+                    self._error("ia", f"IA: o pedido do job {job['id'][:10]} não abriu: {type(e).__name__}")
+                    return self._fail(job, "unreadable")
             code, msg = self._over_limit(item)
             if code:
                 return self._fail(job, code, msg)
         model = job.get("model")
         if not self._wait_model(model):
             return self._fail(job, "engine", self._why_not(model) or f"o modelo '{model}' não ficou pronto a tempo")
+        if item.get("media"):
+            return self._answer_media(item)
         left = CLAIM_TIMEOUT - (time.time() - item["since"]) - 60   # folga para a resposta entrar num bloco
         if left < 30:
             return self._fail(job, "busy", "esta máquina demorou demais para chegar a este pedido na fila")
@@ -1287,6 +1608,66 @@ class Host:
         self._ok("ia")
         secs = f"{time.time() - t0:.1f}".replace(".", ",")
         self.log(f"[máquina] IA {model} job {job['id'][:10]}: {tin}+{tout} tokens em {secs} s")
+
+    def _answer_media(self, item):
+        """Gera as imagens ou o vídeo e entrega cifrado para quem pediu; paga-se só o que saiu (units)."""
+        job, spec = item["job"], item["spec"]
+        model = job.get("model")
+        left = MEDIA_CLAIM_TIMEOUT[item["media"]] - (time.time() - item["since"]) - 120
+        if left < 60:
+            return self._fail(job, "busy", "esta máquina demorou demais para chegar a este pedido na fila")
+        t0 = time.time()
+        self._busy(True)
+        try:
+            results = self.media.generate(model, spec, timeout=left, should_stop=self._stop.is_set)
+        except EngineError as e:
+            self._error("ia", f"geração falhou no job {job['id'][:10]}: {e}")
+            return self._fail(job, "engine", f"o motor de imagem e vídeo desta máquina falhou: {str(e)[:200]}")
+        except Exception as e:   # erro que o motor não previu (ex.: o sd-cli que nem abre): falha, nunca falta
+            self._error("ia", f"geração falhou no job {job['id'][:10]}: erro inesperado: {type(e).__name__}")
+            return self._fail(job, "engine", "o motor de imagem e vídeo desta máquina falhou")
+        finally:
+            self._busy(False)
+        out = [dict(meta, mime=mime, data=base64.b64encode(data).decode()) for data, mime, meta in results]
+        units = len(out) if item["media"] == "image" else min(item["units"], int(out[0].get("seconds") or 0))
+        data = canon({"media": out, "task": item["media"], "model": model, "machine": self.address})
+        try:
+            blob = self._seal(job, data)
+        except ValueError:
+            return self._fail(job, "unreadable", "a chave pública de quem pediu é inválida")
+        self._deliver(job, blob, {"units": max(0, min(units, item["units"]))})
+        self._ok("ia")
+        secs = f"{time.time() - t0:.1f}".replace(".", ",")
+        what = f"{units} imagem(ns)" if item["media"] == "image" else f"{units} s de vídeo"
+        self.log(f"[máquina] {item['media']} {model} job {job['id'][:10]}: {what} em {secs} s")
+
+    def _next_mitem(self, wait=0.0):
+        with self._queue_cv:
+            if not self._mqueue and wait:
+                self._queue_cv.wait(wait)
+            if not self._mqueue or (wait and self._stop.is_set()):
+                return None
+            self._mcurrent = self._mqueue.popleft()
+            return self._mcurrent
+
+    def _run_mitem(self, item):
+        try:
+            self._answer(item)
+        except SigmaError as e:
+            self._error("ia", f"IA: não consegui entregar o resultado do job {item['job']['id'][:10]}: {e}")
+        except Exception as e:
+            self._error("ia", f"IA: erro inesperado no job {item['job']['id'][:10]}: {type(e).__name__}")
+        finally:
+            with self._lock:
+                self._mcurrent = None
+
+    def _media_loop(self):
+        """Gera imagem/vídeo, um por vez, numa fila separada da de texto: um vídeo de vários minutos não segura
+        as respostas de texto que chegam enquanto isso."""
+        while not self._stop.is_set():
+            item = self._next_mitem(wait=1.0)
+            if item is not None:
+                self._run_mitem(item)
 
     def _next_item(self, wait=0.0):
         with self._queue_cv:
@@ -1320,6 +1701,8 @@ class Host:
         """Responde agora, na ordem, tudo o que está na fila (o laço 'ia' faz isso sozinho; os testes chamam direto)."""
         while (item := self._next_item()) is not None:
             self._run_item(item)
+        while (item := self._next_mitem()) is not None:
+            self._run_mitem(item)
 
     def _fail_queue(self, code, msg, budget=10.0):
         """Ao desligar: o que ficou na fila (respostas pendentes e falhas já decididas) volta como falha, sem
@@ -1331,6 +1714,8 @@ class Host:
                     job, fcode, fmsg = self._fails.popleft()
                 elif self._queue:
                     job, fcode, fmsg = self._queue.popleft()["job"], code, msg
+                elif self._mqueue:
+                    job, fcode, fmsg = self._mqueue.popleft()["job"], code, msg
                 else:
                     return
             try:

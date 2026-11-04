@@ -795,6 +795,179 @@ class AppTest(unittest.TestCase):
         self.assertIsNone(self.state()["update"])
         self.assertEqual(self.app.update_line(), "")
 
+    # --------------------------------------------- conversas, imagem e vídeo (2.5)
+    def test_conversas_guardadas_no_app(self):
+        hostile = "<img src=x onerror=alert(1)>"
+        msgs = [{"role": "user", "content": hostile + " " + "x" * 80, "time": 1.5},
+                {"role": "assistant", "content": "**oi**", "cost": 12, "machine": "sig" + "a" * 40, "extra": 1}]
+        saved = self.ok("POST", "/api/chats/save", {"task": "text", "model": CHAT, "messages": msgs})
+        cid = saved["id"]
+        self.assertRegex(cid, r"^c[0-9a-f]{12}$")
+        self.assertEqual(saved["title"], (hostile + " " + "x" * 80)[:60])   # o título é a 1ª mensagem, cortada
+        got = self.ok("GET", f"/api/chats/{cid}")
+        self.assertEqual(got["messages"][1], {"role": "assistant", "content": "**oi**", "cost": 12,
+                                              "machine": "sig" + "a" * 40})        # campo estranho não fica
+        self.ok("POST", "/api/chats/save", {"id": cid, "task": "text", "model": CHAT,
+                                            "messages": msgs + [{"role": "user", "content": "e agora?"}]})
+        self.ok("POST", "/api/chats/rename", {"id": cid, "title": "  Minha   conversa  "})
+        other = self.ok("POST", "/api/chats/save", {"task": "image", "model": "z-image", "messages": [
+            {"role": "user", "content": "um gato"},
+            {"role": "assistant", "content": "", "media": [{"hash": "ab" * 32, "mime": "image/png",
+                                                            "width": 512, "height": 512}]}]})["id"]
+        chats = self.ok("GET", "/api/chats")["chats"]
+        self.assertEqual([c["id"] for c in chats], [other, cid])                   # a mais recente primeiro
+        self.assertEqual((chats[1]["title"], chats[1]["count"], chats[0]["task"]), ("Minha conversa", 3, "image"))
+        for bad in ({"task": "audio", "messages": []}, {"task": "text", "messages": [{"role": "system",
+                                                                                    "content": "x"}]},
+                    {"task": "text", "messages": [{"role": "assistant", "content": "", "media": [
+                        {"hash": "../../x", "mime": "image/png"}]}]},
+                    {"id": "../config", "task": "text", "messages": []}):
+            self.err("POST", "/api/chats/save", bad)
+        self.assertEqual(self.api("GET", "/api/chats/c..%2F..%2Fconfig")[0], 404)
+        self.ok("POST", "/api/chats/delete", {"id": cid})
+        self.assertEqual([c["id"] for c in self.ok("GET", "/api/chats")["chats"]], [other])
+        self.assertIn("não existe mais", self.err("GET", f"/api/chats/{cid}"))
+        self.ok("POST", "/api/chats/delete", {"id": other})
+
+    def test_imagem_pela_api_fica_guardada_e_volta_por_media(self):
+        from sigma import client as clientmod
+        png = b"\x89PNG\r\n\x1a\n" + os.urandom(40)   # o app só guarda e devolve; quem confere o PNG é o cliente
+        job = {"id": "j1", "cost": 40_000, "machine": "sig" + "b" * 40, "attempts": 1, "escrow": 40_000,
+               "max_price": 20_000}
+        with mock.patch.object(app.App, "_net_media", return_value=False):
+            self.assertIn("ainda não aceita", self.err("POST", "/api/ai/image", {"model": "z-image", "prompt": "x"}))
+        with mock.patch.object(app.App, "_net_media", return_value=True), \
+                mock.patch.object(app.App, "_model_tasks", return_value={"z-image": "image", CHAT: "text"}), \
+                mock.patch.object(clientmod.Client, "generate", return_value=(
+                    [{"mime": "image/png", "data": png, "width": 4, "height": 4}] * 2, job)) as gen:
+            for bad, msg in (({"prompt": ""}, "descreva"), ({"size": "9x9"}, "formato"), ({"count": 5}, "quantidade"),
+                             ({"model": CHAT}, "não gera imagens")):
+                self.assertIn(msg, self.err("POST", "/api/ai/image", dict({"model": "z-image", "prompt": "gato"},
+                                                                          **bad)))
+            r = self.ok("POST", "/api/ai/image", {"model": "z-image", "prompt": " um gato ", "size": "768x768",
+                                                  "count": 2})
+            (model, task, spec), _ = gen.call_args
+            self.assertEqual((model, task, spec["prompt"], spec["size"], spec["count"]),
+                             ("z-image", "image", "um gato", "768x768", 2))
+            self.assertEqual((r["task"], r["cost"], r["price"], len(r["media"])), ("image", 40_000, 20_000, 2))
+            h = r["media"][0]["hash"]
+            self.assertEqual(h, hashlib.sha256(png).hexdigest())
+            q = self.ok("POST", "/api/ai/quote", {"model": "z-image", "prompt": "x", "count": 3})
+            self.assertEqual((q["task"], q["unit"]), ("image", "imagem"))
+        code, body, hdrs = call(self.port, "GET", f"/api/media/{h}", token=self.token)
+        self.assertEqual((code, body, hdrs["content-type"]), (200, png, "image/png"))
+        self.assertEqual(call(self.port, "GET", f"/api/media/{h}")[0], 401)          # sem token, nada
+        self.assertEqual(call(self.port, "GET", "/api/media/../config.json", token=self.token)[0], 404)
+        self.assertIn("blob:", app.PAGE_CSP)
+
+    def test_conversa_apagada_nao_volta_ao_guardar(self):
+        """Revisão 2.5 #18: guardar com o id de uma conversa já apagada (a resposta chegou depois do Apagar, ou ela
+        foi apagada em outra janela do painel) é recusado: a conversa não volta para a lista."""
+        msgs = [{"role": "user", "content": "um gato"}, {"role": "assistant", "content": "miau"}]
+        cid = self.ok("POST", "/api/chats/save", {"task": "text", "model": CHAT, "messages": msgs})["id"]
+        self.ok("POST", "/api/chats/delete", {"id": cid})
+        msg = self.err("POST", "/api/chats/save", {"id": cid, "task": "text", "model": CHAT,
+                                                   "messages": msgs + [{"role": "user", "content": "e agora?"}]})
+        self.assertIn("foi apagada", msg)
+        self.assertNotIn(cid, [c["id"] for c in self.ok("GET", "/api/chats")["chats"]])
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "conversas", cid + ".json")))
+
+    def test_tentar_de_novo_nao_deixa_imagem_orfa(self):
+        """Revisão 2.5 #19: a imagem trocada pelo 'Tentar de novo' sai do disco quando a conversa é guardada sem ela
+        (a que outra conversa cita fica), e na abertura o app apaga as que nenhuma conversa cita (resultado que
+        chegou com o painel fechado), menos as recém-chegadas, que ainda vão ser guardadas."""
+        def media(tag):
+            return self.app._keep_media([{"mime": "image/png", "data": b"\x89PNG\r\n\x1a\n" + tag}])[0]
+
+        def on_disk(it):
+            return os.path.isfile(os.path.join(self.dir, "midia", it["hash"] + ".png"))
+
+        def save(cid, *items):
+            body = {"task": "image", "model": "z-image", "messages": [
+                {"role": "user", "content": "um gato"}, {"role": "assistant", "content": "", "media": list(items)}]}
+            return self.ok("POST", "/api/chats/save", dict(body, id=cid) if cid else body)["id"]
+        m1, m2, shared = media(b"primeira"), media(b"de novo"), media(b"nas duas")
+        a, b = save(None, m1, shared), save(None, shared)
+        save(a, m2, shared)                                    # 'Tentar de novo': a resposta nova no lugar da antiga
+        self.assertEqual((on_disk(m1), on_disk(m2), on_disk(shared)), (False, True, True))
+        self.ok("POST", "/api/chats/delete", {"id": a})
+        self.assertEqual((on_disk(m2), on_disk(shared)), (False, True))   # a conversa B ainda cita a outra
+        old, fresh = media(b"painel fechado"), media(b"acabou de chegar")   # nenhuma conversa cita
+        past = time.time() - 3600
+        os.utime(os.path.join(self.dir, "midia", old["hash"] + ".png"), (past, past))
+        self.app._media_gc()
+        self.assertEqual((on_disk(old), on_disk(fresh), on_disk(shared)), (False, True, True))
+        self.ok("POST", "/api/chats/delete", {"id": b})
+        self.assertFalse(on_disk(shared))
+        gone = os.path.join(self.dir, "midia", fresh["hash"] + ".png")
+        os.remove(gone)
+        with mock.patch.object(app.App, "media_path", return_value=gone):   # saiu entre a conferência e a leitura
+            self.assertEqual(call(self.port, "GET", f"/api/media/{fresh['hash']}", token=self.token)[0], 404)
+
+    def test_midia_fica_se_uma_conversa_nao_abre(self):
+        """Revisão 2.5 #19: na dúvida, nada sai do disco. Uma conversa que existe e não deu para ler agora (presa por
+        outro programa; aqui, uma pasta no lugar do arquivo) segura a limpeza; uma estragada, que nem aparece no
+        painel, não segura."""
+        folder = os.path.join(self.dir, "conversas")
+        os.makedirs(folder, exist_ok=True)
+        it = self.app._keep_media([{"mime": "image/png", "data": b"\x89PNG\r\n\x1a\n" + os.urandom(8)}])[0]
+        path = os.path.join(self.dir, "midia", it["hash"] + ".png")
+        past = time.time() - 3600
+        os.utime(path, (past, past))                           # ninguém cita e não é recém-chegada
+        stuck, broken = os.path.join(folder, "c0000000000aa.json"), os.path.join(folder, "c0000000000bb.json")
+        os.mkdir(stuck)
+        self.addCleanup(lambda: os.path.isdir(stuck) and os.rmdir(stuck))
+        self.app._media_gc()
+        self.assertTrue(os.path.isfile(path))
+        os.rmdir(stuck)
+        with open(broken, "w", encoding="utf-8") as f:
+            f.write("{")
+        self.addCleanup(os.remove, broken)
+        self.app._media_gc()
+        self.assertFalse(os.path.isfile(path))
+
+    def test_imagem_sem_tamanho_usa_o_da_receita(self):
+        """Revisão 2.5 #21: sem 'size', o pedido sai no tamanho da receita do catálogo (Z-Image Turbo em 1024x1024,
+        SD 1.5 em 512x512); o tamanho que a pessoa escolheu vale mais que a receita."""
+        from sigma import client as clientmod
+        self.create_wallet()
+        items = {i["id"]: i for i in catalog.CATALOG}
+        with NET.lock:
+            for name, item in (("zit", "z-image-turbo"), ("sd15", "stable-diffusion-1.5")):
+                NET.models[name] = {"name": name, "task": "image", "sha256": items[item]["sha256"],
+                                    "size": items[item]["size"], "license": items[item]["license"], "pinners": {}}
+        png = b"\x89PNG\r\n\x1a\n" + os.urandom(16)
+        job = {"id": "j1", "cost": 1, "machine": "sig" + "b" * 40, "attempts": 1, "escrow": 1, "max_price": 1}
+        sizes = []
+        with mock.patch.object(app.App, "_net_media", return_value=True), \
+                mock.patch.object(clientmod.Client, "generate", return_value=(
+                    [{"mime": "image/png", "data": png, "width": 4, "height": 4}], job)) as gen:
+            for body in ({"model": "zit"}, {"model": "sd15"}, {"model": "sd15", "size": "768x768"}):
+                self.ok("POST", "/api/ai/image", dict(body, prompt="um gato"))
+                sizes.append(gen.call_args[0][2]["size"])
+        self.assertEqual(sizes, ["1024x1024", "512x512", "768x768"])
+        self.assertEqual(gen.call_args[0][2]["steps"], 20)      # o resto da receita do SD 1.5 continua indo
+
+    def test_antes_da_v2_imagem_e_video_dizem_o_bloco(self):
+        """Revisão 2.5 #25: antes da v2 o app recusa imagem e vídeo dizendo o bloco em que eles entram (ou que ainda
+        não há bloco marcado), sem prometer um aviso do painel; o /api/models leva o mesmo porquê ao painel."""
+        self.create_wallet()
+        self.addCleanup(self.poll)
+        self.addCleanup(setattr, NET, "upgrades", [])
+        base = "a rede ainda não aceita modelos de imagem e vídeo: eles entram na atualização das regras v2, "
+        for upgrades, tail in (([], "que ainda não tem bloco marcado"),
+                               ([{"rules": 2, "height": 123500}], "marcada para o bloco 123500")):
+            NET.upgrades = upgrades
+            self.poll()
+            self.assertEqual(self.err("POST", "/api/ai/image", {"model": "z-image", "prompt": "um gato"}), base + tail)
+            self.assertEqual(self.err("POST", "/api/models/sponsor", {"catalog_id": "z-image-turbo", "budget": "10"}),
+                             base + tail)
+            ai = self.ok("GET", "/api/models")["ai"]
+            self.assertEqual((ai["media"], ai["media_note"]), (False, base + tail))
+        self.assertEqual(NET.txs_of("register_model"), [])
+        self.app.cache["status"] = {}                          # /status ainda não lido: não afirma nada do bloco
+        self.assertEqual(self.app._no_media_yet(), app.NO_MEDIA_YET)
+
     def test_mudanca_de_regras_marcada_e_atrasada(self):
         """docs/ATUALIZACOES.md: o app avisa antes da altura marcada e depois, se ficou para trás."""
         self.assertEqual(self.state()["rules"], {"known": chain.RULES, "network": 1, "notice": None})
@@ -838,8 +1011,8 @@ class AppTest(unittest.TestCase):
         msgs = [{"role": "user", "content": "x" * 300}]
         q = self.ok("POST", "/api/ai/quote", {"model": CHAT, "messages": msgs, "max_tokens": 512})
         tokens = 300 // 3 + 8 + 16
-        self.assertEqual(q, {"model": CHAT, "price": 2000, "max_tokens": 512, "trimmed": 0,
-                             "max_cost": math.ceil((tokens + 512) * 2000 / 1000)})
+        self.assertEqual(q, {"model": CHAT, "task": "text", "unit": "mil tokens", "price": 2000, "max_tokens": 512,
+                             "trimmed": 0, "max_cost": math.ceil((tokens + 512) * 2000 / 1000)})
         q = self.ok("POST", "/api/ai/quote", {"model": "ninguem-tem", "messages": msgs})
         self.assertEqual((q["price"], q["max_cost"]), (None, None))
         msg = self.err("POST", "/api/ai/quote", {"model": CHAT, "messages": [{"role": "user", "content": "y" * 20000}]})
@@ -881,6 +1054,23 @@ class AppTest(unittest.TestCase):
         self.assertEqual(len(sent), 31 - r["trimmed"])
         self.assertEqual(sent[0]["content"], msgs[0]["content"])       # a primeira do usuário fica
         self.assertEqual(sent[-1]["content"], msgs[-1]["content"])     # e a mais recente também
+
+    def test_conversa_guardada_longa_continua(self):
+        """Revisão 2.5 #20: uma conversa guardada vai até MAX_CHAT_MESSAGES mensagens; ao continuá-la, o painel manda
+        o histórico mais a pergunta nova, e o app aceita (o fit_messages corta pelo contexto do modelo)."""
+        self.create_wallet()
+        NET.add_machine([CHAT])
+        self.app._prices = (0.0, {})
+        msgs = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"mensagem {i}"} for i in range(200)]
+        cid = self.ok("POST", "/api/chats/save", {"task": "text", "model": CHAT, "messages": msgs})["id"]
+        self.addCleanup(self.app._delete_chat, cid)
+        sent = self.ok("GET", f"/api/chats/{cid}")["messages"] + [{"role": "user", "content": "e agora?"}]
+        self.assertEqual(len(sent), 201)
+        self.assertTrue(self.ok("POST", "/api/ai/quote", {"model": CHAT, "messages": sent})["max_cost"])
+        self.assertTrue(self.ok("POST", "/api/ai/chat", {"model": CHAT, "messages": sent})["text"])
+        most = [{"role": "user", "content": "x"}] * (app.MAX_CHAT_MESSAGES + 1)   # a guardada mais longa + 1
+        self.assertGreater(self.ok("POST", "/api/ai/quote", {"model": CHAT, "messages": most})["trimmed"], 0)
+        self.assertIn("messages deve ser", self.err("POST", "/api/ai/quote", {"model": CHAT, "messages": most * 2}))
 
     def _chat_in_thread(self, body):
         box = {}
@@ -1129,7 +1319,7 @@ class AppTest(unittest.TestCase):
         infos = [x for x in s["steps"] if x["kind"] == "info"]
         self.assertEqual([(x["cost"], x["machine"]) for x in infos], [(NET.cost, m)] * 4)
         self.assertEqual([x["kind"] for x in s["steps"] if x["kind"] == "assistant"], ["assistant"] * 4)
-        self.assertEqual(s["steps"][-1], {"kind": "final", "text": "pronto", "n": 4})
+        self.assertEqual(s["steps"][-1], {"kind": "final", "text": "pronto", "n": 4, "turn": 1})
         self.assertEqual(self.state()["code"], {"running": False, "pending": False})
 
     def test_sigma_code_parar_recusa_o_pendente(self):
@@ -1164,6 +1354,84 @@ class AppTest(unittest.TestCase):
         self.assertFalse(s["auto_files"])
         self.assertEqual(s["steps"], [])                       # o histórico da tarefa anterior saiu
         self.wait_code(lambda s: not s["running"], "a segunda tarefa terminar")
+
+    def test_sigma_code_continua_a_mesma_sessao(self):
+        """Como no Claude Code: depois do fim, a próxima instrução continua a conversa (mesma pasta e modelo)."""
+        self.create_wallet()
+        NET.add_machine([CODER])
+        proj = self._project()
+        self.ok("POST", "/api/code/reset", {})
+        self.assertIn("não há sessão", self.err("POST", "/api/code/continue", {"text": "e agora?"}))
+        NET.script[:] = [json.dumps({"final": "primeira"})]
+        self.ok("POST", "/api/code/start", {"folder": proj, "task": "crie o projeto", "model": CODER})
+        s = self.wait_code(lambda s: not s["running"], "a primeira instrução terminar")
+        self.assertTrue(s["can_continue"])
+        self.assertEqual(s["turns"], [{"n": 1, "text": "crie o projeto"}])
+        self.assertIn("escreva a próxima", self.err("POST", "/api/code/continue", {"text": "  "}))
+        NET.script[:] = [json.dumps({"final": "segunda"})]
+        s = self.ok("POST", "/api/code/continue", {"text": "agora adicione testes"})
+        self.assertEqual(s["turns"][-1], {"n": 2, "text": "agora adicione testes"})
+        s = self.wait_code(lambda s: not s["running"], "a segunda instrução terminar")
+        self.assertEqual((s["final"], s["folder"], s["model"]), ("segunda", proj, CODER))
+        self.assertEqual({st["turn"] for st in s["steps"]}, {1, 2})        # a conversa da sessão inteira fica
+        self.assertEqual(len(NET.txs_of("create_job")), 2)
+        self.ok("POST", "/api/code/reset", {})
+        s = self.ok("GET", "/api/code/state")
+        self.assertEqual((s["steps"], s["turns"], s["can_continue"]), ([], [], False))
+
+    def test_sigma_code_continua_com_a_carteira_e_o_no_de_agora(self):
+        """Revisão 2.5 #11: depois de trocar a carteira (ou o nó), a próxima instrução da mesma sessão paga com a
+        carteira que o painel mostra e fala com o nó das Configurações, não com os do começo da sessão."""
+        first = self.create_wallet()["address"]
+        NET.add_machine([CODER])
+        proj = self._project()
+        NET.script[:] = [json.dumps({"final": "primeira"})]
+        self.ok("POST", "/api/code/start", {"folder": proj, "task": "crie o projeto", "model": CODER})
+        self.assertTrue(self.wait_code(lambda s: not s["running"], "a primeira instrução terminar")["can_continue"])
+        second = self.create_wallet()["address"]              # Trocar carteira: a chave da primeira sai do app
+        NET.script[:] = [json.dumps({"final": "segunda"})]
+        self.ok("POST", "/api/code/continue", {"text": "agora adicione testes"})
+        s = self.wait_code(lambda s: not s["running"], "a segunda instrução terminar")
+        self.assertEqual((s["final"], s["error"]), ("segunda", None))
+        with NET.lock:
+            self.assertEqual([who for t, _, who in NET.txs if t == "create_job"], [first, second])
+
+        def back():
+            self.ok("POST", "/api/settings", {"node": NODE})
+            wait_for(lambda: self.app.host and self.app.host.node == NODE, what="o Host voltar ao nó 1")
+            self.poll()
+            NET2.reset()
+            NET2.version = "2.1.0"
+        NET2.add_machine([CODER])
+        NET2.script[:] = [json.dumps({"final": "terceira"})]
+        self.ok("POST", "/api/settings", {"node": NODE2})       # outra rede nas Configurações
+        self.addCleanup(back)
+        self.ok("POST", "/api/code/continue", {"text": "e o README"})
+        s = self.wait_code(lambda s: not s["running"], "a terceira instrução terminar")
+        self.assertEqual((s["final"], s["error"]), ("terceira", None))
+        with NET2.lock:
+            self.assertEqual([who for t, _, who in NET2.txs if t == "create_job"], [second])
+        self.assertEqual(len(NET.txs_of("create_job")), 2)     # o nó antigo não recebeu mais nada
+        self.ok("POST", "/api/code/reset", {})
+
+    def test_sigma_code_recusa_modelo_de_imagem(self):
+        """Revisão 2.5 #23: o Sigma Code conversa, então só aceita modelo de texto. Um de imagem no ar (com preço por
+        imagem) é recusado antes de abrir a sessão, mesmo quando o cliente não sabe a classe dos modelos."""
+        self.create_wallet()
+        m = NET.add_machine([CODER, "z-image"])
+        with NET.lock:
+            NET.models["z-image"]["task"] = "image"
+            NET.machines[m]["prices"]["ai_per_image"] = 20_000
+        proj = self._project()
+        body = {"folder": proj, "task": "faça um site", "model": "z-image"}
+        want = "o Sigma Code precisa de um modelo de texto"
+        self.assertIn(want, self.err("POST", "/api/code/start", body))
+        with mock.patch.object(Client, "model_tasks", return_value={}):    # o /models falhou só para o cliente
+            self.assertIn(want, self.err("POST", "/api/code/start", body))
+        with mock.patch.object(Client, "pick_model", return_value="z-image"):   # a escolha automática errou a classe
+            self.assertEqual(self.err("POST", "/api/code/start", dict(body, model=None)), app.NO_CODE_MODEL)
+        self.assertFalse(self.code_state()["running"])
+        self.assertEqual(NET.txs_of("create_job"), [])
 
     def test_escolher_pasta(self):
         self.assertEqual(self.err("POST", "/api/code/pick-folder", {}), "digite o caminho da pasta")
@@ -1360,6 +1628,19 @@ class HelpersTest(unittest.TestCase):
         self.assertEqual(app.ai_ceilings(ms, {"window": 10, "ai_default_price": 500}, me="sigF"),
                          {"m": 1000, "n": 4000})
         self.assertEqual(app.ai_ceilings(None, None), {})
+
+    def test_tetos_de_preco_com_media_models(self):
+        """Revisão 2.5 #24: o nó lista os modelos de imagem e vídeo de cada máquina em `media_models` (em `models`
+        ficam só os de texto, que um app 2.4 entende): o teto deles vem de lá, pelo preço da classe de cada um."""
+        ms = {"sigA": {"online": True, "ai": True, "pub": Wallet.generate().pub, "last_seen": 10, "models": ["texto"],
+                       "media_models": ["img", "vid"],
+                       "prices": {"ai_per_1k_tokens": 1000, "ai_per_image": 30_000, "ai_per_video_second": 50_000}}}
+        mining = {"window": 10, "ai_default_price": 2000,
+                  "media_default_prices": {"ai_per_image": 20_000, "ai_per_video_second": 100_000}}
+        tasks = {"texto": "text", "img": "image", "vid": "video"}
+        self.assertEqual(app.ai_ceilings(ms, mining, tasks=tasks), {"texto": 2000, "img": 30_000, "vid": 100_000})
+        ms["sigA"]["media_models"] = "lixo"                    # resposta estranha do nó não derruba a conta
+        self.assertEqual(app.ai_ceilings(ms, mining, tasks=tasks), {"texto": 2000})
 
     def test_bateria_por_sistema(self):
         root = tmpdir("sgpow")

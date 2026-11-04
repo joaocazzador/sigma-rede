@@ -28,7 +28,7 @@ import sys
 import time
 
 from . import netsafe
-from .client import DEFAULT_NODE, JOB_END, PT, Client, SigmaError, TxDropped, fmt
+from .client import DEFAULT_NODE, JOB_END, PT, Client, SigmaError, TxDropped, fmt, machine_models
 from .crypto import Wallet, to_eth
 from .sigmacode import visible
 
@@ -37,6 +37,8 @@ SPEND = {"send", "deploy-site", "site-fund", "ask", "compute", "model-register",
 NO_LICENSE = "esse modelo não declara a licença no Hugging Face: escolha um que declare"
 NO_LICENSE_GIVEN = ("informe a licença do modelo com --license (ex.: --license apache-2.0): sem ela não dá para "
                     "saber se as máquinas da rede podem cobrar em SIG para servir o modelo")
+NO_MEDIA_YET = "a rede ainda não aceita modelos de imagem e vídeo: eles entram na atualização das regras v2"
+TASK_NAMES = {"text": "texto", "image": "imagem", "video": "vídeo"}
 
 
 def dump(obj):
@@ -167,8 +169,9 @@ def show_machines(ms):
         bits = [f"{hw.get('cpu_cores', '?')} núcleos", f"{(hw.get('ram_mb') or 0) / 1000:.0f} GB RAM"]
         if hw.get("gpu"):
             bits.append(str(hw["gpu"]))
-        if m.get("models"):
-            bits.append("modelos: " + ", ".join(m["models"]))
+        models = machine_models(m)   # texto e, à parte no /machines, imagem e vídeo
+        if models:
+            bits.append("modelos: " + ", ".join(models))
         bits.append(f"{plural(m.get('jobs_done'), 'pedido atendido', 'pedidos atendidos')} · "
                     f"ganhou {fmt(m.get('earned') or 0)}")
         say(f"{'●' if m.get('online') else '○'} {m.get('name') or '(sem nome)'} {short(addr)} · " + " · ".join(bits))
@@ -191,15 +194,19 @@ def show_models(ms):
 
 def show_catalog(items):
     for x in items:
-        print(f"{x['id']:<24} {fmt_size(x.get('size') or 0):>8}  {x.get('license', ''):<11} {x.get('description', '')}")
+        size = x.get("total_size") or x.get("size") or 0   # imagem e vídeo: com o VAE e o codificador de texto
+        print(f"{x['id']:<24} {TASK_NAMES.get(x.get('task'), 'texto'):<6} {fmt_size(size):>8}  "
+              f"{x.get('license', ''):<11} {x.get('description', '')}")
     print("\napadrinhe com: python -m sigma.cli model-register --catalog <id> --budget <SIG>")
 
 
 # ---------------------------------------------------------------- ajudantes
 def model_source(a):
-    """Descobre url, sha256 e tamanho do GGUF: do catálogo, do Hugging Face ou do que veio na linha de comando."""
+    """Descobre url, sha256 e tamanho do GGUF: do catálogo, do Hugging Face ou do que veio na linha de comando.
+    Os de imagem e vídeo (só do catálogo) levam também a classe (`task`) e os arquivos extras (`files`: VAE e
+    codificador de texto); `size` é só o do arquivo principal, como a chain pede."""
     info = {"name": a.name, "url": a.url, "sha256": a.sha256, "size": a.size,
-            "license": a.license, "description": a.description}
+            "license": a.license, "description": a.description, "task": "text", "files": None}
     if a.catalog:
         items = load_catalog().CATALOG
         item = next((x for x in items if x["id"] == a.catalog), None)
@@ -207,7 +214,8 @@ def model_source(a):
             raise SigmaError(f"'{a.catalog}' não está no catálogo; opções: " + ", ".join(x["id"] for x in items))
         info.update(name=a.name or item["id"], url=item["url"], sha256=item["sha256"], size=item["size"],
                     license=a.license or item.get("license", ""),
-                    description=a.description or item.get("description", ""))
+                    description=a.description or item.get("description", ""),
+                    task=item.get("task", "text"), files=item.get("files"), total_size=item.get("total_size"))
     elif not (a.sha256 and a.size):
         try:  # só a URL: pergunta ao Hugging Face o tamanho e o sha256 do arquivo
             cat = load_catalog()
@@ -369,9 +377,15 @@ def run(a, c):
         view(load_catalog().CATALOG, show_catalog)
     elif a.cmd == "model-register":
         info = model_source(a)
+        if info["task"] != "text":   # na v1 a chain recusaria task/files com uma mensagem que ninguém entende
+            mining = c.mining()
+            if not (isinstance(mining, dict) and mining.get("media")):
+                raise SigmaError(NO_MEDIA_YET)
         c.register_model(info["name"], info["url"], info["sha256"], info["size"], a.budget, a.royalty,
-                         a.reinvest, a.replicas, info["description"], info["license"])
-        print(f"você é o padrinho de '{info['name']}' ({fmt_size(int(info['size']))}). A rede escolhe sozinha as "
+                         a.reinvest, a.replicas, info["description"], info["license"], task=info["task"],
+                         files=info["files"])
+        total = int(info.get("total_size") or info["size"])
+        print(f"você é o padrinho de '{info['name']}' ({fmt_size(total)}). A rede escolhe sozinha as "
               f"máquinas que vão baixar e servir o modelo. Acompanhe: python -m sigma.cli models")
     elif a.cmd == "model-fund":
         c.fund_model(a.name, a.amount)

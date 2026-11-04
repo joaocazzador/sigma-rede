@@ -247,7 +247,9 @@ class _GGUFReader:
         return self.read(n)
 
 
-def _check_gguf(r, size):
+def _check_gguf(r, size, max_name=GGUF_MAX_NAME, dims=range(1, 5)):
+    """`max_name` (o maior nome de tensor) e `dims` (quantas dimensões um tensor pode ter): os limites do leitor
+    que vai abrir o arquivo. O padrão é o do llama.cpp; o sd-cli aceita nomes mais longos e outras dimensões."""
     if r.read(4) != b"GGUF" or r.u32() not in (2, 3):
         raise _BadGGUF()
     n_tensors, n_kv = r.u64(), r.u64()
@@ -279,9 +281,9 @@ def _check_gguf(r, size):
             alignment = value
     offsets = []
     for _ in range(n_tensors):
-        r.string(GGUF_MAX_NAME)
+        r.string(max_name)
         n_dims = r.u32()
-        if not 1 <= n_dims <= 4:
+        if n_dims not in dims:
             raise _BadGGUF()
         elements = 1
         for _ in range(n_dims):

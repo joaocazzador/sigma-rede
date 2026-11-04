@@ -218,27 +218,107 @@ td.hot { color: var(--accent); font-weight: 700; }
 .opt > input[type=range], .opt > .hint { grid-column: 1 / -1; }
 .opt > .hint { margin: 0; }
 
-/* IA */
-.chat-bar { display: grid; grid-template-columns: minmax(0, 1fr) 170px; gap: 12px; align-items: start; margin-bottom: 14px; }
-.chat-bar label { margin-top: 0; }
-.chat-log { background: var(--card); border: 1px solid var(--line); min-height: 320px; max-height: 60vh; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 16px; }
-.chat-empty { margin: auto; text-align: center; color: var(--muted); max-width: 440px; }
-.chat-empty b { display: block; font: 400 28px/1.12 var(--display); text-transform: uppercase; color: var(--text); margin-bottom: 8px; }
-.msg { max-width: 86%; align-self: flex-start; }
-.msg .who { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 4px; }
-.msg .body { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 14px; border: 1px solid var(--line); background: var(--bg); }
-.msg.me { align-self: flex-end; }
-.msg.me .who { text-align: right; }
-.msg.me .body { background: var(--text); color: var(--bg); border-color: var(--text); }
-.msg .cost { font: 600 11.5px var(--mono); color: var(--accent); margin-top: 6px; text-transform: uppercase; letter-spacing: .5px; }
-.msg pre { white-space: pre-wrap; background: var(--code); border: 1px solid var(--line); padding: 10px; font: 13px/1.5 var(--mono); margin: 8px 0; }
-.msg code { font: 13.5px var(--mono); background: var(--code); padding: 0 4px; }
-.think { margin-bottom: 8px; color: var(--muted); }
-.think summary { cursor: pointer; font: 600 11.5px var(--mono); text-transform: uppercase; letter-spacing: 1px; }
-.dots i { display: inline-block; width: 7px; height: 7px; background: var(--accent); margin-right: 3px; animation: pulse 1s infinite; }
+/* IA: no jeito dos apps de chat de sempre (conversas à esquerda, mensagens no meio, caixa de texto presa embaixo) */
+.sr { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.ai { position: relative; display: grid; grid-template-columns: 260px minmax(0, 1fr); height: calc(100vh - 190px); height: calc(100dvh - 190px);
+  min-height: 500px; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--bg); }
+.ai button, .cc button { text-transform: none; letter-spacing: 0; }
+.ai button:hover, .cc button:hover { transform: none; box-shadow: none; }
+.ai-scrim { display: none; }
+.ai-side { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; background: var(--card); border-right: 1px solid var(--line); padding: 12px 10px; }
+.ai-new { width: 100%; justify-content: flex-start; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font: 600 14px var(--sans); }
+.ai-new:hover, .ai-new:focus-visible { background: rgba(242, 239, 230, .06); }
+.ai-list { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -4px; padding: 0 4px 8px; }
+.side-group { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin: 14px 10px 4px; }
+.side-empty { color: var(--muted); font-size: 13.5px; margin: 12px 10px; }
+.side-item { display: flex; align-items: center; border-radius: 9px; min-width: 0; }
+.side-item:hover, .side-item:focus-within { background: rgba(242, 239, 230, .06); }
+.side-item.on { background: rgba(242, 239, 230, .1); }
+.side-open { flex: 1; min-width: 0; justify-content: flex-start; gap: 8px; border: 0; background: none; padding: 8px 10px; font: 400 14px/1.35 var(--sans); color: var(--text); text-align: left; }
+.side-open .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-open .k { flex: none; font: 600 10px var(--mono); text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.side-act { flex: none; border: 0; background: none; color: var(--muted); padding: 6px 7px; font: 15px/1 var(--sans); border-radius: 6px; opacity: 0; }
+.side-item:hover .side-act, .side-item:focus-within .side-act, .side-item.on .side-act { opacity: 1; }
+.side-act:hover, .side-act:focus-visible { color: var(--text); background: rgba(242, 239, 230, .1); }
+@media (hover: none) { .side-act { opacity: 1; } }
+.ai-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.ai-top { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--line); min-width: 0; }
+.ai-top select { flex: 0 1 auto; width: auto; min-width: 0; max-width: 100%; border-radius: 10px; padding: 7px 10px; font: 600 14px var(--sans); background: var(--card); }
+.ai-toggle { display: none; flex: none; border: 1px solid var(--line); border-radius: 10px; padding: 7px 10px; font: 600 13px var(--sans); }
+.ai-total { margin-left: auto; flex: none; font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+.ai-log { flex: 1; min-height: 0; overflow-y: auto; padding: 24px 16px 12px; }
+.ai-col { max-width: 760px; min-height: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 26px; }
+#chat-msgs { flex: 1 0 auto; display: flex; flex-direction: column; gap: 26px; }
+#chat-pending:empty { display: none; }
+.ai-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 14px; padding: 16px 0; color: var(--muted); }
+.ai-hello { font: 600 clamp(26px, 4vw, 34px)/1.3 var(--sans); color: var(--text); margin: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 660px; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 8px 14px; font: 400 13.5px/1.35 var(--sans); color: var(--text); text-align: left; }
+.chip:hover, .chip:focus-visible { background: rgba(242, 239, 230, .06); }
+.m-user { display: flex; justify-content: flex-end; }
+.m-user .bubble { max-width: min(80%, 620px); background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 10px 16px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.m-ai { min-width: 0; }
+.m-head { font: 12px/1.5 var(--mono); color: var(--muted); margin-bottom: 6px; overflow-wrap: anywhere; }
+.m-err { color: var(--bad); margin: 0; }
+.m-acts { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 8px; }
+.m-act { border: 0; background: none; color: var(--muted); padding: 4px 8px; font: 500 12.5px var(--sans); border-radius: 7px; text-decoration: none; display: inline-flex; }
+.m-act:hover, .m-act:focus-visible { color: var(--text); background: rgba(242, 239, 230, .08); }
+.m-wait { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--muted); }
+.m-note { flex-basis: 100%; font-size: 13px; }
+.m-grid { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 560px; }
+.m-grid.n1 { grid-template-columns: minmax(0, 1fr); max-width: 440px; }
+.thumb { display: block; width: 100%; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); aspect-ratio: 1; }
+.thumb:hover { border-color: var(--muted); }
+.thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.thumb-wait { display: grid; place-items: center; height: 100%; min-height: 120px; color: var(--muted); font-size: 13px; padding: 8px; }
+.m-video { max-width: 560px; }
+.m-video video { display: block; width: 100%; border-radius: 12px; background: #000; border: 1px solid var(--line); }
+.dlg-img { display: block; max-width: 100%; height: auto; margin: 0 auto; border-radius: 8px; }
+/* texto do modelo em markdown (montado só com texto escapado) */
+.md { overflow-wrap: anywhere; line-height: 1.65; min-width: 0; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 12px; }
+.md h3, .md h4, .md h5, .md h6 { font-family: inherit; font-weight: 700; text-transform: none; letter-spacing: 0; line-height: 1.35; margin: 20px 0 8px; }
+.md h3 { font-size: 1.32em; } .md h4 { font-size: 1.16em; } .md h5, .md h6 { font-size: 1em; }
+.md ul, .md ol { margin: 0 0 12px; padding-left: 24px; }
+.md li { margin: 3px 0; }
+.md li > ul, .md li > ol { margin: 4px 0 0; }
+.md blockquote { margin: 0 0 12px; padding: 2px 0 2px 14px; border-left: 3px solid var(--line); color: var(--muted); }
+.md hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
+.md code { font: .9em var(--mono); background: var(--code); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+.md-table { overflow-x: auto; margin: 0 0 12px; border: 1px solid var(--line); border-radius: 8px; }
+.md table { font-size: 14px; }
+.md th, .md td { white-space: normal; padding: 7px 12px; }
+.md th { font: 600 13.5px var(--sans); text-transform: none; letter-spacing: 0; color: var(--text); background: var(--card); }
+.md tr:last-child td { border-bottom: 0; }
+.codeblk { margin: 0 0 12px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--code); }
+.code-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 3px 6px 3px 12px; font: 12px var(--mono); color: var(--muted); border-bottom: 1px solid var(--line); }
+.code-copy { border: 0; background: none; color: var(--muted); padding: 4px 8px; font: 500 12px var(--sans); border-radius: 6px; }
+.code-copy:hover, .code-copy:focus-visible { color: var(--text); background: rgba(242, 239, 230, .08); transform: none; box-shadow: none; }
+.codeblk pre { margin: 0; padding: 12px 14px; overflow-x: auto; white-space: pre; font: 13px/1.55 var(--mono); }
+.codeblk code { background: none; border: 0; padding: 0; font: inherit; }
+.think { margin: 0 0 14px; color: var(--muted); border-left: 2px solid var(--line); padding-left: 12px; }
+.think summary { cursor: pointer; font: 600 12.5px var(--sans); text-transform: none; letter-spacing: 0; }
+.dots i { display: inline-block; width: 7px; height: 7px; background: var(--accent); margin-right: 3px; border-radius: 50%; animation: pulse 1s infinite; }
 .dots i:nth-child(2) { animation-delay: .2s; } .dots i:nth-child(3) { animation-delay: .4s; }
-.chat-input { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; margin-top: 12px; }
-.chat-foot { margin-top: 8px; }
+/* caixa de texto */
+.composer { padding: 4px 16px 10px; }
+.comp-wrap { max-width: 760px; margin: 0 auto; }
+.comp-opts { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-bottom: 8px; min-width: 0; }
+.comp-opts > span { display: inline-flex; flex-wrap: wrap; gap: 6px 12px; }
+.comp-opts label { margin: 0; display: inline-flex; align-items: center; gap: 6px; font: 500 12.5px var(--sans); text-transform: none; letter-spacing: 0; color: var(--muted); }
+.comp-opts select { width: auto; padding: 4px 8px; border-radius: 8px; font: 13px var(--sans); background: var(--card); }
+.comp-kind { font-size: 12px; color: var(--muted); }
+.comp-box { display: flex; align-items: flex-end; gap: 8px; background: var(--card); border: 1px solid var(--line); border-radius: 24px; padding: 7px 7px 7px 18px; }
+.comp-box:focus-within { border-color: var(--muted); }
+.comp-box textarea { flex: 1; min-width: 0; border: 0; background: transparent; padding: 7px 0; min-height: 0; max-height: 220px; resize: none; line-height: 1.5; }
+.comp-box textarea:focus { outline: none; }
+.send { flex: none; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%; background: var(--text); color: var(--bg); font: 700 18px/1 var(--sans); }
+.send:hover { opacity: .85; }
+.send.stop { font-size: 14px; }
+.comp-foot { font-size: 12px; line-height: 1.5; color: var(--muted); text-align: center; margin: 7px 0 0; }
+.comp-foot b { color: var(--text); font-weight: 600; }
 
 /* sites */
 .drop { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; border: 2px dashed var(--line); padding: 22px; cursor: pointer;
@@ -330,24 +410,97 @@ details.tech p { font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; margin: 
 .confirm-addr { font: 600 15px/1.5 var(--mono); word-break: break-all; padding: 14px 16px; border: 2px solid var(--text); margin: 18px 0 8px; }
 .confirm-addr .lbl { display: block; font: 600 11.5px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 4px; }
 
-/* Sigma Code */
-.code-log { display: flex; flex-direction: column; gap: 10px; }
-.step { border-left: 3px solid var(--line); padding: 4px 0 4px 12px; overflow-wrap: anywhere; min-width: 0; }
-.step .who { font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 2px; }
-.step .body { white-space: pre-wrap; }
-.step.assistant { border-color: var(--text); }
-.step.tool { border-color: var(--signal); }
-.step.final { border-color: var(--ok); background: rgba(95, 224, 138, .07); padding: 10px 12px; }
-.step.error { border-color: var(--bad); background: rgba(255, 107, 91, .08); padding: 10px 12px; }
-.step.info { font: 600 12px/1.6 var(--mono); color: var(--muted); }
-.step pre, .approve pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code); border: 1px solid var(--line); padding: 10px; font: 13px/1.5 var(--mono); margin: 8px 0 0; max-height: 360px; overflow-y: auto; }
+/* Sigma Code: no jeito de um agente de terminal (transcrição em fonte fixa, ferramentas em linhas curtas, aprovação embaixo) */
+.cc { display: flex; flex-direction: column; height: calc(100vh - 190px); height: calc(100dvh - 190px); min-height: 520px;
+  background: var(--code); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; font: 13.5px/1.6 var(--mono); }
+.cc-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--card); min-width: 0; }
+.cc-brand { font: 700 13px var(--mono); color: var(--accent); white-space: nowrap; }
+.cc-setup { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; flex: 1 1 420px; min-width: 0; }
+.cc-setup input:not([type=checkbox]), .cc-setup select { width: auto; font: 13px var(--mono); padding: 6px 9px; border-radius: 8px; background: var(--bg); }
+.cc-folder { display: flex; gap: 6px; flex: 1 1 260px; min-width: 0; }
+.cc-folder input { flex: 1; min-width: 0; }
+.cc-setup select { flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.cc-setup label.check { margin: 0; gap: 8px; font: 500 13px var(--sans); }
+.cc-setup input[type=checkbox] { width: 18px; height: 18px; }
+.cc-where { flex: 1 1 260px; min-width: 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.cc-where b { color: var(--text); font-weight: 600; }
+.cc-spent { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.cc-small { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: 500 12.5px var(--sans); }
+.cc-small:hover, .cc-small:focus-visible { border-color: var(--text); }
+.cc-log { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.cc-empty { color: var(--muted); margin: auto 0; padding: 20px 0; text-align: center; font-family: var(--sans); }
+.cc-user { display: flex; gap: 8px; padding: 6px 10px; border-radius: 8px; background: rgba(242, 239, 230, .05); white-space: pre-wrap; overflow-wrap: anywhere; }
+.cc-prompt { flex: none; color: var(--accent); font-weight: 700; }
+.cc-step { display: flex; gap: 10px; min-width: 0; }
+.cc-step > div { flex: 1; min-width: 0; }
+.cc-dot { flex: none; width: 1.1em; }
+.cc-tool .cc-dot { color: var(--ok); }
+.cc-tool.refused .cc-dot { color: var(--bad); }
+.cc .md { font: inherit; line-height: 1.6; }
+.cc-call { display: inline; border: 0; background: none; padding: 0; font: inherit; color: var(--text); text-align: left; overflow-wrap: anywhere; }
+.cc-call:hover b { text-decoration: underline; }
+.cc-arg { color: var(--muted); }
+.cc-out { display: flex; gap: 8px; color: var(--muted); min-width: 0; }
+.cc-elbow { flex: none; color: var(--muted); }
+.cc-sum { min-width: 0; overflow-wrap: anywhere; }
+.cc-pre { flex: 1; min-width: 0; margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow-y: auto; font: 12.5px/1.5 var(--mono); color: var(--text); }
+.d-line { display: block; min-height: 1.5em; }
+.d-add { background: rgba(95, 224, 138, .12); color: var(--ok); }
+.d-del { background: rgba(255, 107, 91, .12); color: var(--bad); }
+.d-hunk { color: var(--signal); }
+.d-file { color: var(--muted); }
+.cc-final { padding: 8px 10px; border-left: 2px solid var(--ok); border-radius: 0 8px 8px 0; background: rgba(95, 224, 138, .06); }
+.cc-final .cc-dot, .cc-label { color: var(--ok); }
+.cc-label { font-weight: 700; }
+.cc-error { color: var(--bad); }
+.cc-note { display: flex; gap: 8px; color: var(--muted); font-size: 12.5px; }
+.cc-cost { text-align: right; font-size: 11.5px; color: var(--muted); opacity: .85; overflow-wrap: anywhere; }
+.cc-run { color: var(--muted); }
+.cc-status { padding: 6px 16px; border-top: 1px solid var(--line); font: 600 12.5px var(--sans); color: var(--signal); }
+/* pedido de aprovação, embaixo da transcrição */
+.approve { border: 1px solid var(--signal); border-radius: 10px; padding: 12px 14px; background: rgba(255, 212, 0, .04); font-family: var(--sans); }
+.approve.cmd { border-color: var(--bad); background: rgba(255, 107, 91, .05); }
+.approve:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+.approve p { margin: 0 0 8px; }
+.approve pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: 12.5px/1.5 var(--mono); margin: 8px 0; max-height: 360px; overflow-y: auto; }
 /* cartão de comando: mostra TODAS as linhas, sem rolagem que esconda o resto (achado app-command-card-newline-hide) */
 .approve.cmd pre { max-height: none; overflow-y: visible; }
-.approve { border: 2px solid var(--signal); box-shadow: 6px 6px 0 var(--signal); margin: 22px 0; }
-.approve.cmd { border-color: var(--bad); box-shadow: 6px 6px 0 var(--bad); }
-.changed { margin: 8px 0 0; padding-left: 20px; font: 13px/1.6 var(--mono); overflow-wrap: anywhere; }
+.ap-q { font-weight: 700; margin-top: 12px !important; }
+.ap-btns { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.cc-choice { justify-content: flex-start; border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font: 600 13px var(--mono); }
+.cc-choice:hover, .cc-choice:focus-visible { border-color: var(--text); }
+.cc-choice.go { border-color: var(--bad); color: var(--bad); }
+.approve:not(.cmd) .cc-choice.go { border-color: var(--ok); color: var(--ok); }
+.cc-choice kbd { font: inherit; color: var(--muted); }
+.changed { margin: 4px 0 0; padding-left: 20px; font: 12.5px/1.6 var(--mono); overflow-wrap: anywhere; }
+/* caixa da tarefa */
+.cc-composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--line); background: var(--card); }
+.cc-composer:focus-within { box-shadow: inset 0 2px 0 var(--accent); }
+.cc-composer .cc-prompt { padding: 7px 0; font-size: 16px; line-height: 1.5; }
+.cc-composer textarea { flex: 1; min-width: 0; border: 0; background: transparent; padding: 7px 0; resize: none; min-height: 0; max-height: 200px; font: 14px/1.5 var(--mono); }
+.cc-composer textarea:focus { outline: none; }
+.cc-go { border-radius: 8px; padding: 7px 14px; font: 600 13px var(--sans); }
+.cc-foot { padding: 6px 14px 10px; margin: 0; font: 11.5px/1.5 var(--sans); color: var(--muted); background: var(--card); }
+.cc-foot + .cc-foot { padding-top: 0; }
+/* avisos longos: uma linha curta à vista e o texto completo em "Saiba mais" (o painel continua escrevendo nos ids) */
+details.more > summary { list-style: none; cursor: pointer; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary u { text-underline-offset: 2px; }
+details.more > summary:hover u, details.more > summary:focus-visible u { color: var(--text); }
+details.more[open] > summary u { display: none; }
+details.more p { margin: 6px 0 0; }
+.cc .err { margin: 0; padding: 6px 14px; background: var(--card); font-family: var(--sans); }
 
-@media (max-width: 860px) { .hero { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 860px) {
+  .hero { grid-template-columns: minmax(0, 1fr); }
+  /* a lista de conversas vira uma gaveta */
+  .ai { grid-template-columns: minmax(0, 1fr); }
+  .ai-side { display: none; }
+  .ai-toggle { display: inline-flex; }
+  .ai-top select { flex: 1 1 0; }
+  .ai.side-open .ai-side { display: flex; position: fixed; z-index: 16; left: 0; top: 0; bottom: 0; width: min(300px, 86vw); box-shadow: 0 0 40px rgba(0, 0, 0, .6); }
+  .ai.side-open .ai-scrim { display: block; position: fixed; inset: 0; z-index: 15; width: auto; height: auto; padding: 0; border: 0; background: rgba(5, 5, 4, .7); }
+}
 @media (max-width: 700px) {
   .stats.six { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stats.three { grid-template-columns: minmax(0, 1fr); }
@@ -364,12 +517,15 @@ details.tech p { font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; margin: 
   .wrap { padding: 24px 16px 60px; }
   .card, .tile { padding: 16px; }
   .controls { grid-template-columns: minmax(0, 1fr); }
-  .chat-bar { grid-template-columns: minmax(0, 1fr); }
-  .chat-input { grid-template-columns: minmax(0, 1fr); }
-  .msg { max-width: 100%; }
+  .ai, .cc { height: calc(100vh - 110px); height: calc(100dvh - 110px); min-height: 440px; border-radius: 12px; }
+  .ai-log { padding: 16px 12px 8px; }
+  .ai-top { padding: 8px 10px; gap: 8px; }
+  .ai-total { display: none; }
+  .composer { padding: 4px 10px 8px; }
+  .m-user .bubble { max-width: 88%; }
+  .cc-log { padding: 12px 10px; }
+  .cc-head { padding: 8px 10px; }
   .two { grid-template-columns: minmax(0, 1fr); }
-  .approve { box-shadow: 4px 4px 0 var(--signal); }
-  .approve.cmd { box-shadow: 4px 4px 0 var(--bad); }
   .wiz-top { padding: 12px 16px; }
   .wiz-body { padding: 26px 16px 48px; }
   .steps li { padding: 4px 7px; font-size: 11px; }
@@ -642,52 +798,79 @@ details.tech p { font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; margin: 
 
     <!-- IA -->
     <section data-pane="ia" role="tabpanel" aria-label="IA" hidden>
-      <div class="kicker">IA da rede</div>
-      <h2>Converse com uma IA que é de todos</h2>
-      <p class="lead">Cada resposta roda no computador de alguém da rede, que recebe em SIG pelo trabalho. Você paga só o que usar.</p>
       <div id="ai-notes"></div>
-      <div class="chat-bar">
-        <div><label for="ai-model">Modelo</label><select id="ai-model"></select><p class="hint" id="ai-info"></p></div>
-        <div><label for="ai-len">Resposta</label><select id="ai-len"><option value="256">Curta</option><option value="512" selected>Média</option><option value="1024">Longa</option></select></div>
+      <div class="ai" id="ai">
+        <button type="button" class="ai-scrim" id="ai-scrim" tabindex="-1" aria-label="Fechar a lista de conversas"></button>
+        <aside class="ai-side" id="ai-side" aria-label="Conversas">
+          <button type="button" class="ai-new" id="chat-new"><span aria-hidden="true">＋</span> Nova conversa</button>
+          <nav class="ai-list" id="ai-list" aria-label="Conversas guardadas"></nav>
+        </aside>
+        <div class="ai-main">
+          <div class="ai-top">
+            <button type="button" class="ai-toggle" id="ai-toggle" aria-controls="ai-side" aria-expanded="false">☰ Conversas</button>
+            <button type="button" class="ai-toggle" id="chat-new-top" aria-label="Nova conversa" title="Nova conversa">＋</button>
+            <label class="sr" for="ai-model">Modelo</label>
+            <select id="ai-model"></select>
+            <span class="ai-total" id="chat-total"></span>
+          </div>
+          <div class="ai-log" id="chat-log" aria-live="polite"><div class="ai-col"><div id="chat-msgs"></div><div id="chat-pending"></div></div></div>
+          <form class="composer" id="chat-form" autocomplete="off">
+            <div class="comp-wrap">
+              <div class="comp-opts">
+                <span id="opt-text"><label>Resposta <select id="ai-len"><option value="256">Curta</option><option value="512" selected>Média</option><option value="1024">Longa</option></select></label></span>
+                <span id="opt-image" hidden><label>Formato <select id="ai-size"><option value="512x512">Quadrado · 512×512</option><option value="768x768">Quadrado · 768×768</option><option value="1024x1024" selected>Quadrado · 1024×1024</option><option value="768x1024">Retrato · 768×1024</option><option value="1024x768">Paisagem · 1024×768</option></select></label>
+                  <label>Quantidade <select id="ai-count"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label></span>
+                <span id="opt-video" hidden><label>Duração <select id="ai-seconds"><option value="2">2 s</option><option value="3" selected>3 s</option><option value="5">5 s</option></select></label>
+                  <label>Formato <select id="ai-vsize"><option value="832x480" selected>Paisagem · 832×480</option><option value="480x832">Retrato · 480×832</option></select></label></span>
+                <span class="comp-kind" id="ai-kind"></span>
+              </div>
+              <div class="comp-box">
+                <label class="sr" for="chat-text">Mensagem</label>
+                <textarea id="chat-text" rows="1" placeholder="Pergunte alguma coisa"></textarea>
+                <button class="send" type="submit" id="chat-send" aria-label="Enviar" title="Enviar (Enter)">↑</button>
+              </div>
+              <p class="comp-foot" id="chat-max"></p>
+              <!-- aviso fixo: quem responde lê o pedido (não dá para fechar) -->
+              <details class="comp-foot more"><summary>Quem responde é o computador de outra pessoa e lê o seu pedido: não mande senhas nem dados pessoais. <u>Saiba mais</u></summary>
+                <p id="ai-privacy">Cada pergunta vai cifrada para uma máquina da rede sorteada na hora, que precisa ler para responder, e leva junto a conversa inteira. Numa conversa longa, as máquinas de várias pessoas diferentes acabam lendo tudo o que você já escreveu: não mande senhas, documentos nem dados pessoais. Quem pediu, quando e quanto pagou continua público.</p></details>
+            </div>
+          </form>
+        </div>
       </div>
-      <div class="chat-log" id="chat-log" aria-live="polite"></div>
-      <!-- aviso fixo: quem responde lê a conversa (não dá para fechar) -->
-      <p class="note" id="ai-privacy">Cada pergunta vai cifrada para uma máquina da rede sorteada na hora, que precisa ler para responder, e leva junto a conversa inteira. Numa conversa longa, as máquinas de várias pessoas diferentes acabam lendo tudo o que você já escreveu: não mande senhas, documentos nem dados pessoais. Quem pediu, quando e quanto pagou continua público.</p>
-      <form class="chat-input" id="chat-form">
-        <textarea id="chat-text" rows="2" placeholder="Escreva sua mensagem. Enter envia, Shift+Enter pula linha."></textarea>
-        <button class="primary" type="submit" id="chat-send">Enviar</button>
-      </form>
-      <p class="hint" id="chat-max"></p>
-      <div class="row between hint chat-foot"><span id="chat-total">Esta conversa custou 0,00 SIG.</span><button type="button" class="link" id="chat-new">Nova conversa</button></div>
     </section>
 
     <!-- PROGRAMAR (Sigma Code) -->
     <section data-pane="programar" role="tabpanel" aria-label="Programar" hidden>
-      <div class="kicker">Sigma Code</div>
-      <h2>Programe com uma IA da rede</h2>
-      <p class="lead">Diga o que você quer no seu projeto. O Sigma Code lê os arquivos, propõe mudanças e comandos, e nada é gravado nem executado sem você ver.</p>
-      <!-- texto fixo (SPEC 2.3): o que sai da pasta e para quem -->
-      <p class="note" id="code-fixed">Escolha a pasta do projeto. O Sigma Code só mexe dentro dela. Cada passo vai cifrado para uma máquina sorteada da rede e leva tudo o que o agente já leu: ao longo de uma tarefa, as máquinas de várias pessoas diferentes veem os seus arquivos. Arquivos de senha e chaves (.env, .key, .ssh) ficam de fora. Cada passo é pago em SIG.</p>
       <div id="code-notes"></div>
-      <div id="code-pending"></div>
-      <form class="card" id="code-form" autocomplete="off" novalidate>
-        <label for="code-folder" style="margin-top:0">Pasta do projeto</label>
-        <div class="input-btn"><input id="code-folder" spellcheck="false" placeholder="ex.: C:\Users\voce\projetos\meu-site"><button type="button" id="code-pick">Escolher pasta</button></div>
-        <p class="hint" id="code-folder-hint">Não use em pastas com senhas, chaves ou documentos pessoais: cada passo do Sigma Code vai para uma máquina sorteada e, ao longo de uma tarefa, as máquinas de várias pessoas veem o que ele ler.</p>
-        <label for="code-model">Modelo</label>
-        <select id="code-model"></select>
-        <label for="code-task">Tarefa</label>
-        <textarea id="code-task" rows="4" maxlength="20000" placeholder="ex.: crie uma página index.html com um formulário de contato"></textarea>
-        <label class="check mt"><input type="checkbox" id="code-auto"> Aprovar alterações de arquivos sem perguntar</label>
-        <p class="hint">Volta desmarcada em toda tarefa nova. Comandos sempre pedem a sua aprovação.</p>
+      <form class="cc" id="code-form" autocomplete="off" novalidate>
+        <div class="cc-head">
+          <span class="cc-brand">Σ Sigma Code</span>
+          <!-- antes da primeira tarefa: pasta, modelo e a caixa de aprovar sem perguntar -->
+          <div class="cc-setup" id="code-setup">
+            <div class="cc-folder"><label class="sr" for="code-folder">Pasta do projeto</label><input id="code-folder" spellcheck="false" placeholder="Pasta do projeto, ex.: C:\Users\voce\projetos\meu-site"><button type="button" class="cc-small" id="code-pick">Escolher pasta</button></div>
+            <label class="sr" for="code-model">Modelo</label><select id="code-model"></select>
+            <label class="check" title="Volta desmarcada em toda tarefa nova. Comandos sempre pedem a sua aprovação."><input type="checkbox" id="code-auto"> Aprovar alterações de arquivos sem perguntar</label>
+          </div>
+          <!-- durante e depois de uma tarefa: onde e com quê -->
+          <div class="cc-where" id="code-head" hidden></div>
+          <span class="cc-spent" id="code-spent"></span>
+          <button type="button" class="cc-small" id="code-new" hidden>Nova sessão</button>
+        </div>
+        <div class="cc-log" id="code-log" aria-live="polite"></div>
+        <div class="cc-status" id="code-status" hidden></div>
+        <div class="cc-composer">
+          <span class="cc-prompt" aria-hidden="true">›</span>
+          <label class="sr" for="code-task">Tarefa</label>
+          <textarea id="code-task" rows="1" maxlength="20000" placeholder="O que você quer fazer neste projeto? ex.: crie uma página index.html com um formulário de contato"></textarea>
+          <button class="primary cc-go" type="submit" id="code-go">Começar</button>
+          <button type="button" class="danger cc-go" id="code-stop" hidden>Parar</button>
+        </div>
         <p class="err" id="code-err" hidden></p>
-        <div class="row mt"><button class="primary" type="submit" id="code-go">Começar</button><button type="button" class="danger" id="code-stop">Parar</button></div>
+        <!-- texto fixo (SPEC 2.3): o que sai da pasta e para quem -->
+        <details class="cc-foot more"><summary>Só mexe na pasta escolhida, e cada passo vai para o computador de outra pessoa da rede. Enter envia. <u>Saiba mais</u></summary>
+          <p id="code-fixed">Escolha a pasta do projeto. O Sigma Code só mexe dentro dela. Cada passo vai cifrado para uma máquina sorteada da rede e leva tudo o que o agente já leu: ao longo de uma tarefa, as máquinas de várias pessoas diferentes veem os seus arquivos. Arquivos de senha e chaves (.env, .key, .ssh) ficam de fora. Cada passo é pago em SIG.</p>
+          <p id="code-folder-hint">Não use em pastas com senhas, chaves ou documentos pessoais: cada passo do Sigma Code vai para uma máquina sorteada e, ao longo de uma tarefa, as máquinas de várias pessoas veem o que ele ler. Enter envia, Shift+Enter pula linha.</p></details>
       </form>
-      <div class="card mt">
-        <div class="row between"><h3 style="margin:0">Conversa</h3><span class="mono" id="code-spent"></span></div>
-        <p class="hint" id="code-head"></p>
-        <div class="code-log mt" id="code-log" aria-live="polite"></div>
-      </div>
     </section>
 
     <!-- SITES -->
@@ -833,6 +1016,11 @@ details.tech p { font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; margin: 
           <h3>O que oferecer para a rede</h3>
           <label class="check"><input type="checkbox" id="cfg-ai"> IA: guardar modelos e responder pedidos</label>
           <p class="hint">Desligar a IA tira os modelos deste computador da rede, mas os arquivos baixados ficam guardados no disco. Se a rede colocar um deles aqui de novo, ele volta a funcionar em segundos, sem baixar tudo outra vez.</p>
+          <div id="cfg-media-box" hidden>
+            <label class="check"><input type="checkbox" id="cfg-ai-image"> Hospedar IA de imagem</label>
+            <label class="check"><input type="checkbox" id="cfg-ai-video"> Hospedar IA de vídeo</label>
+            <p class="hint">Modelos que geram imagens e vídeos usam mais memória e, de preferência, uma placa de vídeo. O vídeo é bem mais pesado.</p>
+          </div>
           <label for="cfg-ai-ram">Memória para IA (GB)</label>
           <input id="cfg-ai-ram" inputmode="decimal" spellcheck="false">
           <p class="hint" id="cfg-ai-ram-hint"></p>
@@ -1051,19 +1239,20 @@ async function copy(text, done = "Copiado") {
 }
 
 // ------------------------------------------------------------- API local
-async function api(path, body, timeout = 0) {
+// as = "blob" devolve os bytes (imagens e vídeos de /api/media), com o mesmo token de toda rota /api
+async function api(path, body, timeout = 0, as = "json") {
   const opt = {method: body === undefined ? "GET" : "POST", cache: "no-store", headers: {"X-Sigma-Token": TOKEN}};
   if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
   const ctl = timeout ? new AbortController() : null, timer = ctl && setTimeout(() => ctl.abort(), timeout);
   if (ctl) opt.signal = ctl.signal;
   let r, data = null;
-  try { r = await fetch(path, opt); data = await r.json().catch(() => null); }
+  try { r = await fetch(path, opt); data = as === "blob" && r.ok ? await r.blob() : await r.json().catch(() => null); }
   catch { throw Object.assign(new Error("o Sigma não respondeu neste computador"), {status: 0}); }
   finally { clearTimeout(timer); }
   if (r.status === 401 || r.status === 403) sessionLost();
   // "code" diz o que aconteceu sem depender do texto (ex.: "canceled" quando a pessoa cancelou a pergunta)
   if (!r.ok) throw Object.assign(new Error(data?.error || `erro ${r.status} no Sigma`), {status: r.status, code: data?.code || null});
-  return data || {};
+  return as === "blob" ? data : data || {};
 }
 
 // ------------------------------------------------------------- estado
@@ -1072,9 +1261,11 @@ let failures = 0, pollTimer = 0, polling = false, histFilter = "all", cfgDirty =
 const pending = {};      // ajustes recém-salvos: valem até o /api/state seguinte confirmar
 // dados pedidos só quando a aba precisa
 const lazy = {models: {path: "/api/models"}, sites: {path: "/api/sites"}, code: {path: "/api/code/state"},
-              gov: {path: "/api/governance"}};
-const chat = {messages: [], total: 0, busy: false, started: 0, model: "", pendingModel: "", canceling: false, trimmed: false,
-              id: "", quote: null, quoteTimer: 0};
+              gov: {path: "/api/governance"}, chats: {path: "/api/chats"}};
+// a conversa aberta na aba IA (cid = id guardado no app; reqId = o pedido em andamento, para o Parar)
+const chat = {cid: "", title: "", task: "text", model: "", convModel: "", messages: [], total: 0, seq: 0, saving: null, side: false,
+              busy: false, started: 0, pendingModel: "", pendingTask: "text", pendingCount: 1, canceling: false, trimmed: false,
+              reqId: "", quote: null, quoteTimer: 0, scrollKey: "", recipeFor: ""};
 
 function settings() {
   const s = {...(S?.settings || {})}, now = Date.now();
@@ -1304,7 +1495,7 @@ function tick() {
     el.dataset.txt = txt;
     el.innerHTML = el.classList.contains("clock") ? digits(txt) : esc(txt);
   });
-  if (chat.busy) setText("chat-elapsed", `${Math.floor((Date.now() - chat.started) / 1000)} s`);
+  tickChat();
 }
 
 // ------------------------------------------------------------- ajustes rápidos (chaves e controles deslizantes)
@@ -1521,6 +1712,7 @@ const CREDIT = {
   rent: ["Ganhos servindo a rede · aluguel", " de "], job: ["Ganhos servindo a rede · pedidos atendidos"], royalty: ["Royalties", " de "],
   change: ["Troco de pedidos de IA"], refund: ["Devolução de pedidos de IA"], budget: ["Devolução do orçamento", ": "],
   vote: ["Votos devolvidos · votação encerrada"], deposit: ["Depósito devolvido · votação encerrada"],
+  founders: ["Reserva dos fundadores · criada na atualização v2"],
 };
 // votos e depósitos levam o id da votação nas refs: mostra o título dela, se o painel já tiver lido as votações
 const govTitle = (id) => (lazy.gov.data?.proposals || []).find((p) => p && p.id === id)?.title;
@@ -1786,8 +1978,13 @@ function renderMaquina() {
     ["Sistema", hw.os || "—"],
   ];
   setHTML("m-hw", rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join(""));
+  // motor de imagens e vídeos (stable-diffusion.cpp), quando o app manda
+  const me = mc.media_engine && typeof mc.media_engine === "object" ? mc.media_engine : null;
+  const meTxt = !me ? "" : me.installing ? `baixando · ${num(pct100(me.install_progress))}%` : me.ready ? "pronto" : "esperando";
   setHTML("m-engine-box", `<p><span class="pill ${es.cls}">${esc(es.pill)}</span>${kind ? ` <span class="muted">· ${esc(kind)}</span>` : ""}</p>`
-    + `<p class="hint">${esc(es.text || "O Sigma baixa e cuida do motor de IA sozinho. Se você já usa o Ollama, ele é aproveitado.")}</p>`);
+    + `<p class="hint">${esc(es.text || "O Sigma baixa e cuida do motor de IA sozinho. Se você já usa o Ollama, ele é aproveitado.")}</p>`
+    + (me ? `<p class="mt"><span class="pill ${me.ready ? "ok" : me.installing ? "warn" : ""}">Imagens e vídeos: ${esc(meTxt)}</span></p>`
+      + (me.detail ? `<p class="hint">${esc(me.detail)}</p>` : "") : ""));
   setHTML("m-models", modelsHere(mc.models || []));
   const sites = (mc.sites || []).map((s) => typeof s === "string" ? s : s?.name).filter(Boolean);
   setHTML("m-sites", sites.length ? `<div class="row">${sites.map((n) => `<span class="tag">${esc(n)}</span>`).join("")}</div>`
@@ -1798,56 +1995,281 @@ function renderMaquina() {
 }
 
 // ------------------------------------------------------------- IA
-// texto do modelo: escapa tudo e só então marca blocos de código, `código` e **negrito**
-function richText(raw) {
-  let text = String(raw ?? ""), think = "";
-  const t = /^\s*<think>([\s\S]*?)<\/think>\s*/i.exec(text);
-  if (t) { think = t[1].trim(); text = text.slice(t[0].length); }
-  const fmt = (s) => s.split(/```[\w+-]*\n?([\s\S]*?)```/g).map((p, i) => i % 2 ? `<pre>${esc(p)}</pre>`
-    : esc(p).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")).join("");
-  return (think ? `<details class="think"><summary>Raciocínio do modelo</summary>${fmt(think)}</details>` : "") + fmt(text);
+// No jeito dos apps de chat de sempre: conversas à esquerda, mensagens no meio, caixa de texto embaixo. Cada conversa tem
+// uma classe só (texto, imagem ou vídeo), fixada pela primeira mensagem, e fica guardada pelo app (não no navegador).
+// Tudo o que vem do modelo e da rede passa por esc() antes de virar HTML.
+const TASK_LIST = ["text", "image", "video"];
+const TASK_NAME = {text: "Texto", image: "Imagem", video: "Vídeo"};
+const TASK_UNIT = {text: "mil tokens", image: "imagem", video: "segundo de vídeo"};
+const SUGGEST = {
+  text: ["Explique em poucas palavras como funciona o Sigma", "Escreva um e-mail educado pedindo mais prazo",
+         "Monte uma tabela comparando Python e JavaScript", "Me dê 5 ideias de nome para uma padaria"],
+  image: ["Um gato astronauta flutuando no espaço, em aquarela", "Logotipo simples para uma padaria de bairro",
+          "Montanhas ao pôr do sol, foto realista", "Cidade futurista à noite, com chuva e neon"],
+  video: ["Ondas do mar quebrando na praia ao amanhecer", "Um cachorro correndo num campo de flores",
+          "Nuvens passando rápido sobre uma cidade"],
+};
+const PLACEHOLDER = {text: "Pergunte alguma coisa", image: "Descreva a imagem que você quer", video: "Descreva o vídeo que você quer"};
+// aviso fixo e discreto: quem responde lê o pedido (no texto, a conversa inteira vai junto)
+const PRIVACY = {
+  text: "Cada pergunta vai cifrada para uma máquina da rede sorteada na hora, que precisa ler para responder, e leva junto a conversa inteira. Numa conversa longa, as máquinas de várias pessoas diferentes acabam lendo tudo o que você já escreveu: não mande senhas, documentos nem dados pessoais. Quem pediu, quando e quanto pagou continua público.",
+  image: "Cada pedido vai cifrado para uma máquina da rede sorteada na hora, que precisa ler a sua descrição para gerar a imagem: não mande senhas, documentos nem dados pessoais. Quem pediu, quando e quanto pagou continua público.",
+  video: "Cada pedido vai cifrado para uma máquina da rede sorteada na hora, que precisa ler a sua descrição para gerar o vídeo: não mande senhas, documentos nem dados pessoais. Quem pediu, quando e quanto pagou continua público.",
+};
+const CHAT_ID_RE = /^c[0-9a-f]{12}$/;
+const MEDIA_HASH_RE = /^[0-9a-f]{16,128}$/i;
+const MEDIA_MIME_RE = /^(image\/(png|jpeg|webp)|video\/(webm|mp4))$/;
+const MEDIA_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "video/webm": "webm", "video/mp4": "mp4"};
+const media = new Map();   // hash -> {url} | {busy} | {err}: os bytes vêm de /api/media com o token e aparecem por blob:
+const nowSec = () => Math.floor(Date.now() / 1000);
+
+// classe do modelo: o app manda em ai.tasks e em cada modelo (sem a classe = texto, como no app antigo)
+function taskOf(name) {
+  const md = lazy.models.data, t = md?.ai?.tasks?.[name] ?? md?.network?.[name]?.task;
+  return TASK_LIST.includes(t) ? t : "text";
 }
-function msgHTML(m) {
-  if (m.role === "user") return `<div class="msg me"><div class="who">Você</div><div class="body">${esc(m.content)}</div></div>`;
-  return `<div class="msg"><div class="who">${esc(m.model)}</div><div class="body">${richText(m.content)}</div>`
-    + `<div class="cost">custou ${esc(sig(m.cost))} SIG · respondido por ${esc(short(m.machine))}</div></div>`;
-}
-// modelos que dá para perguntar agora: o app manda o teto de preço de cada modelo com máquina que aceita pedido cifrado
+const unitOf = (t) => String(lazy.models.data?.ai?.units?.[t] || TASK_UNIT[t] || TASK_UNIT.text);
+const ceilingOf = (name) => N(lazy.models.data?.ai?.prices?.[name]);
+const priceLabel = (name) => ceilingOf(name) ? `${num(ceilingOf(name))} µSIG por ${unitOf(taskOf(name))}` : "";
+const aiContext = () => N(lazy.models.data?.ai?.context) || AI_CONTEXT;
+const curTask = () => chat.messages.length ? chat.task : chat.model ? taskOf(chat.model) : chat.task;
+const isCoder = (m) => /coder|code/i.test(m.name);
+const limitsOf = (t) => lazy.models.data?.ai?.limits?.[t] || null;
+// modelos que dá para usar agora: o app manda o teto de preço de cada modelo com máquina que aceita pedido cifrado
 function liveModels(md) {
   const list = md ? Object.values(md.network || {}) : [], prices = md?.ai?.prices;
   const ok = (m) => prices ? N(prices[m.name]) > 0 : hosts(m) > 0;
   return {list, live: list.filter(ok).sort(byName), waiting: list.filter((m) => !ok(m)).sort(byName)};
 }
-const ceilingOf = (name) => N(lazy.models.data?.ai?.prices?.[name]);
-const aiContext = () => N(lazy.models.data?.ai?.context) || AI_CONTEXT;
+// formato padrão de um modelo de imagem/vídeo: o da receita do catálogo (achada como o app acha os passos: mesma classe e
+// mesmo arquivo). Vale ao trocar de modelo; a escolha da pessoa fica até a próxima troca (o SD 1.5 é de 512×512)
+function recipeSize(name) {
+  const md = lazy.models.data, t = taskOf(name), sha = md?.network?.[name]?.sha256;
+  if (t === "text" || !sha) return;
+  const size = (Array.isArray(md.catalog) ? md.catalog : []).find((i) => i && i.task === t && i.sha256 === sha)?.recipe?.size;
+  const sel = $(t === "image" ? "ai-size" : "ai-vsize");
+  if ([...sel.options].some((o) => o.value === size && !o.disabled)) sel.value = size;
+}
+function genOpts(t) {
+  if (t === "image") return {size: $("ai-size").value, count: Math.max(1, Math.min(4, N($("ai-count").value) || 1))};
+  if (t === "video") return {size: $("ai-vsize").value, seconds: N($("ai-seconds").value) || 3};
+  return {max_tokens: Number($("ai-len").value) || 512};
+}
+function elapsedTxt(ms) { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s`; }
+// caixa de texto que cresce com o texto (escondida, a altura medida seria 0: volta ao normal)
+function grow(el = $("chat-text"), max = 220) {
+  if (!el.offsetParent) { el.style.height = ""; return; }
+  el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight + 2, max) + "px";
+}
+
+// ------------------------------------------------------------- markdown seguro
+// Escapa tudo primeiro e só então monta as marcas. Links só http/https, abrindo em outra aba sem passar quem abriu.
+const MD_FENCE = /^\s*(`{3,}|~{3,})\s*([\w+#.-]*)[^`]*$/;
+// linear: [ \t]+ e \S não disputam os mesmos caracteres (a de antes, (.+?)\s*#*\s*$, levava segundos numa linha com
+// milhares de espaços, e o texto vem da máquina de um estranho); o fecho "##" sai no headText
+const MD_HEAD = /^ {0,3}(#{1,6})[ \t]+(\S.*)$/;
+const MD_HR = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/;
+const MD_QUOTE = /^ {0,3}>\s?(.*)$/;
+const MD_LIST = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
+const MD_TSEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+function safeHref(u) {
+  try { const x = new URL(u); return /^https?:$/.test(x.protocol) ? u : ""; } catch { return ""; }
+}
+// negrito, itálico e riscado sobre texto JÁ escapado (as marcas não têm < nem >)
+const emph = (e) => e
+  .replace(/\*\*(?=\S)([^\n]*?\S)\*\*/g, "<strong>$1</strong>")
+  .replace(/__(?=\S)([^\n]*?\S)__/g, "<strong>$1</strong>")
+  .replace(/~~(?=\S)([^\n]*?\S)~~/g, "<del>$1</del>")
+  .replace(/(^|[^*\w])\*(?=[^\s*])([^*\n]*?[^\s*])\*(?![*\w])/g, "$1<em>$2</em>")
+  .replace(/(^|[^_\w])_(?=[^\s_])([^_\n]*?[^\s_])_(?![_\w])/g, "$1<em>$2</em>");
+function mdLinks(s) {
+  const re = /\[([^\]\n]+)\]\(\s*(https?:\/\/[^\s)]+)\s*\)|(https?:\/\/[^\s<>"'`]+)/gi;
+  let out = "", last = 0;
+  for (const m of s.matchAll(re)) {
+    let url = m[2] || m[3], tail = "";
+    if (m[3]) { const t = /[.,;:!?)\]]+$/.exec(url); if (t) { tail = t[0]; url = url.slice(0, -tail.length); } }
+    const href = safeHref(url);
+    out += emph(esc(s.slice(last, m.index)));
+    out += href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${m[1] ? emph(esc(m[1])) : esc(url)}</a>${esc(tail)}` : emph(esc(m[0]));
+    last = m.index + m[0].length;
+  }
+  return out + emph(esc(s.slice(last)));
+}
+function mdInline(raw) {
+  const s = String(raw);
+  let out = "", last = 0;
+  for (const m of s.matchAll(/`([^`\n]+)`/g)) { out += mdLinks(s.slice(last, m.index)) + `<code>${esc(m[1])}</code>`; last = m.index + m[0].length; }
+  return out + mdLinks(s.slice(last));
+}
+const codeBlockHTML = (code, lang) => `<div class="codeblk"><div class="code-head"><span>${esc(lang || "código")}</span>`
+  + `<button type="button" class="code-copy" data-copy-code>Copiar</button></div><pre><code>${esc(code)}</code></pre></div>`;
+const mdCells = (l) => {
+  let s = l.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
+  return s.split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
+};
+// texto do título sem o fecho "###" nem os espaços do fim; o fecho só vale separado por espaço ("# C#" fica "C#")
+function headText(s) {
+  let t = s.trimEnd(), j = t.length;
+  while (j > 0 && t[j - 1] === "#") j--;
+  if (j < t.length && (j === 0 || /\s/.test(t[j - 1]))) t = t.slice(0, j).trimEnd();
+  return t;
+}
+function mdStarts(lines, i) {
+  const l = lines[i];
+  return MD_FENCE.test(l) || MD_HEAD.test(l) || MD_HR.test(l) || MD_QUOTE.test(l) || MD_LIST.test(l)
+    || (l.includes("|") && i + 1 < lines.length && lines[i + 1].includes("|") && MD_TSEP.test(lines[i + 1]));
+}
+// listas com sublistas: cada item tem o recuo, se é numerada e o texto
+function mdList(items) {
+  let html = "";
+  const stack = [], tagOf = (it) => it.ord ? "ol" : "ul";
+  const open = (it) => { stack.push({ind: it.ind, tag: tagOf(it)}); return `<${tagOf(it)}${it.ord && it.start !== 1 ? ` start="${it.start}"` : ""}>`; };
+  for (const it of items) {
+    while (stack.length > 1 && it.ind < stack[stack.length - 1].ind) html += `</li></${stack.pop().tag}>`;
+    const top = stack[stack.length - 1];
+    if (!top || it.ind > top.ind) html += open(it);
+    else if (top.tag !== tagOf(it)) html += `</li></${stack.pop().tag}>` + open(it);
+    else html += "</li>";
+    html += `<li>${it.text.split("\n").map(mdInline).join("<br>")}`;
+  }
+  while (stack.length) html += `</li></${stack.pop().tag}>`;
+  return html;
+}
+function mdBlocks(src, depth = 0) {
+  const lines = String(src).replace(/\r\n?/g, "\n").split("\n"), out = [];
+  let i = 0, m;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+    if ((m = MD_FENCE.exec(line))) {
+      const fence = m[1], body = [];
+      i++;
+      while (i < lines.length && !(lines[i].trim().startsWith(fence) && /^([`~])\1*$/.test(lines[i].trim()))) body.push(lines[i++]);
+      i++;
+      out.push(codeBlockHTML(body.join("\n"), m[2]));
+      continue;
+    }
+    if ((m = MD_HEAD.exec(line))) { const lv = Math.min(6, m[1].length + 2); out.push(`<h${lv}>${mdInline(headText(m[2]))}</h${lv}>`); i++; continue; }
+    if (MD_HR.test(line)) { out.push("<hr>"); i++; continue; }
+    if (MD_QUOTE.test(line) && depth < 4) {
+      const body = [];
+      while (i < lines.length && (m = MD_QUOTE.exec(lines[i]))) { body.push(m[1]); i++; }
+      out.push(`<blockquote>${mdBlocks(body.join("\n"), depth + 1)}</blockquote>`);
+      continue;
+    }
+    if (line.includes("|") && i + 1 < lines.length && lines[i + 1].includes("|") && MD_TSEP.test(lines[i + 1])) {
+      const head = mdCells(line);
+      const al = mdCells(lines[i + 1]).map((c) => /^:-+:$/.test(c) ? "center" : /^-+:$/.test(c) ? "right" : /^:-+$/.test(c) ? "left" : "");
+      const rows = [];
+      i += 2;
+      while (i < lines.length && lines[i].trim() && lines[i].includes("|")) rows.push(mdCells(lines[i++]));
+      const cell = (tag, c, k) => `<${tag}${al[k] ? ` style="text-align:${al[k]}"` : ""}>${mdInline(c)}</${tag}>`;
+      out.push(`<div class="md-table"><table><thead><tr>${head.map((c, k) => cell("th", c, k)).join("")}</tr></thead><tbody>`
+        + rows.map((r) => `<tr>${head.map((_, k) => cell("td", r[k] ?? "", k)).join("")}</tr>`).join("") + `</tbody></table></div>`);
+      continue;
+    }
+    if (MD_LIST.test(line)) {
+      const items = [];
+      while (i < lines.length) {
+        const l = lines[i];
+        if (!l.trim()) {   // linha vazia: a lista continua se a próxima for item ou texto recuado
+          let j = i + 1;
+          while (j < lines.length && !lines[j].trim()) j++;
+          if (j < lines.length && (MD_LIST.test(lines[j]) || /^\s{2,}\S/.test(lines[j])) && !MD_FENCE.test(lines[j])) { i = j; continue; }
+          break;
+        }
+        if (MD_FENCE.test(l)) break;
+        const mm = MD_LIST.exec(l);
+        if (mm) {
+          const ord = /\d/.test(mm[2]);
+          items.push({ind: mm[1].replace(/\t/g, "    ").length, ord, start: ord ? parseInt(mm[2], 10) : 1, text: mm[3]});
+          i++;
+          continue;
+        }
+        if (/^\s+\S/.test(l)) { items[items.length - 1].text += "\n" + l.trim(); i++; continue; }
+        break;
+      }
+      out.push(mdList(items));
+      continue;
+    }
+    const para = [line];
+    i++;
+    while (i < lines.length && lines[i].trim() && !mdStarts(lines, i)) para.push(lines[i++]);
+    out.push(`<p>${para.map(mdInline).join("<br>")}</p>`);
+  }
+  return out.join("");
+}
+// texto do modelo: tira o <think> (raciocínio) para um bloco que abre e fecha, e monta o markdown
+function richText(raw) {
+  let text = String(raw ?? ""), think = "";
+  const t = /^\s*<think>([\s\S]*?)(?:<\/think>|$)\s*/i.exec(text);
+  if (t) { think = t[1].trim(); text = text.slice(t[0].length); }
+  return (think ? `<details class="think"><summary>Pensamento</summary>${mdBlocks(think)}</details>` : "") + mdBlocks(text);
+}
+
+// ------------------------------------------------------------- custo antes de enviar
 // a mesma conta do cliente (client.estimate e fit_messages): ~3 caracteres por token, +8 por mensagem, +16 por conversa
 const estTokens = (msgs) => msgs.reduce((s, m) => s + Math.floor(String(m.content || "").length / 3) + 8, 0) + 16;
+// o histórico que vai com a pergunta, cortado pela regra do client.fit_messages: ficam a primeira pergunta e as mensagens
+// mais recentes que cabem no contexto junto com a resposta (uma conversa guardada pode ter muito mais do que isso)
+function fitMessages(msgs, maxTok, ctx = aiContext()) {
+  if (!msgs.length) return {messages: [], cut: 0};
+  const room = ctx - Math.min(maxTok, Math.floor(ctx / 2)) - 48, cost = msgs.map((m) => Math.floor(m.content.length / 3) + 8);
+  const last = msgs.length - 1, keep = new Set([last]), first = msgs.findIndex((m) => m.role === "user");
+  let used = cost[last];
+  if (first >= 0 && first !== last && used + cost[first] <= room) { keep.add(first); used += cost[first]; }
+  for (let i = last - 1; i >= 0; i--) {   // das mais novas para as mais antigas, sem buracos no meio
+    if (keep.has(i)) continue;
+    if (used + cost[i] > room) break;
+    keep.add(i); used += cost[i];
+  }
+  const out = msgs.filter((_, i) => keep.has(i));
+  return {messages: out, cut: msgs.length - out.length};
+}
+// as mensagens de texto da conversa (sem erros nem mídia), mais a pergunta nova se ela ainda não entrou na conversa
+const apiMessages = (maxTok, next = null) => fitMessages(chat.messages.filter((m) => !m.error && !m.media)
+  .map(({role, content}) => ({role, content: String(content ?? "")})).concat(next == null ? [] : [{role: "user", content: next}]), maxTok);
 function maxCost(text) {
   const ceiling = ceilingOf(chat.model), ctx = aiContext();
   if (!ceiling) return null;
   const maxTok = Math.min(Number($("ai-len").value) || 512, Math.floor(ctx / 2));
   const room = ctx - maxTok - 32;                 // o que passar disso fica de fora: a reserva nunca é maior
-  const est = Math.min(estTokens([...chat.messages, {role: "user", content: text}]), room);
+  const est = Math.min(estTokens(apiMessages(maxTok, text).messages), room);
   return {ceiling, escrow: Math.max(1, Math.ceil((est + maxTok) * ceiling / 1000)),
           tooLong: Math.floor(text.length / 3) + 8 > room - 16};
 }
 const costLine = (escrow, ceiling) => `Custo máximo desta pergunta: <b>${esc(sig(escrow))} SIG</b> (${esc(num(ceiling))} µSIG por mil tokens). Você paga só o que for usado; o resto volta para a carteira.`;
+const mediaCostLine = (t, max, price, n) => `Custo máximo deste pedido: <b>${esc(sig(max))} SIG</b> (${esc(num(price))} µSIG por ${esc(unitOf(t))} × ${esc(num(n))}${t === "video" ? " s" : ""}). Você paga só o que for usado; o resto volta para a carteira.`;
 // o custo máximo aparece antes de enviar: na hora pela mesma conta do cliente e, logo depois, confirmado pelo app
 function renderMaxCost() {
-  const text = $("chat-text").value.trim(), key = JSON.stringify([chat.model, $("ai-len").value, chat.messages.length, text]);
-  const qd = chat.quote && chat.quote.key === key ? chat.quote : null, c = chat.model ? maxCost(text) : null;
-  setHTML("chat-max", !chat.model ? "" : qd?.error ? `<span class="warn">${esc(cap(qd.error))}</span>`
-    : qd && !qd.price ? `<span class="warn">Nenhum computador com este modelo aceita pedidos cifrados agora: tente daqui a pouco.</span>`
-    : qd ? costLine(qd.max_cost, qd.price)
-    : !c ? "" : c.tooLong ? `<span class="warn">Sua mensagem é longa demais para os modelos da rede: divida o texto em partes menores.</span>`
-    : costLine(c.escrow, c.ceiling));
+  const t = curTask(), text = $("chat-text").value.trim(), opts = genOpts(t);
+  const key = JSON.stringify([chat.model, t, opts, chat.messages.length, t === "text" ? text : ""]);
+  const qd = chat.quote && chat.quote.key === key ? chat.quote : null;
+  let html = "";
+  if (chat.model) {
+    if (qd?.error) html = `<span class="warn">${esc(cap(qd.error))}</span>`;
+    else if (qd && !qd.price) html = `<span class="warn">Nenhum computador com este modelo aceita pedidos cifrados agora: tente daqui a pouco.</span>`;
+    else if (t === "text") {
+      const c = maxCost(text);
+      html = qd ? costLine(qd.max_cost, qd.price) : !c ? "" : c.tooLong
+        ? `<span class="warn">Sua mensagem é longa demais para os modelos da rede: divida o texto em partes menores.</span>` : costLine(c.escrow, c.ceiling);
+    } else {
+      const price = qd ? qd.price : ceilingOf(chat.model), n = t === "image" ? opts.count : opts.seconds;
+      html = price ? mediaCostLine(t, qd ? qd.max_cost : price * n, price, n) : "";
+    }
+  }
+  setHTML("chat-max", html);
   clearTimeout(chat.quoteTimer);
-  if (chat.model && !qd && !chat.busy) chat.quoteTimer = setTimeout(() => askQuote(key, text), 350);
+  if (chat.model && !qd && !chat.busy) chat.quoteTimer = setTimeout(() => askQuote(key, t, text, opts), 350);
 }
-async function askQuote(key, text) {
-  const model = chat.model, messages = [...chat.messages.map(({role, content}) => ({role, content})), {role: "user", content: text || "?"}];
+async function askQuote(key, t, text, opts) {
+  const model = chat.model;
+  const body = t === "text" ? {model, messages: apiMessages(opts.max_tokens, text || "?").messages, max_tokens: opts.max_tokens}
+    : {model, prompt: text || "?", ...opts};
   try {
-    const r = await api("/api/ai/quote", {model, messages, max_tokens: Number($("ai-len").value) || 512}, 15000);
+    const r = await api("/api/ai/quote", body, 15000);
     chat.quote = {key, model, price: N(r.price), max_cost: N(r.max_cost)};
   } catch (x) {
     if (!x.status || x.status === 404) return;   // app sem a rota (ou fora do ar): fica a conta local
@@ -1855,65 +2277,315 @@ async function askQuote(key, text) {
   }
   if (tab === "ia") renderMaxCost();
 }
-function chatRender() {
-  const log = $("chat-log");
-  if (!chat.messages.length && !chat.busy) {
-    const md = lazy.models.data, live = md && liveModels(md).live.length;
-    setHTML(log, `<div class="chat-empty">${!md ? (lazy.models.err ? `${LOAD_FAIL}${techHTML(lazy.models.err)}` : "Carregando os modelos da rede…")
-      : live ? "<b>Pergunte o que quiser</b>Cada resposta mostra quanto custou e qual computador da rede respondeu."
-      : '<b>Nenhum modelo no ar agora</b>Modelos entram na rede quando alguém apadrinha e os computadores baixam. <button type="button" class="link" data-go="modelos">Ver modelos</button>'}</div>`);
-    return;
+
+// ------------------------------------------------------------- imagens e vídeos
+const validMedia = (x) => !!x && typeof x === "object" && MEDIA_HASH_RE.test(String(x.hash)) && MEDIA_MIME_RE.test(String(x.mime));
+const mediaName = (x) => `sigma-${String(x.hash).slice(0, 12)}.${MEDIA_EXT[x.mime] || "bin"}`;
+// busca os bytes com o token (como toda rota /api) e mostra por blob: — nunca um endereço de fora
+function mediaUrl(x) {
+  const c = media.get(x.hash);
+  if (c) return c.url || "";
+  media.set(x.hash, {busy: true});
+  api("/api/media/" + encodeURIComponent(x.hash), undefined, 120000, "blob")
+    .then((b) => { media.set(x.hash, {url: URL.createObjectURL(new Blob([b], {type: x.mime}))}); },
+          (e) => { media.set(x.hash, {err: e.message}); })
+    .finally(() => { if (S && tab === "ia") chatRender(); });
+  return "";
+}
+const mediaWait = (x, what) => media.get(x.hash)?.err ? "Não deu para carregar." : `carregando ${what}…`;
+function mediaHTML(list) {
+  const items = (Array.isArray(list) ? list : []).filter(validMedia);
+  const imgs = items.filter((x) => x.mime.startsWith("image/")), vids = items.filter((x) => x.mime.startsWith("video/"));
+  let html = "";
+  if (imgs.length) html += `<div class="m-grid n${imgs.length === 1 ? 1 : 2}">` + imgs.map((x, k) => {
+    const u = mediaUrl(x), ratio = N(x.width) > 0 && N(x.height) > 0 ? ` style="aspect-ratio:${N(x.width)}/${N(x.height)}"` : "";
+    return `<button type="button" class="thumb" data-media="${esc(x.hash)}"${ratio} aria-label="Abrir a imagem ${k + 1} de ${imgs.length}">`
+      + (u ? `<img src="${esc(u)}" alt="Imagem gerada ${k + 1} de ${imgs.length}">` : `<span class="thumb-wait">${esc(mediaWait(x, "a imagem"))}</span>`) + `</button>`;
+  }).join("") + `</div>`;
+  for (const x of vids) {
+    const u = mediaUrl(x);
+    html += `<div class="m-video">${u ? `<video controls preload="metadata" src="${esc(u)}"></video>` : `<div class="thumb-wait">${esc(mediaWait(x, "o vídeo"))}</div>`}`
+      + (u ? `<div class="m-acts"><a class="m-act" href="${esc(u)}" download="${esc(mediaName(x))}">Baixar</a></div>` : "") + `</div>`;
   }
-  const html = chat.messages.map(msgHTML).join("") + (chat.busy
-    ? `<div class="msg"><div class="who">${esc(chat.pendingModel)}</div><div class="body"><span class="dots"><i></i><i></i><i></i></span> pensando… <span id="chat-elapsed">0 s</span> `
-      + `<button type="button" class="small" data-chat-cancel${chat.canceling ? " disabled" : ""}>${chat.canceling ? "Cancelando…" : "Cancelar"}</button></div></div>` : "");
-  if (log._h === html) return;          // nada novo: não mexe na rolagem de quem está lendo
-  setHTML(log, html);
-  log.scrollTop = log.scrollHeight;
+  return html || `<p class="m-err">A resposta não trouxe nenhuma imagem ou vídeo que dê para mostrar.</p>`;
+}
+function openMedia(hash) {
+  const c = media.get(hash);
+  if (!c?.url) return;
+  const x = chat.messages.flatMap((m) => Array.isArray(m.media) ? m.media : []).find((y) => y && y.hash === hash) || {hash, mime: "image/png"};
+  openDialog({title: "Imagem gerada", html: `<img class="dlg-img" src="${esc(c.url)}" alt="Imagem gerada">`
+    + `<div class="row mt"><a class="btn primary" href="${esc(c.url)}" download="${esc(mediaName(x))}">Baixar</a></div>`});
+}
+// solta da memória as imagens que não são da conversa aberta
+function mediaGC() {
+  const keep = new Set(chat.messages.flatMap((m) => Array.isArray(m.media) ? m.media.map((x) => x && x.hash) : []));
+  for (const [h, c] of media) if (!keep.has(h) && !c.busy) { if (c.url) URL.revokeObjectURL(c.url); media.delete(h); }
+}
+
+// ------------------------------------------------------------- mensagens
+function msgHTML(m, i, last) {
+  if (m.role === "user") return `<div class="m-user"><div class="bubble">${esc(m.content)}</div></div>`;
+  const head = [m.model || chat.convModel || chat.model, m.machine ? "máquina " + short(m.machine) : "", m.cost != null ? sig(m.cost) + " SIG" : ""]
+    .filter(Boolean).map(esc).join(" · ");
+  const body = m.error ? `<p class="m-err">${esc(cap(m.error))}</p>` : Array.isArray(m.media) ? mediaHTML(m.media) : `<div class="md">${richText(m.content)}</div>`;
+  const acts = [];
+  if (!m.media && !m.error && m.content) acts.push(`<button type="button" class="m-act" data-msg-copy="${i}">Copiar</button>`);
+  if (last && !chat.busy) acts.push(`<button type="button" class="m-act" data-msg-retry>Tentar de novo</button>`);
+  return `<div class="m-ai"><div class="m-head">${head}</div>${body}${acts.length ? `<div class="m-acts">${acts.join("")}</div>` : ""}</div>`;
+}
+function emptyHTML() {
+  const md = lazy.models.data;
+  if (!md) return `<div class="ai-empty">${lazy.models.err ? `<p>${LOAD_FAIL}</p>${techHTML(lazy.models.err)}` : "<p>Carregando os modelos da rede…</p>"}</div>`;
+  if (!liveModels(md).live.length) return `<div class="ai-empty"><p class="ai-hello">Nenhum modelo no ar agora</p><p>Modelos entram na rede quando alguém apadrinha e os computadores baixam. <button type="button" class="link" data-go="modelos">Ver modelos</button></p></div>`;
+  const t = curTask();
+  const lead = {text: "Cada resposta roda no computador de alguém da rede, que recebe em SIG pelo trabalho. Você paga só o que usar.",
+                image: "Descreva a imagem. Um computador da rede desenha e recebe em SIG pelo trabalho.",
+                video: "Descreva o vídeo. Um computador da rede gera e recebe em SIG pelo trabalho."}[t];
+  return `<div class="ai-empty"><p class="ai-hello">Como posso ajudar?</p><p>${esc(lead)}</p>`
+    + `<div class="chips">${SUGGEST[t].map((s, k) => `<button type="button" class="chip" data-chip="${k}">${esc(s)}</button>`).join("")}</div></div>`;
+}
+function chatPendingHTML() {
+  const t = chat.pendingTask;
+  const what = t === "image" ? (chat.pendingCount > 1 ? `gerando ${num(chat.pendingCount)} imagens…` : "gerando a imagem…") : t === "video" ? "gerando o vídeo…" : "pensando…";
+  return `<div class="m-ai"><div class="m-head">${esc(chat.pendingModel)}</div><div class="m-wait"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>`
+    + `<span>${what}</span><span id="chat-elapsed"></span>`
+    + (t === "video" ? `<span class="m-note">O vídeo pode levar vários minutos. Pode trocar de aba: ele aparece aqui quando ficar pronto.</span>`
+      : t === "image" ? `<span class="m-note">Uma imagem leva de alguns segundos a um minuto.</span>` : "")
+    + `</div></div>`;
+}
+const tickChat = () => { if (chat.busy) setText("chat-elapsed", elapsedTxt(Date.now() - chat.started)); };
+function chatRender() {
+  const log = $("chat-log"), n = chat.messages.length;
+  setHTML("chat-msgs", n || chat.busy ? chat.messages.map((m, i) => msgHTML(m, i, i === n - 1)).join("") : emptyHTML());
+  setHTML("chat-pending", chat.busy ? chatPendingHTML() : "");
+  tickChat();
+  const key = `${chat.seq}|${n}|${chat.busy}`;   // desce até o fim só quando chega mensagem nova (não a cada desenho)
+  if (key !== chat.scrollKey) { chat.scrollKey = key; log.scrollTop = log.scrollHeight; }
+}
+
+// ------------------------------------------------------------- conversas guardadas
+function dayGroup(t) {
+  const d = new Date(N(t) * 1000), now = new Date(), day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86400000);
+  return diff <= 0 ? "Hoje" : diff === 1 ? "Ontem" : "Anteriores";
+}
+const chatList = () => (Array.isArray(lazy.chats.data?.chats) ? lazy.chats.data.chats : []).filter((c) => c && CHAT_ID_RE.test(String(c.id)));
+function sideHTML() {
+  const L = lazy.chats;
+  if (!L.data) return L.err ? `<p class="side-empty">Não deu para carregar as conversas agora.</p>${techHTML(L.err)}` : `<p class="side-empty">Carregando…</p>`;
+  const list = chatList().slice().sort((a, b) => N(b.updated) - N(a.updated));
+  if (!list.length) return `<p class="side-empty">Suas conversas aparecem aqui.</p>`;
+  let html = "", group = "";
+  for (const c of list) {
+    const g = dayGroup(c.updated), title = String(c.title || "") || "Sem título", t = TASK_LIST.includes(c.task) ? c.task : "text", on = c.id === chat.cid;
+    if (g !== group) { group = g; html += `<p class="side-group">${g}</p>`; }
+    html += `<div class="side-item${on ? " on" : ""}"><button type="button" class="side-open" data-chat-open="${esc(c.id)}" title="${esc(title)}"${on ? ' aria-current="true"' : ""}>`
+      + `<span class="t">${esc(title)}</span>${t !== "text" ? `<span class="k">${TASK_NAME[t]}</span>` : ""}</button>`
+      + `<button type="button" class="side-act" data-chat-rename="${esc(c.id)}" aria-label="Renomear a conversa" title="Renomear">✎</button>`
+      + `<button type="button" class="side-act" data-chat-del="${esc(c.id)}" aria-label="Apagar a conversa" title="Apagar">×</button></div>`;
+  }
+  return html;
+}
+function sideOpen(v) {
+  chat.side = !!v;
+  $("ai").classList.toggle("side-open", chat.side);
+  $("ai-toggle").setAttribute("aria-expanded", String(chat.side));
+  if (chat.side) $("chat-new").focus();
+}
+function newChat() {
+  chat.seq++; chat.saving = null;
+  Object.assign(chat, {cid: "", title: "", convModel: "", messages: [], total: 0, trimmed: false, quote: null});
+  if (chat.model) chat.task = taskOf(chat.model);
+  mediaGC();
+}
+async function openChat(id) {
+  if (!CHAT_ID_RE.test(String(id))) return;
+  if (chat.busy) return toast("Espere a resposta chegar ou clique em Parar (■).");
+  sideOpen(false);
+  if (id === chat.cid) return;
+  try {
+    const r = await api("/api/chats/" + id, undefined, 20000);
+    chat.seq++; chat.saving = null;
+    const msgs = (Array.isArray(r.messages) ? r.messages : []).filter((m) => m && (m.role === "user" || m.role === "assistant"))
+      .map((m) => ({...m, content: String(m.content ?? "")}));
+    Object.assign(chat, {cid: CHAT_ID_RE.test(String(r.id)) ? r.id : id, title: String(r.title || ""), task: TASK_LIST.includes(r.task) ? r.task : "text",
+                         convModel: String(r.model || ""), messages: msgs, trimmed: false, quote: null});
+    chat.total = msgs.reduce((s, m) => s + N(m.cost), 0);
+    if (r.model) chat.model = String(r.model);   // se não estiver no ar, o renderIA escolhe outro da mesma classe
+    mediaGC();
+  } catch (x) { toast("Não deu para abrir a conversa: " + x.message, "err", 6000); }
+  finally { renderIA(); $("chat-text").focus(); }
+}
+function slimMsg(m) {
+  const o = {role: m.role, content: String(m.content ?? ""), time: N(m.time) || nowSec()};
+  if (Array.isArray(m.media)) o.media = m.media.filter(validMedia);
+  if (m.cost != null) o.cost = N(m.cost);
+  if (m.machine) o.machine = String(m.machine);
+  if (m.error) o.error = String(m.error);
+  return o;
+}
+// guarda depois de cada resposta (em fila: a segunda espera a primeira devolver o id)
+function saveChat() {
+  const seq = chat.seq;
+  const run = async () => {
+    if (seq !== chat.seq || !chat.messages.length) return;
+    const body = {task: chat.task, model: chat.model || chat.convModel, messages: chat.messages.map(slimMsg)};
+    if (chat.cid) body.id = chat.cid;
+    try {
+      const r = await api("/api/chats/save", body, 20000);
+      if (seq !== chat.seq) return;
+      if (CHAT_ID_RE.test(String(r.id))) chat.cid = r.id;
+      if (r.title) chat.title = String(r.title);
+      const L = lazy.chats;   // a lista já mostra a conversa, sem esperar o próximo /api/chats
+      if (chat.cid) L.data = {chats: [{id: chat.cid, title: chat.title, task: chat.task, model: body.model, updated: N(r.updated) || nowSec(),
+                                      count: chat.messages.length}, ...chatList().filter((c) => c.id !== chat.cid)]};
+      refresh("chats");
+    } catch (x) {   // app antigo, sem a rota: a conversa fica só nesta janela, sem aviso a cada resposta
+      if (seq === chat.seq && x.status !== 404) toast("Não deu para guardar esta conversa: " + x.message, "err", 6000);
+    }
+    if (tab === "ia") renderIA();
+  };
+  chat.saving = (chat.saving || Promise.resolve()).then(run, run);
+}
+function renameChat(id) {
+  const c = chatList().find((x) => x.id === id);
+  if (!c) return;
+  openDialog({title: "Renomear conversa", ok: "Salvar", fields: [{k: "title", label: "Nome", value: String(c.title || "")}],
+    run: async (v) => {
+      const title = v.title.trim();
+      if (!title) throw new Error("Escreva um nome para a conversa.");
+      if (title.length > 120) throw new Error("Use no máximo 120 caracteres.");
+      await api("/api/chats/rename", {id, title});
+      c.title = title;
+      if (id === chat.cid) chat.title = title;
+      toast("Conversa renomeada"); refresh("chats"); if (tab === "ia") renderIA();
+    }});
+}
+function deleteChat(id) {
+  const c = chatList().find((x) => x.id === id);
+  if (!c) return;
+  // a conversa aberta esperando resposta: a resposta que chegasse depois gravaria de novo a conversa apagada
+  if (id === chat.cid && chat.busy) return toast("Espere a resposta chegar ou clique em Parar (■).");
+  openDialog({title: "Apagar esta conversa?", ok: "Apagar", danger: true,
+    text: `“${String(c.title || "Sem título")}” sai da lista e não dá para desfazer. O que já foi pago continua no histórico da carteira.`,
+    run: async () => {
+      await api("/api/chats/delete", {id});
+      if (lazy.chats.data) lazy.chats.data = {chats: chatList().filter((x) => x.id !== id)};
+      if (id === chat.cid) newChat();
+      toast("Conversa apagada"); refresh("chats"); if (tab === "ia") renderIA();
+    }});
+}
+
+// ------------------------------------------------------------- aba IA
+function fitSelect(sel, allowed) {
+  if (!allowed) return;
+  [...sel.options].forEach((o) => { o.hidden = o.disabled = !allowed(o.value); });
+  if (sel.selectedOptions[0]?.disabled) { const f = [...sel.options].find((o) => !o.disabled); if (f) sel.value = f.value; }
+}
+function syncSend() {
+  const b = $("chat-send"), w = S?.wallet || {};
+  b.type = chat.busy ? "button" : "submit";
+  b.toggleAttribute("data-chat-cancel", chat.busy);   // enquanto espera, o botão de enviar vira o de parar
+  b.classList.toggle("stop", chat.busy);
+  b.disabled = chat.busy ? chat.canceling : !chat.model || !w.can_spend;
+  const label = chat.busy ? (chat.canceling ? "Cancelando…" : "Parar") : "Enviar";
+  b.setAttribute("aria-label", label); b.title = chat.busy ? label : "Enviar (Enter)";
+  setText(b, chat.busy ? "■" : "↑");
 }
 function renderIA() {
   const md = want("models"), w = S.wallet || {};
-  const {list, live, waiting} = liveModels(md);
-  if (!live.some((m) => m.name === chat.model)) chat.model = live[0]?.name || "";
-  setHTML("ai-model", (live.map((m) => `<option value="${esc(m.name)}"${m.name === chat.model ? " selected" : ""}>${esc(m.name)} · ${plural(hosts(m), "computador", "computadores")}</option>`).join("")
-    || `<option value="">${md ? "nenhum modelo no ar" : "carregando…"}</option>`)
-    + (waiting.length ? `<optgroup label="Esperando computadores">${waiting.map((m) => `<option disabled>${esc(m.name)}</option>`).join("")}</optgroup>` : ""));
-  const cur = list.find((m) => m.name === chat.model);
-  setHTML("ai-info", cur ? [cur.license, fmtBytes(cur.size), cur.description].filter(Boolean).map(esc).join(" · ") : "");
+  want("chats", 30000);
+  const {live, waiting} = liveModels(md);
+  if (md) {   // o modelo escolhido: o da conversa aberta (ou um da mesma classe); sem conversa, um de texto
+    const need = chat.messages.length ? chat.task : null;
+    const fits = (n) => !!n && live.some((m) => m.name === n) && (!need || taskOf(n) === need);
+    if (!fits(chat.model)) chat.model = [chat.convModel].find(fits)
+      || (need ? live.find((m) => taskOf(m.name) === need) : live.find((m) => taskOf(m.name) === "text") || live[0])?.name || "";
+    if (!chat.messages.length && chat.model) chat.task = taskOf(chat.model);
+    if (chat.model !== chat.recipeFor) { chat.recipeFor = chat.model; recipeSize(chat.model); }   // trocou de modelo
+  }
+  const t = curTask();
+  const opt = (m) => `<option value="${esc(m.name)}"${m.name === chat.model ? " selected" : ""}>${esc(m.name)}${priceLabel(m.name) ? " · " + esc(priceLabel(m.name)) : ""}</option>`;
+  const groups = TASK_LIST.map((k) => { const ms = live.filter((m) => taskOf(m.name) === k); return ms.length ? `<optgroup label="${TASK_NAME[k]}">${ms.map(opt).join("")}</optgroup>` : ""; }).join("");
+  setHTML("ai-model", (!chat.model && live.length ? `<option value="" selected>Escolha um modelo</option>` : "")
+    + (groups || `<option value="">${md ? "nenhum modelo no ar" : "carregando…"}</option>`)
+    + (waiting.length ? `<optgroup label="Esperando computadores">${waiting.map((m) => `<option disabled>${esc(m.name)} · ${TASK_NAME[taskOf(m.name)]}</option>`).join("")}</optgroup>` : ""));
+  setVal($("ai-model"), chat.model);
+  $("opt-text").hidden = t !== "text"; $("opt-image").hidden = t !== "image"; $("opt-video").hidden = t !== "video";
+  const li = limitsOf("image"), lv = limitsOf("video");
+  fitSelect($("ai-size"), Array.isArray(li?.sizes) ? (v) => li.sizes.includes(v) : null);
+  fitSelect($("ai-count"), N(li?.max_count) ? (v) => N(v) <= N(li.max_count) : null);
+  fitSelect($("ai-vsize"), Array.isArray(lv?.sizes) ? (v) => lv.sizes.includes(v) : null);
+  fitSelect($("ai-seconds"), Array.isArray(lv?.seconds) ? (v) => lv.seconds.map(Number).includes(N(v)) : null);
+  setText("ai-kind", chat.messages.length ? `Conversa de ${TASK_NAME[chat.task].toLowerCase()}: escolher um modelo de outro tipo começa uma conversa nova.` : "");
+  setText("ai-privacy", PRIVACY[t]);
+  $("chat-text").placeholder = PLACEHOLDER[t];
   const notes = [];
   if (!w.can_spend) notes.push(keyNote("usar a IA"));
   else if (!balUnknown(w) && !N(w.balance)) notes.push(`<p class="note">Você ainda não tem SIG para pagar as respostas. Deixe o computador minerando: os primeiros SIG começam a entrar em uns 10 minutos, um pouco a cada bloco.</p>`);
   if (chat.trimmed) notes.push(`<p class="note">A conversa ficou longa demais para este modelo: as mensagens mais antigas ficaram de fora. Para recomeçar, clique em Nova conversa.</p>`);
+  if (md && chat.messages.length && !chat.model) notes.push(`<p class="note">Nenhum modelo de ${TASK_NAME[chat.task].toLowerCase()} está no ar agora. Espere um voltar para continuar esta conversa, ou escolha outro modelo para começar uma nova.</p>`);
   setHTML("ai-notes", notes.join(""));
-  $("chat-send").disabled = chat.busy || !chat.model || !w.can_spend;
-  setText("chat-total", `Esta conversa custou ${sig(chat.total)} SIG.`);
+  syncSend();
+  setText("chat-total", chat.messages.length ? `Esta conversa custou ${sig(chat.total)} SIG` : "");
+  setHTML("ai-list", sideHTML());
+  $("ai").classList.toggle("side-open", !!chat.side);
   renderMaxCost();
   chatRender();
 }
-async function chatSend(e) {
-  e?.preventDefault();
-  const text = $("chat-text").value.trim(), model = chat.model;
-  if (!text || chat.busy) return;
+// escolher um modelo de outra classe começa uma conversa nova (cada conversa tem um tipo só)
+function pickModel(name) {
+  if (chat.busy) { setVal($("ai-model"), chat.model); return toast("Espere a resposta chegar ou clique em Parar (■)."); }
+  if (!name) return;
+  const t = taskOf(name);
+  if (chat.messages.length && t !== chat.task) {
+    newChat();
+    toast(`Conversa nova de ${TASK_NAME[t].toLowerCase()}: cada conversa tem um tipo só.`, "ok", 5000);
+  }
+  chat.model = name; chat.quote = null;
+  if (!chat.messages.length) chat.task = t;
+  renderIA();
+}
+async function chatSend(e, retry = null) {
+  e?.preventDefault?.();
+  if (chat.busy) return;
+  const text = (retry ? retry.text : $("chat-text").value).trim(), model = chat.model;
+  if (!text) return;
   if (!model) return toast("Escolha um modelo que esteja no ar", "err");
-  const ceiling = ceilingOf(model);
+  const t = taskOf(model);
+  if (chat.messages.length && t !== chat.task) return toast("Este modelo é de outro tipo: comece uma conversa nova.", "err");
+  chat.task = t;
+  const opts = genOpts(t), seq = chat.seq;
   clearTimeout(chat.quoteTimer);
-  chat.messages.push({role: "user", content: text});
-  $("chat-text").value = "";
-  Object.assign(chat, {busy: true, started: Date.now(), pendingModel: model, canceling: false});
+  const shown = (chat.quote?.model === model && chat.quote.price) || ceilingOf(model);
+  chat.messages.push({role: "user", content: text, time: nowSec()});
+  if (!retry) { $("chat-text").value = ""; grow(); }
+  chat.reqId = "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);   // o Parar vale só para este pedido
+  Object.assign(chat, {busy: true, started: Date.now(), pendingModel: model, pendingTask: t, pendingCount: opts.count || 1, canceling: false});
   renderIA();
   try {
-    chat.id = "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);   // o Cancelar vale só para esta pergunta
-    const body = {model, id: chat.id, max_tokens: Number($("ai-len").value) || 512, messages: chat.messages.map(({role, content}) => ({role, content}))};
-    const shown = (chat.quote?.model === model && chat.quote.price) || ceiling;
-    if (shown) body.max_price = shown;   // o teto que o painel mostrou: a pergunta nunca reserva mais do que isso
-    const r = await api("/api/ai/chat", body);
-    chat.messages.push({role: "assistant", content: r.text, cost: r.cost, machine: r.machine, model});
-    chat.total += N(r.cost);
-    if (N(r.trimmed) > 0) chat.trimmed = true;   // mensagens antigas ficaram de fora para caber no modelo
+    const fit = t === "text" ? apiMessages(opts.max_tokens) : null;
+    const body = t === "text" ? {model, id: chat.reqId, max_tokens: opts.max_tokens, messages: fit.messages}
+      : {model, id: chat.reqId, prompt: text, ...opts};
+    if (shown) body.max_price = shown;   // o teto que o painel mostrou: o pedido nunca reserva mais do que isso
+    const r = await api(t === "text" ? "/api/ai/chat" : t === "image" ? "/api/ai/image" : "/api/ai/video", body);
+    const msg = {role: "assistant", content: t === "text" ? String(r.text ?? "") : "", cost: N(r.cost),
+                 machine: r.machine ? String(r.machine) : "", model, time: nowSec()};
+    if (t !== "text") msg.media = (Array.isArray(r.media) ? r.media : []).filter(validMedia).map((x) => ({hash: String(x.hash), mime: String(x.mime),
+      width: N(x.width), height: N(x.height), ...(x.seconds != null ? {seconds: N(x.seconds)} : {})}));
+    if (seq === chat.seq) {
+      chat.messages.push(msg);
+      chat.total += N(r.cost);
+      if (fit?.cut || N(r.trimmed) > 0) chat.trimmed = true;   // mensagens antigas ficaram de fora para caber no modelo
+      if (!chat.convModel) chat.convModel = model;
+      saveChat();
+    }
     schedule(500);
   } catch (x) {
-    chat.messages.pop();            // devolve a pergunta para tentar de novo
-    $("chat-text").value = text;
+    if (seq === chat.seq) {
+      chat.messages.pop();            // devolve o pedido para tentar de novo
+      if (retry) chat.messages.push(...retry.removed); else { $("chat-text").value = text; grow(); }
+    }
     if (x.code === "canceled") toast(x.message || "Pedido cancelado. O valor reservado voltou para a sua carteira.", "ok", 6000);
     // frases completas do app ("Nenhum computador respondeu a tempo…") vão como estão; as curtas ganham o contexto
     else toast(/^[A-ZÁÉÍÓÚÂÊÔÃÕÇ]/.test(x.message) ? x.message : "A IA não respondeu: " + x.message, "err", 9000);
@@ -1923,31 +2595,38 @@ async function chatSend(e) {
     $("chat-text").focus();
   }
 }
-// "Cancelar" ao lado do "pensando…": se nenhum computador pegou a pergunta, ela é cancelada e o valor volta
+// "Tentar de novo": pede outra resposta para a última pergunta (a anterior volta se a nova falhar)
+function chatRetry() {
+  const n = chat.messages.length;
+  if (chat.busy || n < 2 || chat.messages[n - 1].role !== "assistant" || chat.messages[n - 2].role !== "user") return;
+  const removed = chat.messages.splice(n - 2, 2);
+  chatSend(null, {text: removed[0].content, removed});
+}
+// o botão de parar (no lugar do enviar): se nenhum computador pegou o pedido, ele é cancelado e o valor volta
 async function chatCancel() {
   if (!chat.busy || chat.canceling) return;
-  chat.canceling = true; chatRender();
+  chat.canceling = true; syncSend();
   try {
-    const body = chat.id ? {id: chat.id} : {};
+    const body = chat.reqId ? {id: chat.reqId} : {};
     let r = await api("/api/ai/cancel", body);
-    // clique logo depois de enviar: a pergunta pode ainda não ter chegado ao app; pede de novo
+    // clique logo depois de enviar: o pedido pode ainda não ter chegado ao app; pede de novo
     for (let i = 0; i < 3 && !r.running && chat.busy; i++) r = await api("/api/ai/cancel", body);
     if (r.claimed) {   // alguém já está respondendo: o valor só volta sozinho se ele não entregar
-      chat.canceling = false; chatRender();
+      chat.canceling = false; syncSend();
       toast(r.message || "Um computador já está respondendo. Espere mais um pouco: se ele não entregar, o valor reservado volta para você sozinho.", "ok", 9000);
     }
   } catch (x) {
-    chat.canceling = false; chatRender();
+    chat.canceling = false; syncSend();
     toast("Não deu para cancelar: " + x.message, "err", 6000);
   }
 }
 
 // ------------------------------------------------------------- Programar (Sigma Code)
-// quem responde é o computador de outra pessoa: nada é gravado nem executado sem a pessoa aprovar aqui.
-// Tudo o que vem do agente (texto, argumentos, saídas, prévias, comandos) passa por esc()/richText.
+// No jeito de um agente de terminal. Quem responde é o computador de outra pessoa: nada é gravado nem executado sem a
+// pessoa aprovar aqui. Tudo o que vem do agente (texto, argumentos, saídas, prévias, comandos) passa por esc()/richText.
 let codeModel = "";
-const CODE_TOOL = {read_file: "Leu o arquivo", list_dir: "Olhou a pasta", write_file: "Gravou o arquivo", create_file: "Criou o arquivo",
-  edit_file: "Editou o arquivo", run_command: "Rodou o comando"};
+const ccUI = {open: new Set(), lastPending: "", scrollKey: ""};
+const CODE_LABEL = {read_file: "Ler", list_dir: "Listar", write_file: "Escrever", create_file: "Criar", edit_file: "Editar", run_command: "Rodar"};
 // o alvo mostrado vem do backend: p.target/step.target (caminho resolvido por sigmacode.visible(), ou o comando em
 // run_command). Nunca de uma chave livre dos args, que o estranho que responde controla (achado app-approval-card-spoof).
 function toolTarget(tool, args, target) {
@@ -1956,82 +2635,140 @@ function toolTarget(tool, args, target) {
   const v = tool === "run_command" ? args.command : tool === "list_dir" ? (args.dir ?? args.path ?? ".") : args.path;
   return typeof v === "string" ? v : v == null ? "" : JSON.stringify(v);
 }
-function stepHTML(s) {
-  const kind = String(s.kind || "info");
-  if (kind === "assistant") return `<div class="step assistant"><div class="who">Sigma Code</div><div class="body">${richText(s.text)}</div></div>`;
-  if (kind === "final") return `<div class="step final"><div class="who">Pronto</div><div class="body">${richText(s.text)}</div></div>`;
-  if (kind === "error") return `<div class="step error"><div class="who">Parou com erro</div><div class="body">${esc(cap(s.text))}</div></div>`;
-  if (kind === "tool") {
-    const tool = String(s.tool || ""), what = toolTarget(tool, s.args, s.target);
-    return `<div class="step tool"><div class="who">${esc(CODE_TOOL[tool] || "Ferramenta " + tool)}${s.refused ? ' <span class="tag bad">recusado</span>' : ""}</div>`
-      + (what ? `<div class="body mono">${esc(what)}</div>` : "")
-      + (s.output ? `<details><summary>Resultado</summary><pre>${esc(s.output)}</pre></details>` : "") + `</div>`;
-  }
-  return `<div class="step info">${esc(s.text)}</div>`;
+const oneLine = (s, max = 160) => { s = String(s ?? "").replace(/\r?\n/g, " ⏎ "); return s.length > max ? s.slice(0, max - 1) + "…" : s; };
+// prévia que parece um diff: linhas com + e − coloridas
+function looksDiff(t) {
+  const ls = String(t).split("\n");
+  return /^(@@ |--- |\+\+\+ )/m.test(t) || (ls.some((l) => /^\+(?!\+\+)/.test(l)) && ls.some((l) => /^-(?!--)/.test(l)));
 }
-// cartão de aprovação (SPEC 2.3): comando sempre pergunta; arquivo pergunta se a caixa não foi marcada
+const diffHTML = (t) => String(t).split("\n").map((l) => {
+  const c = /^@@/.test(l) ? "d-hunk" : /^(\+\+\+|---)( |$)/.test(l) ? "d-file" : l.startsWith("+") ? "d-add" : l.startsWith("-") ? "d-del" : "";
+  return `<span class="d-line${c ? " " + c : ""}">${esc(l)}</span>`;
+}).join("");
+const previewHTML = (t) => looksDiff(t) ? diffHTML(t) : esc(t);
+function stepHTML(s, i) {
+  const kind = String(s.kind || "info");
+  if (kind === "assistant") return `<div class="cc-step cc-ai"><span class="cc-dot" aria-hidden="true">●</span><div class="md">${richText(s.text)}</div></div>`;
+  if (kind === "final") return `<div class="cc-step cc-final"><span class="cc-dot" aria-hidden="true">✓</span><div><div class="cc-label">Pronto</div><div class="md">${richText(s.text)}</div></div></div>`;
+  if (kind === "error") return `<div class="cc-step cc-error"><span class="cc-dot" aria-hidden="true">✗</span><div><b>Parou com erro:</b> ${esc(cap(s.text))}</div></div>`;
+  if (kind === "tool") {
+    const tool = String(s.tool || ""), what = toolTarget(tool, s.args, s.target), open = ccUI.open.has(i);
+    const out = String(s.output ?? ""), lines = out ? out.split("\n") : [], first = lines.find((l) => l.trim()) || "";
+    const label = CODE_LABEL[tool] || tool || "Ferramenta";
+    const full = (tool === "run_command" && what ? `<span class="d-line d-file">$ ${esc(what)}</span>` : "") + previewHTML(out);
+    return `<div class="cc-step cc-tool${s.refused ? " refused" : ""}"><span class="cc-dot" aria-hidden="true">●</span><div>`
+      + `<button type="button" class="cc-call" data-cc-open="${i}" aria-expanded="${open}"><b>${esc(label)}</b>(<span class="cc-arg">${esc(oneLine(what))}</span>)</button>`
+      + (s.refused ? ' <span class="tag bad">recusado</span>' : "")
+      + (out ? `<div class="cc-out"><span class="cc-elbow" aria-hidden="true">⎿</span> ` + (open ? `<pre class="cc-pre">${full}</pre>`
+        : `<span class="cc-sum">${esc(oneLine(first, 140))}${lines.length > 1 ? ` <span class="muted">(+${num(lines.length - 1)} linhas · clique para ver)</span>` : ""}</span>`) + `</div>` : "")
+      + `</div></div>`;
+  }
+  if (s.cost != null) return `<div class="cc-cost">${esc(s.text)}</div>`;   // custo de cada passo, discreto à direita
+  return `<div class="cc-note"><span class="cc-elbow" aria-hidden="true">⎿</span> <span>${esc(s.text)}</span></div>`;
+}
+// pedido de aprovação (SPEC 2.3), embaixo da transcrição: comando sempre pergunta; arquivo pergunta se a caixa não foi
+// marcada. Teclas 1 (sim) e 2 (não) com o cartão em foco.
 function pendingHTML(p) {
   const changed = (Array.isArray(p.changed) ? p.changed : []).filter((x) => typeof x === "string");
   const list = `<p class="hint">Arquivos alterados nesta tarefa:</p>`
     + (changed.length ? `<ul class="changed">${changed.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>` : `<p class="hint">nenhum até agora</p>`);
-  const btn = (ok, label, cls) => `<button type="button" class="${cls}" data-code-answer="${ok ? 1 : 0}" data-id="${esc(p.id)}">${label}</button>`;
+  const btn = (k, ok, label) => `<button type="button" class="cc-choice${ok ? " go" : ""}" data-code-answer="${ok ? 1 : 0}" data-id="${esc(p.id)}"><kbd>${k}</kbd> ${label}</button>`;
+  const card = (cls, inner) => `<div class="approve${cls}" id="code-pending" role="alert" tabindex="-1" data-approve="${esc(p.id)}">${inner}`
+    + `<p class="hint">Com este cartão em foco, a tecla 1 diz sim e a 2 diz não.</p></div>`;
   const target = toolTarget(p.tool, p.args, p.target);   // do backend; nunca de chaves livres dos args
   if (p.reason === "command") {
     // mostra TODAS as linhas (sem max-height) e quantas são; mais de uma linha avisa no título (app-command-card-newline-hide)
     const prev = String(p.preview || target || ""), lines = prev ? prev.split("\n").length : 1;
     const many = lines > 1 ? `<b>Este comando tem ${lines} linhas: role até o fim antes de decidir.</b> ` : "";
-    return `<div class="card approve cmd" role="alert"><p>${many}<b>Executar este comando no seu computador? Ele foi escrito pela IA de outra pessoa da rede. Só execute se você entende o que ele faz.</b></p>`
-      + `<pre>${esc(prev)}</pre>`
-      + `<p class="hint">Comando de ${lines} linha${lines === 1 ? "" : "s"}.</p>${list}`
-      + `<div class="row mt">${btn(true, "Executar", "danger")}${btn(false, "Não executar", "primary")}</div></div>`;
+    return card(" cmd", `<p>${many}<b>Executar este comando no seu computador? Ele foi escrito pela IA de outra pessoa da rede. Só execute se você entende o que ele faz.</b></p>`
+      + `<pre>${esc(prev)}</pre><p class="hint">Comando de ${lines} linha${lines === 1 ? "" : "s"}.</p>${list}`
+      + `<p class="ap-q">Executar este comando?</p><div class="ap-btns">${btn(1, true, "Sim, executar")}${btn(2, false, "Não executar")}</div>`);
   }
-  return `<div class="card approve" role="alert"><p><b>A IA quer alterar ${esc(target || "um arquivo")}. Confira as mudanças antes de aplicar.</b></p>`
-    + `<pre>${esc(p.preview)}</pre>${list}`
-    + `<div class="row mt">${btn(true, "Aplicar", "primary")}${btn(false, "Recusar", "")}</div></div>`;
+  return card("", `<p><b>A IA quer alterar ${esc(target || "um arquivo")}. Confira as mudanças antes de aplicar.</b></p>`
+    + `<pre>${previewHTML(String(p.preview ?? ""))}</pre>${list}`
+    + `<p class="ap-q">Aplicar esta alteração em ${esc(target || "este arquivo")}?</p><div class="ap-btns">${btn(1, true, "Sim, aplicar")}${btn(2, false, "Não aplicar")}</div>`);
 }
+// new = sem sessão (pasta, modelo e caixa no topo); running = trabalhando; continue = a mesma caixa manda a próxima instrução
+const codeMode = (cs) => !cs?.task ? "new" : cs.running ? "running" : cs.can_continue === true ? "continue" : "new";
+const FOLDER_HINT = "Não use em pastas com senhas, chaves ou documentos pessoais: cada passo do Sigma Code vai para uma máquina sorteada e, ao longo de uma tarefa, as máquinas de várias pessoas veem o que ele ler. Enter envia, Shift+Enter pula linha.";
 function renderCode() {
   const cs = want("code", 1500), md = want("models"), w = S.wallet || {};
-  const running = !!(cs ? cs.running : S.code?.running);
+  const running = !!(cs ? cs.running : S.code?.running), mode = cs ? codeMode(cs) : running ? "running" : "new";
   setHTML("code-notes", w.can_spend ? "" : keyNote("programar"));
-  const {live} = liveModels(md);
-  if (!live.some((m) => m.name === codeModel)) codeModel = (live.find((m) => /coder|code/i.test(m.name)) || live[0])?.name || "";   // padrão: um de código
-  setHTML("code-model", live.map((m) => `<option value="${esc(m.name)}"${m.name === codeModel ? " selected" : ""}>${esc(m.name)}${/coder|code/i.test(m.name) ? " · de código" : ""}</option>`).join("")
-    || `<option value="">${md ? "nenhum modelo no ar" : "carregando…"}</option>`);
-  $("code-pick").hidden = !S.features?.pick_folder;   // sem a janelinha não há seletor: digita-se o caminho
-  setText("code-folder-hint", (S.features?.pick_folder ? "" : "Digite o caminho completo da pasta. ")
-    + "Não use em pastas com senhas, chaves ou documentos pessoais: cada passo do Sigma Code vai para uma máquina sorteada e, ao longo de uma tarefa, as máquinas de várias pessoas veem o que ele ler.");
-  ["code-folder", "code-task", "code-model", "code-auto", "code-pick"].forEach((id) => { $(id).disabled = running; });
-  $("code-go").disabled = running || !w.can_spend || !codeModel;
-  $("code-stop").disabled = !running;
-  setHTML("code-pending", cs?.pending ? pendingHTML(cs.pending) : "");
-  setText("code-spent", cs?.task ? `Total desta tarefa: ${sig(cs.spent)} SIG` : "");
-  setText("code-head", cs?.task ? `${running ? "Trabalhando" : "Última tarefa"} em ${cs.folder} com ${cs.model}`
-    + (cs.auto_files ? " · alterações de arquivos aprovadas sem perguntar" : " · cada alteração de arquivo pede a sua aprovação") + `. Tarefa: ${cs.task}` : "");
+  const textLive = liveModels(md).live.filter((m) => taskOf(m.name) === "text");
+  const models = [...textLive.filter(isCoder), ...textLive.filter((m) => !isCoder(m))];   // os de código primeiro
+  if (!models.some((m) => m.name === codeModel)) codeModel = models[0]?.name || "";
+  setHTML("code-model", models.map((m) => `<option value="${esc(m.name)}"${m.name === codeModel ? " selected" : ""}>${esc(m.name)}${isCoder(m) ? " · de código" : ""}</option>`).join("")
+    || `<option value="">${md ? "nenhum modelo no ar" : lazy.models.err ? "não deu para carregar os modelos" : "carregando…"}</option>`);
+  setVal($("code-model"), codeModel);
+  const pick = !!S.features?.pick_folder;
+  $("code-pick").hidden = !pick;   // sem a janelinha não há seletor: digita-se o caminho
+  setText("code-folder-hint", (pick ? "" : "Digite o caminho completo da pasta. ") + FOLDER_HINT);
+  $("code-setup").hidden = mode !== "new";
+  $("code-head").hidden = mode === "new";
+  setHTML("code-head", cs?.task ? `<b>${esc(cs.folder)}</b> · ${esc(cs.model)} · ${cs.auto_files ? "alterações de arquivos aprovadas sem perguntar" : "cada alteração de arquivo pede a sua aprovação"}` : "");
+  ["code-folder", "code-model", "code-auto", "code-pick", "code-task"].forEach((id) => { $(id).disabled = running; });
+  $("code-go").hidden = running;
+  $("code-go").disabled = running || !w.can_spend || (mode === "new" && !codeModel);
+  setText("code-go", mode === "continue" ? "Enviar" : "Começar");
+  $("code-stop").hidden = !running; $("code-stop").disabled = !running;
+  $("code-new").hidden = !cs?.task || running || !("can_continue" in cs);   // app antigo: começar de novo já troca a sessão
+  $("code-task").placeholder = running ? "O Sigma Code está trabalhando…" : mode === "continue" ? "Peça mais alguma coisa nesta sessão: ela continua de onde parou"
+    : "O que você quer fazer neste projeto? ex.: crie uma página index.html com um formulário de contato";
+  setText("code-spent", cs?.task ? `Total desta sessão: ${sig(cs.spent)} SIG` : "");
   const steps = Array.isArray(cs?.steps) ? cs.steps : [];
-  if (running && cs?.folder && !$("code-folder").value) $("code-folder").value = cs.folder;
-  setHTML("code-log", steps.length ? steps.map(stepHTML).join("")
-      + (cs.pending ? `<div class="step info">Esperando a sua aprovação · <button type="button" class="link" data-scroll="code-pending">ver o pedido</button></div>`
-        : running ? `<div class="step info"><span class="dots"><i></i><i></i><i></i></span> trabalhando…</div>` : "")
-    : `<div class="empty">${!cs ? (lazy.code.err ? `${LOAD_FAIL}${techHTML(lazy.code.err)}` : "Carregando…")
-      : "Nenhuma tarefa ainda. Escolha a pasta, escreva o que você quer e clique em Começar."}</div>`);
+  const turns = Array.isArray(cs?.turns) && cs.turns.length ? cs.turns : cs?.task ? [{n: 1, text: cs.task}] : [];
+  let html = "";
+  if (!cs) html = `<div class="cc-empty">${lazy.code.err ? `${LOAD_FAIL}${techHTML(lazy.code.err)}` : "Carregando…"}</div>`;
+  else if (!steps.length && !turns.length) html = `<div class="cc-empty">Nenhuma tarefa ainda. Escolha a pasta lá em cima, escreva embaixo o que você quer e aperte Enter.</div>`;
+  else {
+    const shown = new Set();
+    const upTo = (n) => { for (const u of turns) if (N(u.n) <= n && !shown.has(N(u.n))) { shown.add(N(u.n)); html += `<div class="cc-user"><span class="cc-prompt" aria-hidden="true">›</span> <span>${esc(u.text)}</span></div>`; } };
+    steps.forEach((s, i) => { upTo(N(s.turn) || 1); html += stepHTML(s, i); });
+    upTo(Infinity);
+    if (cs.pending) html += pendingHTML(cs.pending);
+    else if (running) html += `<div class="cc-run"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span> trabalhando…</div>`;
+  }
+  const log = $("code-log"), had = log.contains(document.activeElement);
+  setHTML(log, html);
+  // redesenhar a transcrição não pode deixar o foco perdido: volta para o pedido de aprovação, se houver
+  if (had && !log.contains(document.activeElement) && cs?.pending && !$("dlg").open) $("code-pending")?.focus({preventScroll: true});
+  const key = `${steps.length}|${cs?.pending?.id || ""}|${running}|${turns.length}`;
+  if (key !== ccUI.scrollKey) { ccUI.scrollKey = key; log.scrollTop = log.scrollHeight; }
+  setHTML("code-status", cs?.pending ? `Esperando a sua aprovação · <button type="button" class="link" data-scroll="code-pending">ver o pedido</button>` : "");
+  $("code-status").hidden = !cs?.pending;
+  // pedido novo: o foco vai para o cartão (1 = sim, 2 = não), sem tirar o foco de um diálogo aberto
+  const pid = cs?.pending?.id || "";
+  if (pid && pid !== ccUI.lastPending && tab === "programar" && !$("dlg").open) { ccUI.lastPending = pid; $("code-pending")?.focus({preventScroll: true}); }
+  if (!pid) ccUI.lastPending = "";
 }
 function codeGot(r) { lazy.code.data = r; lazy.code.t = Date.now(); lazy.code.err = null; }
-async function codeStart(e) {
-  e.preventDefault();
+async function codeSubmit(e) {
+  e?.preventDefault();
   formErr("code-err", "");
-  const btn = $("code-go");
+  const cs = lazy.code.data, mode = codeMode(cs), btn = $("code-go");
+  if (mode === "running") return;
   try {
     needKey();
-    const folder = $("code-folder").value.trim(), task = $("code-task").value.trim();
-    if (!folder) throw new Error("Escolha a pasta do projeto.");
-    if (!task) throw new Error("Escreva o que o Sigma Code deve fazer.");
-    const body = {folder, task, auto_files: $("code-auto").checked};
-    if (codeModel) body.model = codeModel;
+    const task = $("code-task").value.trim();
     btn.disabled = true;
-    codeGot(await api("/api/code/start", body));
-    $("code-auto").checked = false;   // desmarcada em toda tarefa nova: a próxima volta a perguntar
-    $("code-task").value = "";
-    store("sigma.code.folder", folder);
+    if (mode === "continue") {   // a próxima instrução na mesma sessão (mesma pasta, modelo e conversa)
+      if (!task) throw new Error("Escreva o que o Sigma Code deve fazer agora.");
+      await api("/api/code/continue", {text: task});
+      codeGot(await api("/api/code/state", undefined, 15000));
+    } else {
+      const folder = $("code-folder").value.trim();
+      if (!folder) throw new Error("Escolha a pasta do projeto.");
+      if (!task) throw new Error("Escreva o que o Sigma Code deve fazer.");
+      const body = {folder, task, auto_files: $("code-auto").checked};
+      if (codeModel) body.model = codeModel;
+      const r = await api("/api/code/start", body);
+      ccUI.open.clear();
+      codeGot(Array.isArray(r.steps) ? r : await api("/api/code/state", undefined, 15000));
+      $("code-auto").checked = false;   // desmarcada em toda tarefa nova: a próxima volta a perguntar
+      store("sigma.code.folder", folder);
+    }
+    $("code-task").value = ""; grow($("code-task"), 200);
     schedule(300);
   } catch (x) { formErr("code-err", x.message); }
   finally { btn.disabled = false; renderCode(); }
@@ -2047,6 +2784,17 @@ async function codeAnswer(id, ok) {
 async function codeStop() {
   try { codeGot(await api("/api/code/stop", {})); toast("Parando depois do passo atual"); }
   catch (x) { toast(x.message, "err", 6000); }
+  finally { renderCode(); }
+}
+// "Nova sessão": esquece a sessão terminada; a próxima tarefa começa do zero (pasta e modelo de novo)
+async function codeReset() {
+  formErr("code-err", "");
+  try {
+    await api("/api/code/reset", {});
+    ccUI.open.clear(); ccUI.scrollKey = "";
+    codeGot(await api("/api/code/state", undefined, 15000));
+    $("code-task").focus();
+  } catch (x) { formErr("code-err", x.message); }
   finally { renderCode(); }
 }
 async function codePick() {
@@ -2173,32 +2921,43 @@ function modelTile(m, mine) {
   const h = hosts(m), a = Object.keys(m.assigned || {}).length;
   const status = h ? '<span class="tag ok">no ar</span>' : a ? '<span class="tag warn">baixando</span>' : '<span class="tag">esperando computadores</span>';
   const act = (k, label, cls = "") => `<button type="button" class="small ${cls}" data-mact="${k}" data-name="${esc(m.name)}">${label}</button>`;
-  return `<div class="tile"><div class="row between"><h4>${esc(m.name)}</h4>${status}</div>`
+  // classe do modelo e o uso na unidade dela (texto: tokens; imagem: imagens; vídeo: segundos de vídeo)
+  const task = taskOf(m.name), price = ceilingOf(m.name), units = m.units ?? m.images ?? m.seconds;
+  const use = task === "text" ? `${esc(big(m.tokens))} tokens · ` : units != null ? `${esc(big(units))} ${task === "image" ? "imagens" : "s de vídeo"} · ` : "";
+  const talk = {text: "Conversar", image: "Gerar imagens", video: "Gerar vídeos"}[task];
+  return `<div class="tile"><div class="row between"><h4>${esc(m.name)}</h4><span>${status}<span class="tag">${TASK_NAME[task]}</span></span></div>`
     + (m.description ? `<p class="desc">${esc(m.description)}</p>` : "")
     + `<dl class="kv"><dt>Cópias</dt><dd>${h} no ar de ${esc(num(m.replicas))}${a ? ` · ${a} baixando` : ""}</dd>`
     + `<dt>Tamanho</dt><dd>${esc(fmtBytes(m.size))}${m.ram_mb ? ` · usa ${esc(fmtMB(m.ram_mb))} de memória` : ""}</dd>`
     + `<dt>Licença</dt><dd>${esc(m.license || "—")}</dd>`
     + `<dt>Padrinho</dt><dd>${same(m.sponsor, S.wallet?.address) ? "você" : `<span class="mono">${esc(short(m.sponsor))}</span>`}</dd>`
     + `<dt>Royalty</dt><dd>${esc(bpsPct(m.royalty_bps))}%${N(m.reinvest_bps) ? ` · ${esc(bpsPct(m.reinvest_bps))}% reinvestido` : ""}</dd>`
-    + `<dt>Uso</dt><dd>${esc(big(m.tokens))} tokens · ${esc(plural(m.jobs, "pedido", "pedidos"))}</dd>`
+    + `<dt>Uso</dt><dd>${use}${esc(plural(m.jobs, "pedido", "pedidos"))}</dd>`
+    + (price ? `<dt>Preço</dt><dd>até ${esc(num(price))} µSIG por ${esc(unitOf(task))}</dd>` : "")
     + `<dt>Orçamento</dt><dd>${esc(sig(m.budget))} SIG · dura ${esc(lifetime(m.budget, rent(m)))}</dd>`
     + (mine ? `<dt>Royalties</dt><dd class="ok">${esc(sig(m.royalties))} SIG recebidos</dd>` : "") + `</dl>`
     + `<div class="row">${mine ? act("fund", "Recarregar", "primary") + act("royalty", "Royalty") + act("transfer", "Passar adiante") + act("retire", "Apagar", "danger")
-      : h ? `<button type="button" class="small" data-chat="${esc(m.name)}">Conversar</button>` : ""}</div></div>`;
+      : h ? `<button type="button" class="small" data-chat="${esc(m.name)}">${talk}</button>` : ""}</div></div>`;
 }
-function catalogTile(it, onNet) {
-  const size = N(it.size ?? it.bytes), ram = N(it.ram_mb) || Math.ceil(size / 1e6 * 1.2) + 512, net = onNet.get(it.sha256);
-  return `<div class="tile"><div class="row between"><h4>${esc(it.title || it.name || it.id)}</h4>${net ? `<span class="tag ok" title="na rede como ${esc(net)}">já na rede</span>` : ""}</div>`
+// imagem e vídeo: o disco conta todos os arquivos (o principal, o VAE e o codificador de texto), como a chain cobra
+const catalogSize = (it) => N(it.total_size ?? it.size ?? it.bytes);
+// media = ai.media do app: false enquanto a rede não aceita imagem e vídeo (antes das regras v2)
+function catalogTile(it, onNet, media) {
+  const size = catalogSize(it), ram = N(it.ram_mb) || Math.ceil(size / 1e6 * 1.2) + 512, net = onNet.get(it.sha256);
+  const task = TASK_LIST.includes(it.task) ? it.task : "text";
+  return `<div class="tile"><div class="row between"><h4>${esc(it.title || it.name || it.id)}</h4><span>${net ? `<span class="tag ok" title="na rede como ${esc(net)}">já na rede</span>` : ""}<span class="tag">${TASK_NAME[task]}</span></span></div>`
     + (it.description ? `<p class="desc">${esc(it.description)}</p>` : "")
     + `<dl class="kv"><dt>Tamanho</dt><dd>${esc(fmtBytes(size))}</dd><dt>Memória</dt><dd>${esc(fmtMB(ram))} para rodar</dd>`
     + `<dt>Licença</dt><dd>${esc(it.license || "—")}</dd><dt>Custo</dt><dd>~${esc(sig(perDay(size, 2, true, ram)))} SIG por dia com 2 cópias</dd></dl>`
-    + `<div class="row"><button type="button" class="small primary" data-sponsor="${esc(it.id)}">Apadrinhar</button></div></div>`;
+    + (task !== "text" && media === false
+      ? `<p class="hint">Ainda não dá para apadrinhar: a rede só aceita modelos de imagem e vídeo depois da atualização das regras v2.</p>`
+      : `<div class="row"><button type="button" class="small primary" data-sponsor="${esc(it.id)}">Apadrinhar</button></div>`) + `</div>`;
 }
 function renderModelos() {
   const md = want("models"), me = S.wallet?.address;
   setHTML("models-notes", S.wallet?.can_spend ? "" : keyNote("apadrinhar"));
   setText("models-price", `Aluguel da rede, para cada computador que guarda uma cópia, a cada ${every(winSec())}: ${num(hostPrice())} µSIG por MB de disco `
-    + `e ${num(ramPrice())} µSIG por MB de memória que o modelo ocupa (o tamanho × 1,2 + 512 MB). `
+    + `e ${num(ramPrice())} µSIG por MB de memória que o modelo ocupa (o tamanho × 1,2 + 512 MB no texto, 1.536 MB na imagem ou 4.096 MB no vídeo). `
     + `Memória: ${demandTxt("ram_bps")}. Disco: ${demandTxt("disk_bps")}. O preço é o mesmo para todas as máquinas e segue a demanda da rede.`);
   if (!md) { [["net-models"], ["my-models"]].forEach(([id]) => setHTML(id, loadingHTML(lazy.models))); setHTML("catalog", ""); return; }
   const list = Object.values(md.network || {}).sort(byName);
@@ -2208,7 +2967,7 @@ function renderModelos() {
   setHTML("my-models", mine.length ? `<div class="tiles">${mine.map((m) => modelTile(m, true)).join("")}</div>`
     : `<p class="empty">Você ainda não apadrinhou nenhum modelo.</p>`);
   const onNet = new Map(list.map((m) => [m.sha256, m.name]));
-  setHTML("catalog", (md.catalog || []).map((it) => catalogTile(it, onNet)).join("") || `<p class="empty">Catálogo vazio.</p>`);
+  setHTML("catalog", (md.catalog || []).map((it) => catalogTile(it, onNet, md.ai?.media)).join("") || `<p class="empty">Catálogo vazio.</p>`);
 }
 function nameFromUrl(u) {
   let file = "";
@@ -2217,7 +2976,7 @@ function nameFromUrl(u) {
   return s.length >= 3 ? s : "";
 }
 function sponsorDialog(it) {
-  const fromUrl = !it.id, size = N(it.size ?? it.bytes);
+  const fromUrl = !it.id, size = catalogSize(it);
   const ram = N(it.ram_mb) || (size ? ramOf(size) : null);
   const budget0 = size ? Math.max(1, Math.ceil(perDay(size, 2, true, ram) * 7 / UNIT)) : 10;   // sugestão: uma semana de aluguel
   openDialog({
@@ -2558,6 +3317,8 @@ function fillConfig() {
   setVal($("cfg-cpu"), c.cpu_percent ?? 50); paintRange($("cfg-cpu"));
   setText("cfg-cpu-val", `${num($("cfg-cpu").value)}%`);
   $("cfg-ai").checked = !!c.ai_enabled;
+  $("cfg-media-box").hidden = !("ai_image" in c);   // só no app que já hospeda imagem e vídeo
+  $("cfg-ai-image").checked = !!c.ai_image; $("cfg-ai-video").checked = !!c.ai_video;
   setVal($("cfg-ai-ram"), c.ai_ram_gb == null ? "" : gbInput(c.ai_ram_gb));
   $("cfg-compute").checked = !!c.compute_enabled;
   setVal($("cfg-disk"), c.disk_gb == null ? "" : gbInput(c.disk_gb));
@@ -2580,6 +3341,7 @@ function cfgPatch() {
   put("cpu_percent", Number($("cfg-cpu").value));
   put("ai_enabled", $("cfg-ai").checked);
   put("compute_enabled", $("cfg-compute").checked);
+  if ("ai_image" in c) { put("ai_image", $("cfg-ai-image").checked); put("ai_video", $("cfg-ai-video").checked); }
   const ram = parseGB($("cfg-ai-ram").value, "Memória para IA"), disk = parseGB($("cfg-disk").value, "Disco para a rede");
   const top = ramTop(S?.machine?.hw);
   if (ram > top) throw new Error(`Memória para IA: escolha de 0 a ${num(top)} GB (a memória deste computador).`);
@@ -2682,12 +3444,21 @@ function bind() {
     if ((t = el("[data-mact]"))) return modelAction(t.dataset.mact, t.dataset.name);
     if ((t = el("[data-site-fund]"))) return siteFund(t.dataset.siteFund);
     if ((t = el("[data-sponsor]"))) { const it = (lazy.models.data?.catalog || []).find((x) => String(x.id) === t.dataset.sponsor); return it && sponsorDialog(it); }
-    if ((t = el("[data-chat]"))) { chat.model = t.dataset.chat; return go("ia"); }
+    if ((t = el("[data-chat]"))) { go("ia"); return pickModel(t.dataset.chat); }   // abre a IA com esse modelo e a classe dele
     if ((t = el("[data-hist]"))) { histFilter = t.dataset.hist; return renderCarteira(); }
     if ((t = el("[data-import-key]"))) return importFlow();
     if ((t = el("[data-chat-cancel]"))) return chatCancel();
+    if ((t = el("[data-copy-code]"))) return copy(t.closest(".codeblk")?.querySelector("code")?.textContent || "", "Código copiado");
+    if ((t = el("[data-msg-copy]"))) return copy(String(chat.messages[Number(t.dataset.msgCopy)]?.content || ""), "Resposta copiada");
+    if ((t = el("[data-msg-retry]"))) return chatRetry();
+    if ((t = el("[data-chip]"))) { $("chat-text").value = SUGGEST[curTask()][Number(t.dataset.chip)] || ""; grow(); renderMaxCost(); return $("chat-text").focus(); }
+    if ((t = el("[data-media]"))) return openMedia(t.dataset.media);
+    if ((t = el("[data-chat-open]"))) return openChat(t.dataset.chatOpen);
+    if ((t = el("[data-chat-rename]"))) return renameChat(t.dataset.chatRename);
+    if ((t = el("[data-chat-del]"))) return deleteChat(t.dataset.chatDel);
+    if ((t = el("[data-cc-open]"))) { const i = Number(t.dataset.ccOpen); ccUI.open.has(i) ? ccUI.open.delete(i) : ccUI.open.add(i); return renderCode(); }
     if ((t = el("[data-code-answer]"))) return codeAnswer(t.dataset.id, t.dataset.codeAnswer === "1");
-    if ((t = el("[data-scroll]"))) return $(t.dataset.scroll)?.scrollIntoView({block: "center"});
+    if ((t = el("[data-scroll]"))) { const x = $(t.dataset.scroll); x?.scrollIntoView({block: "center"}); return x?.focus?.({preventScroll: true}); }
     if ((t = el("[data-vote]"))) return voteFlow(t.dataset.vote);
     if ((t = el("[data-gov-kind]"))) { govKind = t.dataset.govKind === "param" ? "param" : "text"; formErr("gov-err", ""); return renderVotacoes(); }
   });
@@ -2713,6 +3484,15 @@ function bind() {
     go(next); $("tabs").querySelector(`[data-tab="${next}"]`).focus();
   });
   document.addEventListener("visibilitychange", () => { if (!document.hidden && !lost && !quitting) poll(); });
+  document.addEventListener("keydown", (e) => {
+    // pedido de aprovação do Sigma Code em foco: 1 = sim, 2 = não (como num agente de terminal)
+    const card = e.target.closest?.(".approve[data-approve]");
+    if (card && (e.key === "1" || e.key === "2") && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat) {
+      e.preventDefault();
+      if (!card.querySelector("[data-code-answer]:disabled")) codeAnswer(card.dataset.approve, e.key === "1");
+    }
+    if (e.key === "Escape" && chat.side) sideOpen(false);
+  });
 
   // assistente
   $("wiz-next1").onclick = () => { wizard.step = 2; renderWizard(); };
@@ -2742,17 +3522,22 @@ function bind() {
   $("btn-export").onclick = exportFlow;
   $("btn-import").onclick = importFlow;
   $("btn-swap").onclick = () => swapFlow();
-  $("ai-model").onchange = (e) => { chat.model = e.target.value; renderIA(); };
+  $("ai-model").onchange = (e) => pickModel(e.target.value);
   $("chat-form").onsubmit = chatSend;
   $("chat-text").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); chatSend(); } });
-  $("chat-new").onclick = () => {
-    if (chat.busy) return toast("Espere a resposta chegar ou clique em Cancelar ao lado do “pensando…”.");
-    chat.messages = []; chat.total = 0; chat.trimmed = false; chat.quote = null; renderIA(); $("chat-text").focus();
+  $("chat-new").onclick = $("chat-new-top").onclick = () => {
+    if (chat.busy) return toast("Espere a resposta chegar ou clique em Parar (■).");
+    newChat(); sideOpen(false); renderIA(); $("chat-text").focus();
   };
-  $("chat-text").addEventListener("input", renderMaxCost);
-  $("ai-len").onchange = renderMaxCost;
-  $("code-form").onsubmit = codeStart;
+  $("ai-toggle").onclick = () => sideOpen(!chat.side);
+  $("ai-scrim").onclick = () => sideOpen(false);
+  $("chat-text").addEventListener("input", () => { grow(); renderMaxCost(); });
+  ["ai-len", "ai-size", "ai-count", "ai-seconds", "ai-vsize"].forEach((id) => { $(id).onchange = renderMaxCost; });
+  $("code-form").onsubmit = codeSubmit;
+  $("code-task").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("code-form").requestSubmit(); } });
+  $("code-task").addEventListener("input", () => grow($("code-task"), 200));
   $("code-stop").onclick = codeStop;
+  $("code-new").onclick = codeReset;
   $("code-pick").onclick = codePick;
   $("code-model").onchange = (e) => { codeModel = e.target.value; };
   $("pub-folder").onchange = pickFolder;

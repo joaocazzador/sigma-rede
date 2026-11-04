@@ -5,6 +5,8 @@ Pedidos de IA vão sempre cifrados para uma máquina sorteada, e a resposta volt
 (`ask`). Continua público que houve um pedido, de qual carteira, para qual modelo e máquina, quanto custou e
 quando; e a máquina que responde lê a pergunta, porque precisa dela para responder.
 """
+import base64
+import binascii
 import hashlib
 import http.client
 import json
@@ -36,6 +38,11 @@ NO_ANSWER = ("Nenhum computador respondeu a tempo. Você não pagou nada por est
              "voltou para a sua carteira. Tente de novo.")
 LATE_CLAIMED = ("Nenhum computador respondeu a tempo. Uma máquina pegou o pedido e ainda não entregou: se ela "
                 "não entregar, o valor reservado volta sozinho para a sua carteira em alguns minutos.")
+# imagem e vídeo: o prazo da máquina para entregar (chain.MEDIA_CLAIM_TIMEOUT) é de 30 min ou 2 h, não minutos
+LATE_MEDIA = {task: ("Nenhum computador entregou a tempo. Uma máquina pegou o pedido e ainda não entregou: se ela "
+                     "não entregar, o valor reservado volta sozinho para a sua carteira quando acabar o prazo dela, "
+                     f"de até {span} depois de pegar o pedido.")
+              for task, span in (("image", "30 minutos"), ("video", "2 horas"))}
 CANCELED = "cancelado"
 CONTEXT_FAIL = "a conversa passou do limite do modelo (4.096 tokens): comece uma conversa nova"
 UNREADABLE = "a máquina devolveu um resultado ilegível"
@@ -173,6 +180,37 @@ def _queue_full(err):
     pula para a próxima candidata sem gastar uma das tentativas (SPEC-v2.2 §1)."""
     s = str(err)
     return "fila cheia" in s or "pedidos demais" in s
+
+
+UNIT_TEXT = {"text": "por 1k tokens", "image": "por imagem", "video": "por segundo de vídeo"}
+MEDIA_MIMES = ("image/png", "video/webm")
+MAX_MEDIA_ITEMS = 4
+
+
+def _media_items(res):
+    """Resultado de um pedido de imagem/vídeo -> [{"mime", "data" (bytes), "width", "height", "seconds"?}], ou
+    None se não for um resultado válido. Só tipos fechados: o que vem de outra máquina nunca vira outra coisa."""
+    if not isinstance(res, dict) or not isinstance(res.get("media"), list) or not res["media"]:
+        return None
+    out = []
+    for item in res["media"][:MAX_MEDIA_ITEMS]:
+        if not isinstance(item, dict) or item.get("mime") not in MEDIA_MIMES or not isinstance(item.get("data"), str):
+            return None
+        try:
+            data = base64.b64decode(item["data"], validate=True)
+        except (ValueError, binascii.Error):
+            return None
+        meta = {k: item[k] for k in ("width", "height", "seconds")
+                if isinstance(item.get(k), int) and not isinstance(item.get(k), bool) and 0 < item[k] <= 100_000}
+        out.append(dict(meta, mime=item["mime"], data=data))
+    return out
+
+
+def machine_models(rec):
+    """Modelos que uma máquina do /machines hospeda: os de texto (`models`) e os de imagem e vídeo
+    (`media_models`, que o nó põe à parte para um app 2.4, que só entende texto, não tratá-los como texto)."""
+    return [n for k in ("models", "media_models") if isinstance(rec.get(k), list) for n in rec[k]
+            if isinstance(n, str)]
 
 
 class Client:
@@ -387,17 +425,23 @@ class Client:
 
     # ------------------------------------------------ modelos patrocinados
     def register_model(self, name, url, sha256, size, budget_sig, royalty_pct=10, reinvest_pct=0, replicas=2,
-                       description="", license=""):
+                       description="", license="", task="text", files=None):
         """Você vira o padrinho: paga o aluguel de quem hospeda e recebe royalty de cada token gasto.
-        Ninguém sobe arquivo: a rede escolhe as máquinas e elas baixam o GGUF direto da `url`."""
+        Ninguém sobe arquivo: a rede escolhe as máquinas e elas baixam o GGUF direto da `url`.
+        Regras v2: `task` "image" ou "video" e `files` ([{role, url, sha256, size}], VAE e codificadores de texto)
+        para os modelos do stable-diffusion.cpp."""
         try:
             size, replicas = int(size), int(replicas)
         except (TypeError, ValueError):
             raise SigmaError("tamanho e réplicas devem ser números inteiros") from None
-        return self.send_tx("register_model", {
-            "name": name, "url": str(url).strip(), "sha256": str(sha256).strip().lower(), "size": size,
-            "budget": to_usig(budget_sig), "royalty_bps": _bps(royalty_pct), "reinvest_bps": _bps(reinvest_pct),
-            "replicas": replicas, "description": description, "license": license}, timeout=60)
+        data = {"name": name, "url": str(url).strip(), "sha256": str(sha256).strip().lower(), "size": size,
+                "budget": to_usig(budget_sig), "royalty_bps": _bps(royalty_pct), "reinvest_bps": _bps(reinvest_pct),
+                "replicas": replicas, "description": description, "license": license}
+        if task and task != "text":
+            data["task"] = task
+            data["files"] = [{"role": f["role"], "url": str(f["url"]).strip(), "sha256": str(f["sha256"]).lower(),
+                              "size": int(f["size"])} for f in files or []]
+        return self.send_tx("register_model", data, timeout=60)
 
     def fund_model(self, name, amount_sig):
         return self.send_tx("fund_model", {"name": name, "amount": to_usig(amount_sig)})
@@ -461,10 +505,11 @@ class Client:
             raise SigmaError(f"resposta inválida do nó {self.node} (janela de mineração)")
         return w
 
-    def _ai_hosts(self, model=None, window=None):
+    def _ai_hosts(self, model=None, window=None, task="text"):
         """Máquinas que aceitam pedido cifrado agora: [(endereço, registro, preço)]. Online, com IA ligada, com
         chave pública e (com `window`) que sinalizaram nesta janela ou na anterior: quem acabou de dormir ainda
-        aparece online na chain por até 2 janelas e só faria a pergunta esperar."""
+        aparece online na chain por até 2 janelas e só faria a pergunta esperar. O preço é o da classe `task`:
+        por mil tokens (texto), por imagem ou por segundo de vídeo."""
         try:
             me = self.address
         except SigmaError:
@@ -481,54 +526,165 @@ class Client:
                 continue
             if window is not None and not (isinstance(seen, int) and seen >= window - 1):
                 continue
-            if model is not None and model not in (m.get("models") or []):
+            if model is not None and model not in machine_models(m):
                 continue
-            price = (m.get("prices") or {}).get("ai_per_1k_tokens")
+            price = (m.get("prices") or {}).get(chain.TASK_PRICE.get(task, "ai_per_1k_tokens"))
             if isinstance(price, int) and not isinstance(price, bool) and price >= 1:
                 out.append((addr, m, price))
         return out
 
-    def hosted_models(self):
-        """Modelos que alguma máquina responde agora: nome -> {máquina: µSIG por 1k tokens}."""
+    def model_tasks(self, strict=False):
+        """nome -> classe ("text", "image", "video") de cada modelo da rede. Se o /models falhar: {} ou, com
+        `strict`, o erro (quem escolhe um modelo de texto não pode adivinhar a classe)."""
+        try:
+            models = self.models()
+            if not isinstance(models, dict):
+                raise SigmaError(f"resposta inválida do nó {self.node} (lista de modelos)")
+        except SigmaError:
+            if strict:
+                raise
+            return {}
+        return {n: chain.model_task(m) for n, m in models.items() if isinstance(m, dict)}
+
+    def hosted_models(self, tasks=None):
+        """Modelos que alguma máquina responde agora: nome -> {máquina: preço}. O preço é o da classe do modelo
+        (µSIG por 1k tokens, por imagem ou por segundo de vídeo); `tasks` (de model_tasks) evita uma consulta."""
         try:
             w = self._window()
         except SigmaError:
             w = None    # sem /mining: lista pelo que a chain diz estar online
+        tasks = self.model_tasks() if tasks is None else tasks
         out = {}
-        for addr, m, price in self._ai_hosts(window=w):
-            for name in m.get("models") or []:
-                out.setdefault(name, {})[addr] = price
+        for task in sorted(set(tasks.values()) | {"text"}):
+            for addr, m, price in self._ai_hosts(window=w, task=task):
+                text = m.get("models") or []
+                for name in machine_models(m):
+                    # sem a classe do /models, vale a do nó: `models` só tem texto; `media_models`, sem saber se é
+                    # imagem ou vídeo, fica de fora (não há como dar o preço)
+                    if tasks.get(name, "text" if name in text else None) == task:
+                        out.setdefault(name, {})[addr] = price
         return out
 
     def pick_model(self, prefer=""):
-        """Um modelo que esteja no ar agora (de preferência com `prefer` no nome e em mais máquinas)."""
-        hosted = self.hosted_models()
+        """Um modelo de texto que esteja no ar agora (de preferência com `prefer` no nome e em mais máquinas). A
+        classe vem do /models: se ele falhar, o erro sobe, porque sem ela um modelo de imagem passaria por texto."""
+        tasks = self.model_tasks(strict=True)
+        hosted = {n: v for n, v in self.hosted_models(tasks).items() if tasks.get(n) == "text"}
         if not hosted:
             raise SigmaError("nenhuma máquina online está com um modelo de IA carregado agora")
         return min(hosted, key=lambda n: (not (prefer and prefer in n), -len(hosted[n]), n))
 
-    def _route(self, model, max_price):
-        """Máquinas a tentar, na ordem, e o preço máximo (teto) por 1k tokens."""
+    def _route(self, model, max_price, task="text"):
+        """Máquinas a tentar, na ordem, e o preço máximo (teto) por 1k tokens, por imagem ou por segundo."""
         mining = self.mining()
         w = self._window(mining)
-        hosts = self._ai_hosts(model, w)
+        hosts = self._ai_hosts(model, w, task)
         if not hosts:
             raise SigmaError(NO_MACHINE)
         cheapest = min(p for _, _, p in hosts)
+        unit = UNIT_TEXT.get(task, "por 1k tokens")
         if not max_price:
             # nunca o preço da mais cara: uma máquina que se anuncia caríssima não define o quanto se reserva
-            default = mining.get("ai_default_price")   # `_window` já conferiu que é um dict
-            if not isinstance(default, int) or isinstance(default, bool) or default < 1:
-                default = getattr(chain, "DEFAULT_PRICES", {}).get("ai_per_1k_tokens", 2000)   # nó antigo
+            if task == "text":
+                default = mining.get("ai_default_price")   # `_window` já conferiu que é um dict
+                if not isinstance(default, int) or isinstance(default, bool) or default < 1:
+                    default = getattr(chain, "DEFAULT_PRICES", {}).get("ai_per_1k_tokens", 2000)   # nó antigo
+            else:
+                key = chain.TASK_PRICE[task]
+                default = (mining.get("media_default_prices") or {}).get(key)
+                if not isinstance(default, int) or isinstance(default, bool) or default < 1:
+                    default = chain.MEDIA_PRICES[key]
             ceiling = max(default, cheapest)
         else:
             if not isinstance(max_price, int) or isinstance(max_price, bool) or max_price < 1:
-                raise SigmaError("preço máximo inválido: use µSIG inteiros por 1k tokens")
+                raise SigmaError(f"preço máximo inválido: use µSIG inteiros {unit}")
             ceiling = max_price
             if ceiling < cheapest:
                 raise SigmaError(f"preço máximo abaixo do de todas as máquinas (a mais barata cobra "
-                                 f"{cheapest} µSIG por 1k tokens)")
+                                 f"{cheapest} µSIG {unit})")
         return order_machines([(a, m) for a, m, p in hosts if p <= ceiling], w), ceiling
+
+    def generate(self, model, task, spec, max_price=None, timeout=None, should_stop=None, on_job=None):
+        """Pede imagens ou um vídeo a um modelo da rede (regras v2) e devolve (mídias, job). Paga só o que a
+        máquina entregou; o resto volta.
+
+        `spec`: {"prompt", "size", "count" (imagens, 1 a 4) | "seconds" (vídeo)} e, se quiser, "negative",
+        "steps", "cfg", "sampler", "seed". Como no texto: cifrado para a máquina sorteada, resposta cifrada para
+        esta carteira, até 3 máquinas. As mídias voltam como [{"mime", "data" (bytes), "width", "height",
+        "seconds"?}]. `timeout` é até quando abrir uma tentativa nova; cada pedido criado é esperado até a chain
+        encerrá-lo (o prazo para a máquina pegar mais o de entregar), mesmo que isso passe do `timeout`."""
+        if task not in ("image", "video"):
+            raise SigmaError("task deve ser 'image' ou 'video'")
+        w = self._signer()
+        limit = chain.MEDIA_UNITS[task]
+        try:
+            units = int(spec.get("count", 1) if task == "image" else spec.get("seconds", 3))
+        except (TypeError, ValueError, AttributeError):
+            raise SigmaError("pedido inválido: quantidade ou duração") from None
+        if not 1 <= units <= limit:
+            raise SigmaError(f"pedido inválido: de 1 a {limit} " + ("imagens" if task == "image" else "segundos"))
+        timeout = timeout or chain.MEDIA_CLAIM_TIMEOUT[task] + 600
+        deadline = time.time() + timeout          # até quando abrir uma tentativa nova
+        order, ceiling = self._route(model, max_price, task)
+        escrow = units * ceiling
+        balance = self.balance(w.address)
+        if balance < escrow:
+            raise SigmaError(f"saldo insuficiente: este pedido reserva até {fmt(escrow)} e a carteira tem "
+                             f"{fmt(balance)}")
+        request = canon(dict(spec, task=task))
+        created, attempts, last_error = 0, 0, None
+        for addr, rec in order:
+            if attempts >= ATTEMPTS:
+                break
+            if should_stop and should_stop():
+                raise SigmaError(CANCELED)
+            if time.time() >= deadline:
+                break
+            try:
+                spec_hash = self.put_blob(seal(rec["pub"], request))
+                job_id = self.send_tx("create_job", {"kind": "ai", "model": model, "spec_hash": spec_hash,
+                                                     "escrow": escrow, "max_price": ceiling, "machine": addr,
+                                                     "client_pub": w.pub, "units": units}, wait=False)
+            except (SigmaError, ValueError) as e:
+                last_error = e
+                if not _queue_full(e):
+                    attempts += 1
+                continue
+            if on_job:
+                on_job(job_id)
+            try:
+                self.wait_tx(job_id)
+            except TxDropped as e:
+                last_error = e
+                if not _queue_full(e):
+                    attempts += 1
+                continue
+            except SigmaError as e:
+                raise SigmaError(f"a rede não confirmou o pedido a tempo ({e}). Se ele entrar e nenhuma máquina "
+                                 "entregar, o valor reservado volta sozinho para a sua carteira.") from None
+            attempts += 1
+            created += 1
+            # o prazo inteiro que a chain dá a este pedido, e não o que sobrou das tentativas anteriores: senão a
+            # 2ª máquina começa com poucos minutos, o cliente desiste enquanto ela gera e a entrega é cobrada sem
+            # a mídia aparecer
+            until = max(deadline, time.time() + chain.TARGET_TIMEOUT + chain.MEDIA_CLAIM_TIMEOUT[task] + 60)
+            job = self._wait_private(job_id, until, should_stop, LATE_MEDIA[task])
+            status = job.get("status")
+            if status == "canceled":
+                raise SigmaError(CANCELED)
+            if status == "done":
+                res = self._open_result(job, addr, deadline=until)
+                items = _media_items(res)
+                if items is None:
+                    raise SigmaError(UNREADABLE)
+                job.update(machine=addr, attempts=attempts)
+                return items, job
+            if should_stop and should_stop():
+                raise SigmaError(CANCELED)
+            # falhou ou expirou: o valor já voltou, tenta a próxima
+        if not created and last_error is not None:
+            raise SigmaError(str(last_error))
+        raise SigmaError(NO_ANSWER)
 
     def ask(self, model, messages, max_tokens=1024, max_price=None, timeout=900, json_mode=False,
             should_stop=None, on_job=None):
@@ -613,10 +769,10 @@ class Client:
             raise SigmaError(str(last_error))
         raise SigmaError(NO_ANSWER)
 
-    def _wait_private(self, job_id, deadline, should_stop):
+    def _wait_private(self, job_id, deadline, should_stop, late_msg=LATE_CLAIMED):
         """Espera um pedido terminar. Uma falha de rede passageira não desiste: recua e continua consultando até
         o prazo do job (ele sempre termina na chain). Cancela se `should_stop()` (ou o prazo acabou) e ninguém
-        reivindicou; se o prazo passar com o job vivo, avisa que só cobra se a máquina entregar."""
+        reivindicou; se o prazo passar com o job vivo, avisa (`late_msg`) que só cobra se a máquina entregar."""
         start, fails = time.time(), 0
         while True:
             late = time.time() >= deadline
@@ -628,7 +784,7 @@ class Client:
                 # aberto ou rodando na chain, senão a máquina responde e o usuário paga sem ver a resposta
                 fails += 1
                 if late:
-                    raise SigmaError(LATE_CLAIMED)
+                    raise SigmaError(late_msg)
                 time.sleep(min(self.POLL_SLOW * fails, 5.0))   # recuo: não martela um nó que está voltando
                 continue
             if job.get("status") in JOB_END:
@@ -638,7 +794,7 @@ class Client:
                     and self._try_cancel(job_id):
                 raise SigmaError(CANCELED if stop else NO_ANSWER)
             if late:
-                raise SigmaError(LATE_CLAIMED)
+                raise SigmaError(late_msg)
             time.sleep(self.POLL_FAST if time.time() - start < 10 else self.POLL_SLOW)
 
     def _try_cancel(self, job_id):

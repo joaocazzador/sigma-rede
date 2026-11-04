@@ -323,10 +323,12 @@
     <div class="split">
       <div>
         <div class="eyebrow">Como o SIG nasce</div>
-        <h2>Nenhum SIG de graça. Nem para nós.</h2>
-        <p>Todo SIG que existe saiu da mineração. A rede nasceu com todos os saldos zerados: sem reserva para os
-           fundadores, sem presente de boas-vindas, sem venda antecipada. Quem criou o Sigma minera com as mesmas
-           regras que você.</p>
+        <h2>Quase todo SIG nasce da mineração. O resto, dizemos aqui.</h2>
+        <p>A rede nasceu com todos os saldos zerados. Na atualização das regras v2, ela cria uma única vez a
+           <b>carteira dos fundadores: 1 milhão de SIG, 1% do teto</b>, para as primeiras necessidades do projeto
+           (marketing, administração, infraestrutura). Ela é pública: o endereço, o valor e o bloco em que entrou
+           aparecem no estado da rede, e qualquer um acompanha os gastos dela na Carteira. Fora isso, não há presente
+           de boas-vindas nem venda antecipada: todo o resto do SIG sai da mineração, com as mesmas regras para todos.</p>
         <p>A regra é uma só e está no código: <b>a cada 12 horas, a rede imprime 0,01% do que ainda falta dos
            100 milhões de SIG</b>. Não tem dia de distribuição: o SIG sai aos poucos, um pouco em cada bloco, e é
            dividido entre quem minerou na última janela de 5 minutos já fechada, na proporção do trabalho de cada
@@ -339,7 +341,7 @@
         <div class="facts">
           <div><b>100 mi</b><span>é o teto. Não existe SIG além disso.</span></div>
           <div><b>0,01%</b><span>do que falta, a cada 12 horas.</span></div>
-          <div><b>0</b><span>SIG criado fora da mineração.</span></div>
+          <div><b>1%</b><span>do teto para os fundadores, uma vez só, público.</span></div>
         </div>
         <p class="fineprint">A taxa de 0,01% é a regra de hoje: a própria rede pode votar para mudá-la (de 0 a 0,5%). O
            teto de 100 milhões não entra em votação. <a href="#votacoes">Veja como a rede vota.</a></p>
@@ -412,15 +414,16 @@
       </div>
       <div>
         <div class="gov-facts">
-          <div><b>10 dias</b><span>de votação para cada proposta.</span></div>
+          <div><b>10 dias</b><span>de votação, ou menos: termina na hora em que um lado passa de metade de todo o SIG.</span></div>
           <div><b>1 SIG = 1 voto</b><span>travado até o fim e devolvido inteiro.</span></div>
           <div><b>1%</b><span>do SIG que existe precisa votar, ou não vale.</span></div>
           <div><b>10 SIG</b><span>de depósito para propor. Voltam no fim.</span></div>
         </div>
-        <p class="gov-risk"><b>O risco, sem esconder:</b> quem tem mais SIG tem mais votos. É por isso que todo SIG
-           nasce do trabalho, que ninguém ganhou SIG de graça e que o debate começa aberto, no fórum. O teto de 100 milhões
-           e o tempo da rede não entram em votação. E, enquanto um servidor do projeto ainda assina os blocos, o voto
-           depende dele seguir o código: dividir esse poder é a próxima etapa.</p>
+        <p class="gov-risk"><b>O risco, sem esconder:</b> quem tem mais SIG tem mais votos. No começo, a carteira dos
+           fundadores (1 milhão de SIG) tem mais da metade de todo o SIG que existe e, sozinha, pode decidir uma votação
+           na hora; esse peso cai à medida que a mineração cria SIG novo. Por isso o debate começa aberto, no fórum. O teto
+           de 100 milhões e o tempo da rede não entram em votação. E, enquanto um servidor do projeto ainda assina os
+           blocos, o voto depende dele seguir o código: dividir esse poder é a próxima etapa.</p>
         <div class="row" style="margin-top:18px">
           <a class="btn primary" href="/tutorial#votacoes">Como votar <span class="arrow" aria-hidden="true">→</span></a>
           <a class="btn" href="/carteira">Ver as votações</a>
@@ -498,7 +501,7 @@
         isso entre muitos validadores, até ninguém, nem nós, conseguir mandar na rede.
         <a href="/tutorial#limites">Veja o que falta.</a></span></div>
       <div><b>Quem trabalha recebe</b><span>O SIG novo vai para quem minera. O SIG que circula vai para quem hospeda sites e roda IA.</span></div>
-      <div><b>Nenhum SIG de graça</b><span>Nem para os criadores. Zero pré-mineração, zero venda antecipada, zero boas-vindas.</span></div>
+      <div><b>Reserva dita às claras</b><span>1% do teto para os fundadores, público na rede. Zero venda antecipada, zero boas-vindas: o resto sai da mineração.</span></div>
       <div><b>IA aberta</b><span>Só modelos com pesos abertos, que qualquer pessoa pode baixar e estudar. O app recusa
         licenças de uso não comercial ou só para pesquisa, e quem apadrinha responde pela licença do modelo que trouxe.</span></div>
       <div><b>Sua chave, seus SIG</b><span>Só quem tem a chave privada movimenta a carteira. Nós não temos a sua e não
@@ -559,12 +562,20 @@
           com prioridade baixa, mas trabalha de verdade: enquanto responde, o computador pode ficar mais lento. Em
           computador com pouca memória, diminua a “Memória para IA” ou desligue a IA no painel.</p></div></details>
       <details><summary>Quanto eu vou ganhar?</summary><div><p>Ninguém sabe, e desconfie de quem disser que sabe. Depende de quantos computadores estão minerando e da força do seu. O SIG não é investimento e não tem preço de mercado. Entre pela causa, não pela promessa.</p></div></details>
-      <details><summary>Dá para comprar SIG?</summary><div><p>Nós não vendemos SIG. Ele só nasce da mineração. Depois, passa de mão em mão dentro da rede: quem usa paga, quem hospeda recebe.</p></div></details>
-      <details><summary>Os criadores ganharam SIG?</summary><div><p>Não. A rede começou com todos os saldos zerados. Se quisermos SIG, mineramos como todo mundo.</p></div></details>
+      <details><summary>Dá para comprar SIG?</summary><div><p>Nós não vendemos SIG. Ele nasce da mineração (e, uma vez só, na reserva dos fundadores). Depois, passa de mão em mão dentro da rede: quem usa paga, quem hospeda recebe.</p></div></details>
+      <details><summary>Os criadores ganharam SIG?</summary><div><p>Sim, e preferimos dizer antes. A rede começou com todos os
+        saldos zerados, e a atualização das regras v2 cria uma única vez a carteira dos fundadores, com 1 milhão de SIG
+        (1% do teto), para as primeiras necessidades do projeto: marketing, administração e infraestrutura. O endereço
+        é público e cada gasto dela aparece na Carteira. Além disso, os fundadores mineram com as mesmas regras de
+        todo mundo.</p>
+        <p>Isso tem um efeito nas votações que é bom saber: no começo, enquanto a rede ainda tem pouco SIG, essa
+        carteira sozinha tem mais da metade de todos os votos possíveis e pode decidir uma votação. Esse peso cai à
+        medida que a mineração cria SIG novo.</p></div></details>
       <details><summary>Quem decide as regras da rede?</summary><div>
         <p>Quem participa, votando. Qualquer pessoa abre uma votação de 10 dias deixando 10 SIG de depósito (que voltam no
           fim). Cada SIG vale um voto e fica travado até o fim, depois volta inteiro. A proposta passa se tiver mais “sim” que
-          “não” e se pelo menos 1% de todo o SIG que existe tiver votado. Se a proposta muda uma regra, como a emissão ou o preço do
+          “não” e se pelo menos 1% de todo o SIG que existe tiver votado. Se um lado passa de metade de todo o SIG que existe,
+          a votação termina na hora, sem esperar os 10 dias. Se a proposta muda uma regra, como a emissão ou o preço do
           aluguel, a regra muda na hora.</p>
         <p>O risco: quem tem mais SIG tem mais votos. O teto de 100 milhões e o tempo da rede não podem ser votados.
           <a href="/tutorial#votacoes">Entenda as votações.</a></p></div></details>

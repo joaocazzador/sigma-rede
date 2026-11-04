@@ -12,23 +12,31 @@ Content-Security-Policy do app: se o painel tentar carregar algo de fora (fonte,
 Só usa 127.0.0.1 (portas 47960-47979: 47960 o --check, 47961 o unittest, 47979 o proxy morto); o Edge roda com um
 perfil temporário e um proxy morto.
 
-Os roteiros de clique (trocar carteira, importar chave, chat com Cancelar, Sigma Code, assistente...) rodam em
+Os roteiros de clique (trocar carteira, importar chave, chat com markdown e Parar, conversas guardadas, gerar imagens e
+vídeo, Sigma Code com aprovação pelas teclas 1/2 e instrução que continua a sessão, assistente...) rodam em
 /teste.html?r=<roteiro>&c=<cenario>&t=<token>[&w=380]: o painel abre num iframe da mesma origem e o resultado vai
 para #resultado. O Edge sem janela não abre janela com menos de ~490 px (--window-size=380,800 vira 492 px de
 largura), então a largura de celular de verdade é testada com &w=380, que fixa a largura do iframe.
+
+Sem o Edge, o --check ainda roda no node as funções puras do painel: o markdown (em tempo linear) e o corte da
+conversa que vai com a pergunta (o mesmo do client.fit_messages).
 """
 import base64
+import hashlib
 import html
 import json
+import math
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -75,16 +83,52 @@ LIMIT_429 = ("limite de 256 relatórios de mineração por conexão de internet 
 SAME_ID = "esta janela já tem um relatório com tantos pontos ou mais deste minerador"
 WINERR = ("não consegui falar com o nó http://127.0.0.1:8860: [WinError 10061] Nenhuma conexão pôde ser feita "
           "porque a máquina de destino as recusou ativamente")
+NO_MEDIA_YET = "a rede ainda não aceita modelos de imagem e vídeo: eles entram na atualização das regras v2"
 FALLBACK_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; "
                 "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-CATALOG = [  # mesmos campos do sigma/catalog.py
-    ("qwen2.5-0.5b", "Qwen2.5 0.5B Instruct", 491400032, "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db", "Apache-2.0"),
-    ("qwen2.5-1.5b", "Qwen2.5 1.5B Instruct", 1117320736, "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e", "Apache-2.0"),
-    ("smollm2-1.7b", "SmolLM2 1.7B Instruct", 1055609824, "77665ea4815999596525c636fbeb56ba8b080b46ae85efef4f0d986a139834d7", "Apache-2.0"),
-    ("deepseek-r1-qwen-1.5b", "DeepSeek R1 Distill Qwen 1.5B", 1117320800, "1741e5b2d062b07acf048bf0d2c514dadf2a48f94e2b4aa0cfe069af3838ee2f", "MIT"),
-    ("phi-3.5-mini", "Phi-3.5 mini Instruct", 2393232672, "e4165e3a71af97f1b4820da61079826d8752a2088e313af0c7d346796c38eff5", "MIT"),
-    ("qwen2.5-coder-7b", "Qwen2.5 Coder 7B Instruct", 4683073536, "509287f78cb4d4cf6b3843734733b914b2c158e43e22a7f4bf5e963800894d3c", "Apache-2.0"),
+MAX_CHAT_MESSAGES = 1000     # o mesmo do sigma/app.py: uma conversa guardada tem até isso, e a pergunta nova vai junto
+LONG_FIRST = "Primeira pergunta: me explique o Sigma do começo, sem pular nada."   # 1a da conversa longa
+CATALOG = [  # mesmos campos do sigma/catalog.py (+ a classe: text, image ou video)
+    ("qwen2.5-0.5b", "Qwen2.5 0.5B Instruct", 491400032, "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db", "Apache-2.0", "text"),
+    ("qwen2.5-1.5b", "Qwen2.5 1.5B Instruct", 1117320736, "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e", "Apache-2.0", "text"),
+    ("smollm2-1.7b", "SmolLM2 1.7B Instruct", 1055609824, "77665ea4815999596525c636fbeb56ba8b080b46ae85efef4f0d986a139834d7", "Apache-2.0", "text"),
+    ("deepseek-r1-qwen-1.5b", "DeepSeek R1 Distill Qwen 1.5B", 1117320800, "1741e5b2d062b07acf048bf0d2c514dadf2a48f94e2b4aa0cfe069af3838ee2f", "MIT", "text"),
+    ("phi-3.5-mini", "Phi-3.5 mini Instruct", 2393232672, "e4165e3a71af97f1b4820da61079826d8752a2088e313af0c7d346796c38eff5", "MIT", "text"),
+    ("qwen2.5-coder-7b", "Qwen2.5 Coder 7B Instruct", 4683073536, "509287f78cb4d4cf6b3843734733b914b2c158e43e22a7f4bf5e963800894d3c", "Apache-2.0", "text"),
+    ("z-image-turbo", "Z-Image Turbo (gera imagens)", 3_520_000_000, "3c1f0b8e2a9d4c7b6a5f4e3d2c1b0a99887766554433221100ffeeddccbbaa99", "Apache-2.0", "image"),
+    ("stable-diffusion-1.5", "Stable Diffusion 1.5 (gera imagens)", 4_265_146_304, "6ce0161689b3853acaa03779ec93eafe75a02f4ced659bee03f50797806fa2fa", "OpenRAIL", "image"),
+    ("wan2.1-t2v-1.3b", "Wan2.1 T2V 1.3B (gera vídeos)", 2_840_000_000, "9a8b7c6d5e4f30211203f4e5d6c7b8a99a8b7c6d5e4f30211203f4e5d6c7b8a9", "Apache-2.0", "video"),
 ]
+# imagem e vídeo (regras v2), como no sigma/catalog.py: os arquivos extras (papel, tamanho) e a receita de cada modelo
+MEDIA_FILES = {"z-image-turbo": [("llm", 2_497_281_120), ("vae", 335_304_388)],
+               "wan2.1-t2v-1.3b": [("vae", 253_815_318), ("t5xxl", 3_655_145_312)]}
+RECIPES = {"z-image-turbo": {"steps": 8, "cfg": 1.0, "sampler": "euler", "size": "1024x1024"},
+           "stable-diffusion-1.5": {"steps": 20, "cfg": 7.0, "sampler": "euler_a", "size": "512x512"},
+           "wan2.1-t2v-1.3b": {"steps": 20, "cfg": 6.0, "sampler": "euler", "size": "832x480", "flow_shift": 3.0}}
+MEDIA_RAM_MB = {"text": 512, "image": 1536, "video": 4096}   # o que a chain soma à memória de cada classe
+TASK_UNITS = {"text": "mil tokens", "image": "imagem", "video": "segundo de vídeo"}
+AI_LIMITS = {"image": {"sizes": ["512x512", "768x768", "1024x1024", "768x1024", "1024x768"], "max_count": 4},
+             "video": {"sizes": ["832x480", "480x832"], "seconds": [2, 3, 5]}}
+CHAT_ID = re.compile(r"c[0-9a-f]{12}")
+MEDIA_HASH = re.compile(r"[0-9a-f]{64}")
+
+
+def tiny_png(w=8, h=8, rgb=(255, 59, 31)):
+    """Um PNG de verdade (o <img> do painel precisa conseguir abrir)."""
+    def chunk(t, data):
+        return struct.pack(">I", len(data)) + t + data + struct.pack(">I", zlib.crc32(t + data) & 0xFFFFFFFF)
+    raw = b"".join(b"\x00" + bytes(rgb) * w for _ in range(h))
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+FAKE_WEBM = b"\x1aE\xdf\xa3" + b"\x9f\x42\x86\x81\x01" + b"\x00" * 64   # só o cabeçalho EBML: não precisa tocar
+
+
+class Raw:
+    """Resposta crua (bytes + Content-Type) em vez de JSON: o GET /api/media/<hash>."""
+    def __init__(self, data, ctype):
+        self.data, self.ctype = data, ctype
 TABS = ("inicio", "carteira", "maquina", "ia", "programar", "sites", "modelos", "rede", "votacoes", "config")
 CENARIOS = {
     "pronto": "carteira com chave, minerando, modelos no ar, histórico com créditos",
@@ -107,17 +151,40 @@ CENARIOS = {
     "demanda-alta": "preços no teto e a rede cheia (aluguel 11x): a conta do aluguel passa de 2^53",
     "regras": "a rede muda para as regras v2 no bloco 130.000 e este Sigma só conhece a v1 (docs/ATUALIZACOES.md)",
     "regras-atrasado": "a rede já passou para as regras v2 e este Sigma só conhece a v1",
+    "sem-midia": "a rede ainda está nas regras v1: não aceita modelos de imagem e vídeo (ai.media = false)",
+    "conversa-longa": "uma conversa de texto guardada com 200 mensagens, mais do que cabe no contexto do modelo",
 }
 
 
-def ram_mb(size):
-    return -(-size * 12 // 10_000_000) + 512
+def ram_mb(size, task="text"):   # a mesma conta do sigma/catalog.py e da chain
+    return math.ceil(size / 1e6 * 1.2) + MEDIA_RAM_MB[task]
 
 
 def catalog():
-    return [{"id": i, "name": n, "repo": "org/" + i, "file": i + ".gguf", "url": f"{HF}/org/{i}/resolve/main/{i}.gguf",
-             "size": s, "sha256": h, "license": lic, "description": f"{n}: modelo aberto, liberado para uso comercial.",
-             "ram_mb": ram_mb(s)} for i, n, s, h, lic in CATALOG]
+    out = []
+    for i, n, s, h, lic, task in CATALOG:
+        it = {"id": i, "name": n, "repo": "org/" + i, "file": i + ".gguf", "url": f"{HF}/org/{i}/resolve/main/{i}.gguf",
+              "size": s, "sha256": h, "license": lic, "description": f"{n}: modelo aberto, liberado para uso comercial.",
+              "ram_mb": ram_mb(s), "task": task}
+        if task != "text":   # `size` é só o arquivo principal; a chain cobra o disco e a memória pelo total
+            files = [{"role": r, "url": f"{HF}/org/{i}/resolve/main/{r}.safetensors",
+                      "sha256": hashlib.sha256(f"{i}/{r}".encode()).hexdigest(), "size": sz}
+                     for r, sz in MEDIA_FILES.get(i, [])]
+            total = s + sum(f["size"] for f in files)
+            it.update(files=files, total_size=total, recipe=dict(RECIPES[i]), ram_mb=ram_mb(total, task))
+        out.append(it)
+    return out
+
+
+def long_chat(t0=0):
+    """A conversa do cenário conversa-longa: 100 trocas (200 mensagens), bem mais do que cabe nos 4.096 tokens."""
+    msgs = []
+    for k in range(100):
+        q = LONG_FIRST if k == 0 else f"Pergunta {k + 1}: e quanto custa manter um modelo de texto pequeno na rede?"
+        msgs += [{"role": "user", "content": q, "time": t0 + 60 * k},
+                 {"role": "assistant", "content": f"Resposta {k + 1}: o aluguel segue o disco e a memória que o modelo ocupa.",
+                  "cost": 900, "machine": OTHER, "time": t0 + 60 * k + 10}]
+    return msgs
 
 
 def page_csp():
@@ -129,6 +196,26 @@ def page_csp():
         return "".join(re.findall(r'"([^"]*)"', m.group(1))) if m else FALLBACK_CSP
     except OSError:
         return FALLBACK_CSP
+
+
+def csp_has_media(csp):
+    """O painel mostra imagens e vídeos gerados por blob: (URL.createObjectURL): img-src e media-src precisam de blob:."""
+    d = {p.split()[0]: p.split()[1:] for p in csp.split(";") if p.strip()}
+    return "blob:" in d.get("img-src", []) and "blob:" in d.get("media-src", [])
+
+
+def media_csp(csp):
+    """O CSP do app com blob: em img-src e media-src (o contrato combinado), mesmo enquanto o app.py não tiver."""
+    parts = [p.strip() for p in csp.split(";") if p.strip()]
+    names, out = [p.split()[0] for p in parts], []
+    for p in parts:
+        name = p.split()[0]
+        if name in ("img-src", "media-src") and "blob:" not in p.split():
+            p += " blob:"
+        out.append(p)
+        if name == "img-src" and "media-src" not in names:
+            out.append("media-src blob:")
+    return "; ".join(out)
 
 
 def app_routes():
@@ -146,19 +233,24 @@ class Bad(Exception):
 
 # ------------------------------------------------------------------ Sigma Code de mentira (avança a cada resposta)
 class CodeSim:
+    # uma sessão tem vários turnos: a tarefa inicial (/api/code/start) e as instruções seguintes (/api/code/continue)
     def __init__(self):
         self.lock = threading.Lock()
         self.info = self._blank()
         self.stage = 0
+        self.turn = 0
+        self.after = "command"   # o que vem depois de aprovar/recusar um arquivo: "command" ou "final"
 
     @staticmethod
     def _blank(**kw):
         return dict({"running": False, "folder": "", "model": "", "task": "", "auto_files": False, "steps": [],
-                     "pending": None, "spent": 0, "final": None, "error": None}, **kw)
+                     "pending": None, "spent": 0, "final": None, "error": None, "turns": []}, **kw)
 
     def state(self):
         with self.lock:
-            return json.loads(json.dumps(self.info))
+            s = json.loads(json.dumps(self.info))
+        s["can_continue"] = bool(s["task"]) and not s["running"]
+        return s
 
     def summary(self):
         with self.lock:
@@ -166,7 +258,22 @@ class CodeSim:
 
     def _step(self, **s):
         s.setdefault("n", self.stage)
+        s.setdefault("turn", self.turn)
         self.info["steps"].append(s)
+
+    def _look(self):
+        """Os primeiros passos de leitura de toda tarefa: Listar(.) e Ler(README.md)."""
+        self._step(kind="tool", text="list_dir", tool="list_dir", args={"dir": "."}, target=".",
+                   output="index.html\nREADME.md\nestilo.css", refused=False)
+        self._step(kind="tool", text="read_file", tool="read_file", args={"path": "README.md"}, target="README.md",
+                   output="# Meu site\n\nUm site simples de contato.\nFeito à mão.\n" + XSS, refused=False)
+
+    def _ask_edit(self):
+        self.info["pending"] = {"id": os.urandom(8).hex(), "tool": "edit_file", "args": {"path": "index.html"},
+                                "target": "index.html", "reason": "write", "changed": ["index.html"],
+                                "preview": "--- a/index.html\n+++ b/index.html\n@@ -1,3 +1,4 @@\n <h1>Contato</h1>\n"
+                                           "-<input name=\"email\">\n+<input name=\"email\" type=\"email\">\n"
+                                           "+<input name=\"telefone\" type=\"tel\">\n <button>Enviar</button>"}
 
     def _pay(self, n, cost):
         self.info["spent"] += cost
@@ -215,8 +322,10 @@ class CodeSim:
         if not model or model not in models:
             raise Bad("nenhum modelo de IA está no ar na rede agora: tente de novo daqui a pouco")
         with self.lock:
-            self.info = self._blank(running=True, folder=folder, model=model, task=task, auto_files=auto)
-            self.stage = 1
+            self.info = self._blank(running=True, folder=folder, model=model, task=task, auto_files=auto,
+                                    turns=[{"n": 1, "text": task}])
+            self.stage, self.turn, self.after = 1, 1, "command"
+            self._look()
             self._pay(1, 1234)
             self._step(kind="assistant", text="Vou criar o arquivo index.html com o formulário. " + XSS)
             if auto:   # gravar sem perguntar: o arquivo já vai, o comando pergunta mesmo assim
@@ -245,6 +354,14 @@ class CodeSim:
                 final = "Pronto: criei o index.html com o formulário de contato."
                 self._step(kind="final", text=final)
                 self.info.update(final=final, running=False)
+            elif self.after == "final":   # turno de continuação: a alteração é o último passo
+                tool = p["tool"]
+                self._step(kind="tool", text=tool + ("" if ok else " (recusado)"), tool=tool, args=p["args"],
+                           target=p.get("target"), output=(p["preview"] if ok else "o usuário recusou"), refused=not ok)
+                final = ("Pronto: adicionei o campo de telefone no formulário." if ok
+                         else "Tudo bem, não mexi no index.html.")
+                self._step(kind="final", text=final)
+                self.info.update(final=final, running=False)
             else:
                 self._step(kind="tool", text="write_file" + ("" if ok else " (recusado)"), tool="write_file",
                            args=p["args"], target=p.get("target"),
@@ -262,12 +379,44 @@ class CodeSim:
             self.info["running"] = False
         return self.state()
 
+    def cont(self, d, can_spend):
+        """POST /api/code/continue {text}: o próximo turno da mesma sessão (mesma pasta, modelo e conversa)."""
+        text = d.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise Bad("escreva o que o Sigma Code deve fazer")
+        with self.lock:
+            if self.info["running"]:
+                raise Bad("o Sigma Code já está trabalhando numa tarefa: espere terminar ou clique em Parar")
+            if not self.info["task"]:
+                raise Bad("não há sessão para continuar: comece uma tarefa nova")
+        if not can_spend:
+            raise Bad("esta carteira está no modo só endereço: para gastar SIG daqui, importe a chave em Carteira → "
+                      "Importar a chave desta carteira")
+        with self.lock:
+            self.turn += 1
+            self.stage += 1
+            self.after = "final"
+            self.info["turns"].append({"n": self.turn, "text": text.strip()})
+            self.info.update(running=True, final=None, error=None, pending=None)
+            self._pay(self.stage, 1700)
+            self._step(kind="assistant", text="Vou adicionar o campo de telefone no formulário do index.html.")
+            self._ask_edit()
+        return {"ok": True}
+
+    def reset(self):
+        with self.lock:
+            if self.info["running"]:
+                raise Bad("o Sigma Code ainda está trabalhando: clique em Parar antes de começar uma sessão nova")
+            self.info, self.stage, self.turn, self.after = self._blank(), 0, 0, "command"
+        return {"ok": True}
+
     def pending_command(self, multi=False):
         """Cenário 'codigo'/'codigo-linhas': uma tarefa já rodando, esperando aprovar um comando."""
         with self.lock:
+            task = "suba um servidor para eu ver o site"
             self.info = self._blank(running=True, folder=r"C:\Users\teste\projetos\meu-site", model="qwen2.5-coder-7b",
-                                    task="suba um servidor para eu ver o site")
-            self.stage = 1
+                                    task=task, turns=[{"n": 1, "text": task}])
+            self.stage, self.turn = 1, 1
             self._pay(1, 1234)
             self._ask_command(multi)
 
@@ -297,7 +446,7 @@ class Mock:
         self.settings = {"cpu_percent": 50, "mining_enabled": True, "ai_enabled": True, "compute_enabled": True,
                          "disk_gb": 20, "ai_ram_gb": 6, "node": f"http://127.0.0.1:{port}", "start_with_system": False,
                          "mine_on_battery": False, "name": "PC da sala", "public_url": "", "engine": "auto",
-                         "ai_threads": 0}
+                         "ai_threads": 0, "ai_image": True, "ai_video": False}
         # 14 períodos de 12 h pela regra da SPEC-v2.3 (só estatística: a emissão sai aos poucos em todo bloco)
         self.epochs, minted = [], 0
         for e in range(1, 15):
@@ -363,7 +512,10 @@ class Mock:
 
         def model(cid, sponsor, pinners, assigned, budget, **kw):
             c = cat[cid]
-            return dict({"name": cid, "sponsor": sponsor, "url": c["url"], "sha256": c["sha256"], "size": c["size"],
+            # imagem e vídeo (SPEC-v2.5 §1): a chain guarda o total em size, o principal em main_size e os extras
+            media = {"main_size": c["size"], "files": c["files"]} if "total_size" in c else {}
+            return dict({"name": cid, "sponsor": sponsor, "url": c["url"], "sha256": c["sha256"],
+                         "size": c.get("total_size", c["size"]), **media,
                          "ram_mb": c["ram_mb"], "license": c["license"], "description": c["description"],
                          "royalty_bps": 1000, "reinvest_bps": 0, "replicas": 2, "budget": budget, "rent_paid": 0,
                          "royalties": 0, "tokens": 0, "jobs": 0, "assigned": assigned,
@@ -374,10 +526,46 @@ class Mock:
                                   tokens=182_344, jobs=311, reinvest_bps=2500),
             "qwen2.5-coder-7b": model("qwen2.5-coder-7b", OTHER, [OTHER], {}, 300 * UNIT, tokens=40_000, jobs=20),
             "smollm2-1.7b": model("smollm2-1.7b", OTHER, [OTHER], {MACHINE: 123}, 90 * UNIT, tokens=5_120, jobs=12),
+            # sem "task": o painel trata como texto (o app antigo não mandava a classe)
             "phi-3.5-mini": model("phi-3.5-mini", OTHER, [], {}, 12 * UNIT, description="Descrição com " + XSS),
+            "z-image-turbo": model("z-image-turbo", OTHER, [OTHER], {}, 200 * UNIT, jobs=57, units=131),
+            "stable-diffusion-1.5": model("stable-diffusion-1.5", OTHER, [OTHER], {}, 120 * UNIT, jobs=4, units=9),
+            "wan2.1-t2v-1.3b": model("wan2.1-t2v-1.3b", OTHER, [OTHER], {}, 150 * UNIT, jobs=9, units=33),
         }
-        # teto de preço por modelo (o client.ask usa o mesmo): só os que têm máquina com `pub` online
-        self.prices = {"qwen2.5-0.5b": 2000, "qwen2.5-coder-7b": 3000}
+        for name, m in self.models.items():
+            if name != "phi-3.5-mini":
+                m["task"] = cat[name]["task"]
+        # teto de preço por modelo (o client.ask usa o mesmo): só os que têm máquina com `pub` online.
+        # Na unidade da classe: texto por mil tokens, imagem por imagem, vídeo por segundo de vídeo.
+        self.prices = {"qwen2.5-0.5b": 2000, "qwen2.5-coder-7b": 3000, "z-image-turbo": 40_000,
+                       "stable-diffusion-1.5": 30_000, "wan2.1-t2v-1.3b": 250_000}
+        if cenario == "sem-midia":   # rede nas regras v1: nenhum modelo de imagem ou vídeo entrou
+            for name in [n for n in self.models if self.task_of(n) != "text"]:
+                del self.models[name]
+                self.prices.pop(name, None)
+        self.media = {}              # hash -> (bytes, mime) das imagens e vídeos gerados
+        img = [self.new_media("image/png") for _ in range(2)]
+        # conversas guardadas pelo app (uma com título hostil, uma de imagem com mídia, uma antiga)
+        self.saved = {
+            "ca1a1a1a1a1a1": {"id": "ca1a1a1a1a1a1", "title": HOSTILE, "task": "text", "model": "qwen2.5-0.5b",
+                              "created": now - 3600, "updated": now - 60, "messages": [
+                                  {"role": "user", "content": "Um título estranho veio daqui", "time": now - 3600},
+                                  {"role": "assistant", "content": "Resposta guardada com " + XSS, "cost": 1234,
+                                   "machine": OTHER, "time": now - 3590}]},
+            "cb2b2b2b2b2b2": {"id": "cb2b2b2b2b2b2", "title": "Gato astronauta em aquarela", "task": "image",
+                              "model": "z-image-turbo", "created": now - 86400, "updated": now - 86400, "messages": [
+                                  {"role": "user", "content": "um gato astronauta em aquarela", "time": now - 86400},
+                                  {"role": "assistant", "content": "", "cost": 80_000, "machine": OTHER,
+                                   "time": now - 86390, "media": [{"hash": h, "mime": "image/png", "width": 512,
+                                                                   "height": 512} for h in img]}]},
+            "cc3c3c3c3c3c3": {"id": "cc3c3c3c3c3c3", "title": "Receita de pão de queijo", "task": "text",
+                              "model": "qwen2.5-0.5b", "created": now - 10 * 86400, "updated": now - 10 * 86400,
+                              "messages": [{"role": "user", "content": "receita de pão de queijo", "time": now - 10 * 86400}]},
+        }
+        if cenario == "conversa-longa":
+            self.saved["cd4d4d4d4d4d4"] = {"id": "cd4d4d4d4d4d4", "title": "Conversa longa sobre o aluguel", "task": "text",
+                                           "model": "qwen2.5-0.5b", "created": now - 7200, "updated": now - 30,
+                                           "messages": long_chat(now - 7200)}
         self.sites = {
             "meu-blog": {"name": "meu-blog", "owner": ME, "budget": 3_200_000, "version": 3, "created": 900,
                          "pinners": {MACHINE: {"window": 100}, OTHER: {"window": 100}}, "paid": 10_000, "size": 482_133,
@@ -388,6 +576,14 @@ class Mock:
         }
         self.logs = ["[mineração] 8 processos com prioridade baixa", "[máquina] registrada na rede como 'PC da sala'",
                      "[máquina] baixando o modelo 'smollm2-1.7b' (1.006 MB)", "[painel] nome estranho: " + XSS]
+
+    def new_media(self, mime):
+        h = hashlib.sha256(os.urandom(16)).hexdigest()
+        self.media[h] = (tiny_png() if mime.startswith("image/") else FAKE_WEBM, mime)
+        return h
+
+    def task_of(self, name):
+        return self.models.get(name, {}).get("task") or "text"
 
     def record(self, method, path, body):
         with self.lock:
@@ -477,6 +673,9 @@ class Mock:
                          "hw": {"cpu_cores": 8, "ram_mb": 17060, "vram_mb": 8192, "gpu": "NVIDIA GeForce RTX 3060 " + XSS,
                                 "disk_free_mb": 199_885, "os": "Windows 11"},
                          "engine": engine, "models": models, "sites": ["meu-blog", "manifesto-livre"],
+                         "media_engine": {"kind": "sdcpp", "ready": True, "installing": False, "install_progress": 0.0,
+                                          "detail": "stable-diffusion.cpp (vulkan) pronto para imagens"},
+                         "media_queue": 0, "tasks": ["text", "image"],
                          "jobs_done": 128, "jobs_failed": 3, "earned": 42_123_456, "reputation": 12, "ai_queue": 0,
                          "engine_down": False, "last_error": None},
              "epochs": sorted(self.epochs, key=lambda e: -e["epoch"]),
@@ -596,8 +795,11 @@ def handle(mock, method, path, q, d):
         return {"private_key": KEY_ME}
     if mock.cenario == "sem-conexao" and (method, path) in (("GET", "/api/models"), ("GET", "/api/sites")):
         raise Bad(WINERR)   # o app repassa o erro do nó como 400
+    media_on = mock.cenario != "sem-midia"   # o /mining diz media: true quando a rede já está nas regras v2
     if (method, path) == ("GET", "/api/models"):
-        return {"network": mock.models, "catalog": catalog(), "ai": {"prices": dict(mock.prices), "context": 4096}}
+        return {"network": mock.models, "catalog": catalog(),
+                "ai": {"prices": dict(mock.prices), "context": 4096, "units": dict(TASK_UNITS), "limits": AI_LIMITS,
+                       "tasks": {n: mock.task_of(n) for n in mock.models}, "media": media_on}}
     if (method, path) == ("POST", "/api/models/sponsor"):
         spender()
         b = amount("budget")
@@ -605,6 +807,8 @@ def handle(mock, method, path, q, d):
             c = next((c for c in catalog() if c["id"] == d["catalog_id"]), None)
             if not c:
                 raise Bad("esse modelo não está no catálogo")
+            if c["task"] != "text" and not media_on:
+                raise Bad(NO_MEDIA_YET)
         elif str(d.get("url", "")).startswith(HF + "/"):
             c = dict(catalog()[0], id=None, url=d["url"])
         else:
@@ -634,10 +838,147 @@ def handle(mock, method, path, q, d):
         else:
             mock.balance += m["budget"]; del mock.models[d["name"]]
         return {"txid": txid()}
+    def media_args(task):
+        """Os campos de /api/ai/image e /api/ai/video (e do quote dessas classes), conferidos como o app."""
+        prompt = d.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 2000:
+            raise Bad("descreva o que você quer (de 1 a 2.000 caracteres)")
+        lim = AI_LIMITS[task]
+        if d.get("size") not in lim["sizes"]:
+            raise Bad("formato inválido: use " + ", ".join(lim["sizes"]))
+        if task == "image":
+            n = d.get("count", 1)
+            if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= lim["max_count"]:
+                raise Bad(f"count deve ser um inteiro de 1 a {lim['max_count']}")
+        else:
+            n = d.get("seconds")
+            if isinstance(n, bool) or n not in lim["seconds"]:
+                raise Bad("seconds deve ser " + ", ".join(map(str, lim["seconds"])))
+        return n
+
+    def task_model(task):
+        name = d.get("model")
+        if name in mock.models and mock.task_of(name) != task:
+            raise Bad({"text": "esse modelo não conversa: ele gera imagens ou vídeos",
+                       "image": "esse modelo não gera imagens", "video": "esse modelo não gera vídeos"}[task])
+        return name
+
+    def wait_or_cancel(last, pause):
+        """Fica 'pensando' até alguém cancelar (ou 15 s) quando o texto tem 'demora' ou 'pegou'."""
+        ctx = {"claimed": "pegou" in last, "id": d.get("id"), "ev": threading.Event()}
+        with mock.lock:
+            if ctx["id"] and ctx["id"] in mock.canceled:
+                ctx["ev"].set()
+            mock.chats.append(ctx)
+        try:
+            if "demora" in last or "pegou" in last:
+                stopped = ctx["ev"].wait(15)
+                if stopped and not ctx["claimed"]:
+                    raise Bad(CANCELED, code="canceled")
+                if not stopped and "demora" in last:
+                    raise Bad(NO_ANSWER)
+            else:
+                time.sleep(pause)
+        finally:
+            with mock.lock:
+                mock.chats.remove(ctx)
+
+    def max_price():
+        mp = d.get("max_price")
+        if mp is not None and (isinstance(mp, bool) or not isinstance(mp, int) or not 1 <= mp <= 10_000_000):
+            raise Bad("max_price deve ser um inteiro entre 1 e 10000000")
+        return mp
+
+    if (method, path) == ("POST", "/api/ai/quote") and mock.task_of(d.get("model")) != "text":
+        task = mock.task_of(d.get("model"))
+        n = media_args(task)
+        price = mock.prices.get(d.get("model"))
+        return {"model": d.get("model"), "task": task, "price": price, "unit": TASK_UNITS[task],
+                "max_cost": price * n if price else None}
+    if method == "POST" and path in ("/api/ai/image", "/api/ai/video"):
+        task = "image" if path.endswith("image") else "video"
+        name = task_model(task)
+        n = media_args(task)
+        spender()
+        if name not in mock.prices:
+            raise Bad("nenhuma máquina online com o modelo aceita pedidos cifrados agora")
+        price = max_price() or mock.prices[name]
+        wait_or_cancel(d["prompt"], 0.6 if task == "image" else 1.5)
+        w, h = (int(x) for x in d["size"].split("x"))
+        if task == "image":
+            media = [{"hash": mock.new_media("image/png"), "mime": "image/png", "width": w, "height": h} for _ in range(n)]
+        else:
+            media = [{"hash": mock.new_media("video/webm"), "mime": "video/webm", "width": w, "height": h, "seconds": n}]
+        cost = mock.prices[name] * n
+        mock.balance -= cost
+        return {"task": task, "media": media, "cost": cost, "machine": OTHER, "attempts": 1, "job": "j" + txid()[:12],
+                "price": price, "max_cost": price * n}
+    if method == "GET" and path.startswith("/api/media/"):
+        h = path[len("/api/media/"):]
+        if not MEDIA_HASH.fullmatch(h) or h not in mock.media:
+            raise KeyError(path)
+        data, mime = mock.media[h]
+        return Raw(data, mime)
+    # conversas guardadas pelo app (não pelo navegador)
+    if (method, path) == ("GET", "/api/chats"):
+        with mock.lock:
+            items = sorted(mock.saved.values(), key=lambda c: -c["updated"])
+            return {"chats": [{"id": c["id"], "title": c["title"], "task": c["task"], "model": c["model"],
+                               "updated": c["updated"], "count": len(c["messages"])} for c in items]}
+    if method == "GET" and path.startswith("/api/chats/"):
+        cid = path[len("/api/chats/"):]
+        with mock.lock:
+            if not CHAT_ID.fullmatch(cid) or cid not in mock.saved:
+                raise Bad("essa conversa não existe mais")
+            return json.loads(json.dumps(mock.saved[cid]))
+    if (method, path) == ("POST", "/api/chats/save"):
+        task, msgs, cid = d.get("task"), d.get("messages"), d.get("id")
+        if task not in TASK_UNITS:
+            raise Bad("task deve ser text, image ou video")
+        if not isinstance(msgs, list) or len(msgs) > MAX_CHAT_MESSAGES:
+            raise Bad(f"messages deve ser uma lista de até {MAX_CHAT_MESSAGES} mensagens")
+        for m in msgs:
+            if not isinstance(m, dict) or m.get("role") not in ("user", "assistant") or not isinstance(m.get("content"), str):
+                raise Bad("cada mensagem precisa de role (user ou assistant) e content (texto)")
+        title = d.get("title")
+        if title is not None and (not isinstance(title, str) or len(title) > 120):
+            raise Bad("o título pode ter no máximo 120 caracteres")
+        now = time.time()
+        with mock.lock:
+            if cid is not None and (not isinstance(cid, str) or cid not in mock.saved):
+                raise Bad("essa conversa não existe mais")
+            if cid is None:
+                cid = "c" + os.urandom(6).hex()
+                first = next((m["content"] for m in msgs if m["role"] == "user"), "") or "Conversa"
+                mock.saved[cid] = {"id": cid, "title": first.strip()[:60], "created": now}
+            c = mock.saved[cid]
+            c.update(task=task, model=str(d.get("model") or ""), messages=msgs, updated=now)
+            if title and title.strip():
+                c["title"] = title.strip()
+            return {"id": cid, "title": c["title"], "updated": now}
+    if method == "POST" and path in ("/api/chats/delete", "/api/chats/rename"):
+        cid = d.get("id")
+        with mock.lock:
+            if not isinstance(cid, str) or cid not in mock.saved:
+                raise Bad("essa conversa não existe mais")
+            if path.endswith("delete"):
+                del mock.saved[cid]
+            else:
+                title = d.get("title")
+                if not isinstance(title, str) or not 1 <= len(title.strip()) <= 120:
+                    raise Bad("o nome da conversa precisa ter de 1 a 120 caracteres")
+                mock.saved[cid]["title"] = title.strip()
+        return {"ok": True}
+    def chat_msgs():
+        """As mensagens de /api/ai/quote e /api/ai/chat, com o limite do app._chat_input: uma conversa guardada inteira
+        mais a pergunta nova (o painel já manda só o que cabe no contexto)."""
+        msgs = d.get("messages")
+        if not isinstance(msgs, list) or not 1 <= len(msgs) <= MAX_CHAT_MESSAGES + 1:
+            raise Bad(f"messages deve ser uma lista com 1 a {MAX_CHAT_MESSAGES + 1} mensagens")
+        return msgs
+
     if (method, path) == ("POST", "/api/ai/quote"):
-        msgs = d.get("messages") or []
-        if not isinstance(msgs, list) or not msgs:
-            raise Bad("messages deve ser uma lista com 1 a 200 mensagens")
+        msgs = chat_msgs()
         max_tokens = min(int(d.get("max_tokens") or 512), 2048)
         cost = [len(str(m.get("content") or "")) // 3 + 8 for m in msgs]
         room = 4096 - max_tokens - 48
@@ -649,38 +990,28 @@ def handle(mock, method, path, q, d):
                 break
             keep.append(i); used += cost[i]
         price = mock.prices.get(d.get("model"))
-        return {"model": d.get("model"), "price": price, "max_tokens": max_tokens, "trimmed": len(cost) - len(keep),
+        return {"model": d.get("model"), "task": "text", "unit": TASK_UNITS["text"], "price": price,
+                "max_tokens": max_tokens, "trimmed": len(cost) - len(keep),
                 "max_cost": max(1, -(-(used + 16 + max_tokens) * price // 1000)) if price else None}
     if (method, path) == ("POST", "/api/ai/chat"):
-        msgs = d.get("messages") or []
-        if not isinstance(msgs, list) or not msgs or msgs[-1].get("role") != "user":
+        msgs = chat_msgs()
+        if msgs[-1].get("role") != "user":
             raise Bad("messages deve terminar com uma mensagem do usuário")
+        task_model("text")
         spender()
         if d.get("model") not in mock.prices:
             raise Bad("nenhuma máquina online com o modelo aceita pedidos cifrados agora")
-        mp = d.get("max_price")
-        if mp is not None and (isinstance(mp, bool) or not isinstance(mp, int) or not 1 <= mp <= 1_000_000):
-            raise Bad("max_price deve ser um inteiro entre 1 e 1000000")
+        mp = max_price()
         last = str(msgs[-1].get("content") or "")
-        ctx = {"claimed": "pegou" in last, "id": d.get("id"), "ev": threading.Event()}
-        with mock.lock:
-            if ctx["id"] and ctx["id"] in mock.canceled:
-                ctx["ev"].set()
-            mock.chats.append(ctx)
-        try:
-            if "demora" in last or "pegou" in last:   # fica "pensando" até alguém cancelar (ou 15 s)
-                stopped = ctx["ev"].wait(15)
-                if stopped and not ctx["claimed"]:
-                    raise Bad(CANCELED, code="canceled")
-                if not stopped and "demora" in last:
-                    raise Bad(NO_ANSWER)
-            else:
-                time.sleep(0.4)
-        finally:
-            with mock.lock:
-                mock.chats.remove(ctx)
+        wait_or_cancel(last, 0.4)
         think = "<think>A pessoa perguntou algo; vou responder curto.</think>" if "deepseek" in str(d.get("model")) else ""
-        text = (f"{think}Você disse: **{last[:200]}**\n\nExemplo de código:\n```python\nprint('olá, rede')\n```\n"
+        # markdown de verdade: título, lista com sublista, tabela, citação, código, links (um perigoso) e linha
+        text = (f"{think}## Resposta de teste\n\nVocê disse: **{last[:200]}**\n\n"
+                "1. Primeiro passo\n   - detalhe *importante*\n   - outro detalhe\n2. Segundo passo\n\n"
+                "| Linguagem | Tipo |\n|---|:---:|\n| Python | interpretada |\n| C | compilada |\n\n"
+                "> Uma citação curta.\n\n"
+                "Exemplo de código:\n```python\nprint('olá, rede')\n```\n\n"
+                "Veja [a documentação](https://exemplo.invalid/docs) e [isto](javascript:alert(1)).\n\n---\n\n"
                 f"Isto é uma resposta de teste {XSS}.")
         mock.balance -= 1234
         trimmed = 2 if sum(len(str(m.get("content") or "")) for m in msgs) > 6000 else 0
@@ -703,6 +1034,10 @@ def handle(mock, method, path, q, d):
         return mock.code.answer(d)
     if (method, path) == ("POST", "/api/code/stop"):
         return mock.code.stop()
+    if (method, path) == ("POST", "/api/code/continue"):
+        return mock.code.cont(d, bool(mock.address) and mock.can_spend)
+    if (method, path) == ("POST", "/api/code/reset"):
+        return mock.code.reset()
     if (method, path) == ("POST", "/api/code/pick-folder"):
         if not mock.features["pick_folder"]:
             raise Bad("digite o caminho da pasta")
@@ -889,22 +1224,36 @@ R.importar = async () => {
   ok(await until(() => !q("#dlg").open), "chave certa importada");
   ok(await until(() => !txt("#ai-notes").includes("modo só endereço"), 8000), "aviso some depois de importar");
 };
+const sel = (s, v) => { const e = q(s); if (!e) throw new Error("não achei " + s); e.value = v; e.dispatchEvent(new W.Event("change", {bubbles: true})); };
+const key = (s, k) => { const e = typeof s === "string" ? q(s) : s; if (!e) throw new Error("não achei " + s); e.dispatchEvent(new W.KeyboardEvent("keydown", {key: k, bubbles: true})); };
+const PRIV_TEXT = "Cada pergunta vai cifrada para uma máquina da rede sorteada na hora, que precisa ler para responder, e leva junto a conversa inteira. Numa conversa longa, as máquinas de várias pessoas diferentes acabam lendo tudo o que você já escreveu: não mande senhas, documentos nem dados pessoais. Quem pediu, quando e quanto pagou continua público.";
 R.chat = async () => {
   click("[data-tab=ia]");
   ok(await until(() => q("#ai-model option[value='qwen2.5-0.5b']")), "modelos no ar no seletor");
-  ok(txt("#ai-privacy") === "Cada pergunta vai cifrada para uma máquina da rede sorteada na hora, que precisa ler para responder, e leva junto a conversa inteira. Numa conversa longa, as máquinas de várias pessoas diferentes acabam lendo tudo o que você já escreveu: não mande senhas, documentos nem dados pessoais. Quem pediu, quando e quanto pagou continua público.", "aviso fixo de privacidade (alcance real: várias máquinas) acima do formulário");
-  ok(q("#ai-privacy").nextElementSibling === q("#chat-form"), "o aviso fica logo acima do formulário");
-  q("#ai-model").value = "qwen2.5-0.5b"; q("#ai-model").dispatchEvent(new W.Event("change", {bubbles: true}));
+  ok(await until(() => txt("#chat-log").includes("Como posso ajudar?") && qa("#chat-log .chip").length >= 3), "conversa vazia: 'Como posso ajudar?' com sugestões");
+  ok(txt("#ai-privacy") === PRIV_TEXT, "aviso fixo de privacidade (alcance real: várias máquinas)");
+  ok(q("#chat-form").contains(q("#ai-privacy")) && q("#ai-privacy").closest("details.comp-foot")
+     && txt("#chat-form details.comp-foot > summary").includes("não mande senhas nem dados pessoais"),
+     "o aviso fica discreto, embaixo da caixa de texto (uma linha à vista, o texto completo em Saiba mais)");
+  ok(byText("#ai-model optgroup[label=Texto] option", "qwen2.5-0.5b · 2.000 µSIG por mil tokens") && q("#ai-model optgroup[label=Imagem]") && q("#ai-model optgroup[label=Vídeo]"),
+     "seletor de modelo agrupado por classe, com o preço por unidade");
+  ok(vis("#ai-len") && !vis("#ai-size") && !vis("#ai-seconds"), "texto: só a opção de tamanho da resposta");
+  sel("#ai-model", "qwen2.5-0.5b");
+  click("#chat-log .chip");
+  ok(q("#chat-text").value === "Explique em poucas palavras como funciona o Sigma", "sugestão preenche a caixa (sem enviar)");
   type("#chat-text", "isto demora");
   ok(txt("#chat-max") === "Custo máximo desta pergunta: 0,001078 SIG (2.000 µSIG por mil tokens). Você paga só o que for usado; o resto volta para a carteira.", "custo máximo antes de enviar: " + txt("#chat-max"));
-  click("#chat-send");
-  ok(await until(() => q("[data-chat-cancel]") && txt("#chat-log").includes("pensando…")), "'Cancelar' ao lado do 'pensando…'");
+  key("#chat-text", "Enter");
+  ok(await until(() => q("#chat-send[data-chat-cancel]") && txt("#chat-log").includes("pensando…")), "Enter envia; o botão de enviar vira o de parar e aparece 'pensando…'");
+  ok(await until(() => /\d+ s/.test(txt("#chat-elapsed"))), "tempo esperando ao lado do 'pensando…': " + txt("#chat-elapsed"));
+  ok(txt("#chat-log .m-user .bubble") === "isto demora", "a pergunta aparece à direita, num balão");
   click("[data-chat-cancel]");
-  ok(await until(() => !q("[data-chat-cancel]") && q("#chat-text").value === "isto demora", 9000), "cancelado: a pergunta volta para o campo");
+  ok(await until(() => !q("[data-chat-cancel]") && q("#chat-text").value === "isto demora", 9000), "cancelado: a pergunta volta para a caixa");
   ok(txt("#toast").includes("Pedido cancelado. O valor reservado voltou para a sua carteira."), "aviso de cancelado: " + txt("#toast"));
   const reg = await registro(), sent = reg.filter((r) => r.path === "/api/ai/chat").pop();
   ok(sent && sent.body.max_price === 2000, "a pergunta vai com o teto mostrado (max_price 2000): " + (sent && sent.body.max_price));
-  ok(reg.some((r) => r.path === "/api/ai/cancel"), "chamou /api/ai/cancel");
+  ok(reg.some((r) => r.path === "/api/ai/cancel" && r.body.id === sent.body.id), "chamou /api/ai/cancel com o id do pedido");
+  ok(!reg.some((r) => r.path === "/api/chats/save"), "pedido cancelado não é guardado");
   type("#chat-text", "alguém pegou");
   click("#chat-send");
   await until(() => q("[data-chat-cancel]"));
@@ -912,43 +1261,281 @@ R.chat = async () => {
   ok(await until(() => txt("#toast").includes("Um computador já está respondendo")), "pedido já pego: avisa para esperar");
   ok(await until(() => txt("#chat-log").includes("Isto é uma resposta de teste"), 20000), "a resposta chega depois");
   ok(!q("#chat-log img") && txt("#chat-log").includes("<img src=x"), "resposta da IA aparece como texto (sem HTML)");
+  ok(q("#chat-log .m-ai .md h4") && txt("#chat-log .m-ai .md h4") === "Resposta de teste", "markdown: título");
+  ok(q("#chat-log .md ol > li > ul > li em"), "markdown: lista numerada com sublista e itálico");
+  ok(q("#chat-log .md table th") && txt("#chat-log .md table").includes("interpretada") && q("#chat-log .md td[style='text-align:center']"), "markdown: tabela (com alinhamento)");
+  ok(q("#chat-log .md blockquote") && q("#chat-log .md hr") && q("#chat-log .md strong"), "markdown: citação, linha e negrito");
+  const a = q("#chat-log .md a");
+  ok(a && a.getAttribute("href") === "https://exemplo.invalid/docs" && a.target === "_blank" && a.rel === "noopener noreferrer", "link https abre em outra aba, sem referrer");
+  ok(!qa("#chat-log a").some((x) => !/^https?:/i.test(x.getAttribute("href") || "")) && txt("#chat-log").includes("[isto](javascript:alert(1))"), "link javascript: fica como texto");
+  ok(txt("#chat-log .codeblk .code-head span") === "python" && txt("#chat-log .codeblk code") === "print('olá, rede')", "bloco de código com a linguagem");
+  click("#chat-log .codeblk [data-copy-code]");
+  ok(await until(() => txt("#toast").includes("Código copiado")), "'Copiar' do bloco de código");
+  ok(txt("#chat-log .m-ai .m-head").includes("qwen2.5-0.5b") && txt("#chat-log .m-ai .m-head").includes("SIG"), "linha discreta com modelo, máquina e custo: " + txt("#chat-log .m-ai .m-head"));
+  ok(byText("#chat-log .m-acts button", "Copiar") && byText("#chat-log .m-acts button", "Tentar de novo"), "Copiar e Tentar de novo embaixo da resposta");
+  const saved = await until(async () => (await registro()).filter((r) => r.path === "/api/chats/save").pop());
+  ok(saved && saved.body.task === "text" && saved.body.model === "qwen2.5-0.5b" && saved.body.messages.length === 2 && !saved.body.id
+     && saved.body.messages[1].cost === 1234, "guardou a conversa no app depois da resposta: " + JSON.stringify(saved && saved.body).slice(0, 160));
+  ok(await until(() => byText("#ai-list .side-item.on", "alguém pegou")), "a conversa nova aparece na lista, marcada");
+  ok(txt(q("#ai-list .side-group")) === "Hoje", "lista agrupada por dia: Hoje primeiro");
+  click(byText("#chat-log .m-acts button", "Tentar de novo"));
+  ok(await until(() => q("[data-chat-cancel]") && qa("#chat-msgs .m-ai").length === 0 && qa("#chat-msgs .m-user").length === 1), "Tentar de novo pede outra resposta para a mesma pergunta");
+  click("[data-chat-cancel]");   // a pergunta tem "pegou": o computador já pegou, então a resposta chega logo
+  ok(await until(() => !q("[data-chat-cancel]") && qa("#chat-msgs .m-user").length === 1 && qa("#chat-msgs .m-ai").length === 1, 20000), "a resposta nova ficou no lugar da antiga");
   type("#chat-text", "x".repeat(6500));
   ok(txt("#chat-max").includes("Custo máximo"), "mensagem longa ainda cabe: mostra o custo");
   click("#chat-send");
   ok(await until(() => txt("#ai-notes").includes("A conversa ficou longa demais para este modelo: as mensagens mais antigas ficaram de fora. Para recomeçar, clique em Nova conversa."), 9000), "aviso de mensagens cortadas (trimmed)");
+  const saves = await until(async () => { const s = (await registro()).filter((r) => r.path === "/api/chats/save"); return s.length >= 3 && s; });
+  ok(saves && saves[2].body.id && saves[2].body.id === saves[1].body.id, "as respostas seguintes guardam na mesma conversa (mesmo id)");
   type("#chat-text", "y".repeat(13000));
   ok(txt("#chat-max").includes("longa demais para os modelos da rede"), "mensagem que não cabe nem sozinha: avisa antes de enviar");
   click("#chat-new");
-  ok(!txt("#ai-notes").includes("ficou longa demais"), "'Nova conversa' tira o aviso");
+  ok(!txt("#ai-notes").includes("ficou longa demais") && txt("#chat-log").includes("Como posso ajudar?"), "'Nova conversa' tira o aviso e volta ao começo");
+  click(byText("#ai-list [data-chat-open]", "alguém pegou"));
+  ok(await until(() => qa("#chat-log .m-user").length === 2 && txt("#chat-log").includes("Isto é uma resposta de teste")), "abrir a conversa da lista traz as mensagens");
+};
+R.conversas = async () => {   // a lista de conversas: grupos, título hostil, renomear, apagar, conversa de imagem guardada
+  click("[data-tab=ia]");
+  ok(await until(() => qa("#ai-list .side-item").length === 3), "três conversas guardadas na lista");
+  ok(qa("#ai-list .side-group").map((g) => txt(g)).join("|") === "Hoje|Ontem|Anteriores", "grupos Hoje / Ontem / Anteriores: " + qa("#ai-list .side-group").map((g) => txt(g)).join("|"));
+  ok(txt("#ai-list").includes("%HOSTILE%") && !q("#ai-list img"), "título hostil aparece como texto, sem virar HTML");
+  if (P.get("w")) {
+    ok(!vis("#ai-list") && vis("#ai-toggle"), "celular: a lista fica numa gaveta, com o botão Conversas");
+    click("#ai-toggle");
+    ok(await until(() => vis("#ai-list")), "o botão abre a gaveta");
+    wide("gaveta de conversas aberta");
+  }
+  click(q("#ai-list .side-item [data-chat-rename]"));
+  ok(await until(() => q("#dlg").open && txt("#dlg-title") === "Renomear conversa"), "renomear abre um diálogo");
+  type("#f-title", "Conversa renomeada");
+  click("#dlg-ok");
+  ok(await until(() => !q("#dlg").open && txt("#ai-list").includes("Conversa renomeada")), "nome novo na lista");
+  let reg = await registro();
+  ok(reg.some((r) => r.path === "/api/chats/rename" && r.body.id === "ca1a1a1a1a1a1" && r.body.title === "Conversa renomeada"), "mandou /api/chats/rename");
+  click(byText("#ai-list .side-item", "Receita de pão de queijo").querySelector("[data-chat-del]"));
+  ok(await until(() => q("#dlg").open && txt("#dlg-title") === "Apagar esta conversa?"), "apagar pede confirmação");
+  ok(D.activeElement === q("#dlg-cancel"), "na confirmação de apagar, o foco fica em Cancelar");
+  click("#dlg-ok");
+  ok(await until(() => !q("#dlg").open && !txt("#ai-list").includes("Receita de pão de queijo")), "a conversa sai da lista");
+  reg = await registro();
+  ok(reg.some((r) => r.path === "/api/chats/delete" && r.body.id === "cc3c3c3c3c3c3"), "mandou /api/chats/delete");
+  if (P.get("w") && !vis("#ai-list")) click("#ai-toggle");
+  click(byText("#ai-list [data-chat-open]", "Gato astronauta"));
+  ok(await until(() => qa("#chat-log .thumb img[src^='blob:']").length === 2, 9000), "conversa de imagem guardada: as miniaturas chegam por blob:");
+  if (P.get("w")) ok(!vis("#ai-list"), "escolher uma conversa fecha a gaveta");
+  reg = await registro();
+  ok(reg.filter((r) => r.path.startsWith("/api/media/")).length === 2, "buscou os bytes em /api/media/<hash> (com o token)");
+  ok(q("#ai-model").value === "z-image-turbo" && vis("#ai-size") && vis("#ai-count") && !vis("#ai-len"), "abriu com o modelo e as opções de imagem");
+  ok(txt("#ai-kind").includes("Conversa de imagem"), "avisa que a conversa é de imagem: " + txt("#ai-kind"));
+  click("#chat-log .thumb");
+  ok(await until(() => q("#dlg").open && q("#dlg-body img[src^='blob:']") && byText("#dlg-body a[download]", "Baixar")), "clicar na miniatura abre a imagem grande com Baixar");
+  click("#dlg-cancel");
+  wide("conversa de imagem");
+};
+R.imagem = async () => {   // do Modelos: "Gerar imagens" abre a IA com o modelo de imagem; gera 2 imagens
+  click("[data-tab=modelos]");
+  ok(await until(() => q("[data-chat='z-image-turbo']")), "Modelos: botão do modelo de imagem");
+  ok(txt(q("[data-chat='z-image-turbo']")) === "Gerar imagens", "o botão diz o que o modelo faz");
+  click("[data-chat='z-image-turbo']");
+  ok(await until(() => !q("[data-pane=ia]").hidden && q("#ai-model").value === "z-image-turbo"), "abre a IA com o modelo de imagem escolhido");
+  ok(vis("#ai-size") && vis("#ai-count") && !vis("#ai-len"), "imagem: opções de formato e quantidade");
+  ok(qa("#ai-size option").map((o) => o.value).join(",") === "512x512,768x768,1024x1024,768x1024,1024x768", "formatos de imagem");
+  ok(txt("#ai-privacy").includes("precisa ler a sua descrição para gerar a imagem") && txt("#ai-privacy").includes("Quem pediu, quando e quanto pagou continua público"), "aviso de privacidade da imagem");
+  ok(txt("#chat-log").includes("Como posso ajudar?") && txt("#chat-log .chip").length > 0 && txt(q("#chat-log .chip")).includes("gato astronauta"), "sugestões de imagem");
+  sel("#ai-count", "2");
+  type("#chat-text", "um gato astronauta");
+  ok(await until(() => txt("#chat-max") === "Custo máximo deste pedido: 0,08 SIG (40.000 µSIG por imagem × 2). Você paga só o que for usado; o resto volta para a carteira."), "custo máximo da imagem: " + txt("#chat-max"));
+  click("#chat-send");
+  ok(await until(() => txt("#chat-log").includes("gerando 2 imagens…")), "esperando: 'gerando 2 imagens…'");
+  ok(await until(() => qa("#chat-log .thumb img[src^='blob:']").length === 2, 9000), "as 2 imagens aparecem em miniatura");
+  const reg = await registro(), sent = reg.filter((r) => r.path === "/api/ai/image").pop();
+  ok(sent && sent.body.model === "z-image-turbo" && sent.body.prompt === "um gato astronauta" && sent.body.size === "1024x1024"
+     && sent.body.count === 2 && sent.body.max_price === 40000 && sent.body.id, "mandou /api/ai/image: " + JSON.stringify(sent && sent.body));
+  const saved = await until(async () => (await registro()).filter((r) => r.path === "/api/chats/save").pop());
+  ok(saved && saved.body.task === "image" && saved.body.messages[1].media.length === 2, "guardou a conversa de imagem com a mídia");
+  ok(await until(() => byText("#ai-list .side-item.on", "um gato astronauta")), "na lista, marcada como Imagem: " + txt("#ai-list .side-item.on"));
+  ok(txt("#ai-list .side-item.on .k") === "Imagem", "rótulo da classe na lista");
+  click("#chat-log .thumb");
+  ok(await until(() => q("#dlg").open && q("#dlg-body img[src^='blob:']") && q("#dlg-body a[download][href^='blob:']")), "imagem grande no diálogo, com Baixar");
+  click("#dlg-cancel");
+  wide("conversa de imagem");
+  sel("#ai-model", "qwen2.5-0.5b");
+  ok(await until(() => txt("#toast").includes("Conversa nova de texto") && txt("#chat-log").includes("Como posso ajudar?") && vis("#ai-len")), "trocar para Texto começa uma conversa nova (e avisa)");
+};
+R.video = async () => {
+  click("[data-tab=ia]");
+  ok(await until(() => q("#ai-model option[value='wan2.1-t2v-1.3b']")), "modelo de vídeo no seletor");
+  sel("#ai-model", "wan2.1-t2v-1.3b");
+  ok(vis("#ai-seconds") && vis("#ai-vsize") && !vis("#ai-size"), "vídeo: duração e formato");
+  ok(qa("#ai-seconds option").map((o) => o.value).join(",") === "2,3,5" && qa("#ai-vsize option").map((o) => o.value).join(",") === "832x480,480x832", "durações e formatos de vídeo");
+  type("#chat-text", "ondas do mar quebrando");
+  ok(await until(() => txt("#chat-max").includes("0,75 SIG (250.000 µSIG por segundo de vídeo × 3 s)")), "custo máximo do vídeo: " + txt("#chat-max"));
+  sel("#ai-seconds", "5");
+  ok(await until(() => txt("#chat-max").includes("1,25 SIG (250.000 µSIG por segundo de vídeo × 5 s)")), "a conta muda com a duração: " + txt("#chat-max"));
+  sel("#ai-seconds", "3");
+  click("#chat-send");
+  ok(await until(() => txt("#chat-log").includes("gerando o vídeo…") && txt("#chat-log").includes("vídeo pode levar vários minutos")), "esperando: avisa que vídeo pode levar vários minutos");
+  ok(await until(() => q("#chat-log video[src^='blob:']") && byText("#chat-log .m-video a[download]", "Baixar"), 12000), "o vídeo aparece num player, com Baixar");
+  ok(q("#chat-log video").controls, "player com controles");
+  const reg = await registro(), sent = reg.filter((r) => r.path === "/api/ai/video").pop();
+  ok(sent && sent.body.size === "832x480" && sent.body.seconds === 3 && sent.body.max_price === 250000, "mandou /api/ai/video: " + JSON.stringify(sent && sent.body));
+  type("#chat-text", "isto demora");
+  click("#chat-send");
+  ok(await until(() => q("[data-chat-cancel]")), "segundo pedido de vídeo esperando");
+  click("[data-chat-cancel]");
+  ok(await until(() => !q("[data-chat-cancel]") && q("#chat-text").value === "isto demora", 9000), "Parar cancela o vídeo e devolve o pedido para a caixa");
+  ok(txt("#toast").includes("Pedido cancelado"), "aviso de cancelado: " + txt("#toast"));
+  wide("conversa de vídeo");
+};
+R.receita = async () => {   // trocar de modelo põe o formato da receita do catálogo (o SD 1.5 é de 512×512)
+  click("[data-tab=ia]");
+  ok(await until(() => q("#ai-model option[value='stable-diffusion-1.5']")), "SD 1.5 no seletor");
+  sel("#ai-model", "stable-diffusion-1.5");
+  ok(await until(() => vis("#ai-size") && q("#ai-size").value === "512x512"), "SD 1.5: o formato vai para o da receita (512×512): " + q("#ai-size").value);
+  type("#chat-text", "um farol na praia");
+  click("#chat-send");
+  ok(await until(() => qa("#chat-log .thumb img[src^='blob:']").length === 1 && !q("[data-chat-cancel]"), 9000), "a imagem chega");
+  let sent = (await registro()).filter((r) => r.path === "/api/ai/image").pop();
+  ok(sent && sent.body.model === "stable-diffusion-1.5" && sent.body.size === "512x512", "mandou 512x512 para o SD 1.5: " + JSON.stringify(sent && sent.body));
+  sel("#ai-size", "768x768");
+  type("#chat-text", "o mesmo farol à noite");
+  click("#chat-send");
+  sent = await until(async () => { const s = (await registro()).filter((r) => r.path === "/api/ai/image"); return s.length === 2 && s[1]; }, 9000);
+  ok(sent && sent.body.size === "768x768", "a escolha da pessoa vale até ela trocar de modelo: " + (sent && sent.body.size));
+  ok(await until(() => !q("[data-chat-cancel]"), 9000), "a segunda imagem chega");
+  sel("#ai-model", "z-image-turbo");   // mesma classe: continua a conversa de imagem
+  ok(await until(() => q("#ai-size").value === "1024x1024"), "trocar para o Z-Image põe o formato da receita dele (1024×1024): " + q("#ai-size").value);
+  sel("#ai-model", "wan2.1-t2v-1.3b");
+  ok(await until(() => vis("#ai-vsize") && q("#ai-vsize").value === "832x480"), "vídeo: o formato da receita do Wan (832×480): " + q("#ai-vsize").value);
+};
+R.apagar = async () => {   // apagar a conversa aberta enquanto ela espera resposta: a resposta a gravaria de novo
+  click("[data-tab=ia]");
+  ok(await until(() => byText("#ai-list [data-chat-open]", "Receita de pão de queijo")), "conversa guardada na lista");
+  click(byText("#ai-list [data-chat-open]", "Receita de pão de queijo"));
+  ok(await until(() => txt("#chat-log .m-user .bubble") === "receita de pão de queijo"), "abriu a conversa");
+  type("#chat-text", "isto demora");
+  click("#chat-send");
+  ok(await until(() => q("[data-chat-cancel]")), "pedido em andamento");
+  click(byText("#ai-list .side-item", "Receita de pão de queijo").querySelector("[data-chat-del]"));
+  ok(await until(() => txt("#toast").includes("Espere a resposta chegar ou clique em Parar")) && !q("#dlg").open,
+     "com o pedido em andamento, apagar a conversa aberta pede para esperar (sem abrir a confirmação)");
+  ok(!(await registro()).some((r) => r.path === "/api/chats/delete"), "não mandou /api/chats/delete");
+  click("[data-chat-cancel]");
+  ok(await until(() => !q("[data-chat-cancel]"), 9000), "Parar cancela o pedido");
+  click(byText("#ai-list .side-item", "Receita de pão de queijo").querySelector("[data-chat-del]"));
+  ok(await until(() => q("#dlg").open && txt("#dlg-title") === "Apagar esta conversa?"), "sem pedido em andamento, apagar pede confirmação");
+  click("#dlg-ok");
+  ok(await until(() => !q("#dlg").open && !txt("#ai-list").includes("Receita de pão de queijo")), "a conversa sai da lista");
+  ok(txt("#chat-log").includes("Como posso ajudar?") && !qa("#chat-msgs .m-user").length, "no lugar da conversa apagada, uma conversa nova");
+  ok(!(await registro()).some((r) => r.path === "/api/chats/save"), "nada gravou a conversa apagada de novo");
+};
+R.longa = async () => {   // conversa guardada com 200 mensagens: vai só o que cabe no contexto (a regra do client.fit_messages)
+  const F = %LONG_FIT%, fits = (b) => !!b && b.messages.length === F.count && b.messages[0].content === "%LONG_FIRST%"
+    && b.messages[b.messages.length - 1].content === "mais uma pergunta";
+  click("[data-tab=ia]");
+  ok(await until(() => byText("#ai-list [data-chat-open]", "Conversa longa")), "a conversa longa está na lista");
+  click(byText("#ai-list [data-chat-open]", "Conversa longa"));
+  ok(await until(() => qa("#chat-msgs .m-user").length === 100, 9000), "abriu a conversa com as 200 mensagens");
+  type("#chat-text", "mais uma pergunta");
+  const quote = await until(async () => (await registro()).filter((r) => r.path === "/api/ai/quote"
+    && (r.body.messages || []).slice(-1)[0]?.content === "mais uma pergunta").pop());
+  ok(fits(quote && quote.body), `a cotação leva a primeira pergunta e as mais recentes que cabem (${F.count} de 201): ${quote ? quote.body.messages.length : "não cotou"}`);
+  ok(await until(() => txt("#chat-max").includes("Custo máximo desta pergunta")), "mostra o custo da pergunta: " + txt("#chat-max"));
+  click("#chat-send");
+  ok(await until(() => qa("#chat-msgs .m-user").length === 101 && txt("#chat-log").includes("Isto é uma resposta de teste"), 9000), "a resposta chega e a conversa continua");
+  const sent = (await registro()).filter((r) => r.path === "/api/ai/chat").pop();
+  ok(fits(sent && sent.body), `a pergunta vai com o mesmo corte: ${sent ? sent.body.messages.length : "não mandou"} mensagens`);
+  ok(txt("#ai-notes").includes("A conversa ficou longa demais para este modelo: as mensagens mais antigas ficaram de fora."), "avisa que as mensagens mais antigas ficaram de fora");
+};
+R.catalogo = async () => {   // Modelos > catálogo: imagem e vídeo contam todos os arquivos; antes da v2, sem Apadrinhar
+  const C = %CATALOG_COST%, v1 = P.get("c") === "sem-midia";
+  const dd = (tile, k) => { const dt = [...tile.querySelectorAll("dt")].find((x) => txt(x) === k); return dt ? txt(dt.nextElementSibling) : ""; };
+  click("[data-tab=modelos]");
+  ok(await until(() => q("#catalog [data-sponsor='qwen2.5-0.5b']")), "catálogo aberto: modelo de texto com Apadrinhar");
+  for (const [id, c] of Object.entries(C)) {
+    const t = qa("#catalog .tile").find((e) => txt(e.querySelector("h4")) === c.name);
+    if (!t) { ok(false, `${id} no catálogo`); continue; }
+    ok(dd(t, "Tamanho") === W.fmtBytes(c.total), `${id}: o tamanho conta o arquivo principal e os extras: ${dd(t, "Tamanho")} (o total é ${W.fmtBytes(c.total)})`);
+    ok(dd(t, "Custo") === `~${W.sig(c.day)} SIG por dia com 2 cópias`, `${id}: o custo por dia é o que a chain cobra pelo total: ${dd(t, "Custo")}`);
+    if (v1) ok(!t.querySelector("[data-sponsor]") && txt(t).includes("Ainda não dá para apadrinhar: a rede só aceita modelos de imagem e vídeo depois da atualização das regras v2."),
+               `${id}: antes das regras v2, sem Apadrinhar e com o porquê`);
+    else ok(t.querySelector(`[data-sponsor='${id}']`), `${id}: com a rede na v2, Apadrinhar`);
+  }
+  ok(txt("#models-price").includes("o tamanho × 1,2 + 512 MB no texto, 1.536 MB na imagem ou 4.096 MB no vídeo"), "a conta da memória de cada classe: " + txt("#models-price"));
+  if (v1) return;
+  for (const id of ["z-image-turbo", "wan2.1-t2v-1.3b"]) {
+    click(`[data-sponsor='${id}']`);
+    ok(await until(() => q("#dlg").open && q("#f-budget")), `${id}: Apadrinhar abre o diálogo`);
+    ok(q("#f-budget").value === String(C[id].budget), `${id}: o orçamento sugerido paga uma semana pelo total: ${q("#f-budget").value} (esperado ${C[id].budget})`);
+    ok(txt("#dlg-live").startsWith(`Aluguel estimado: ${W.sig(C[id].day)} SIG por dia`), `${id}: aluguel estimado pelo total: ${txt("#dlg-live")}`);
+    click("#dlg-cancel");
+    await until(() => !q("#dlg").open);
+  }
 };
 R.programar = async () => {
   click("[data-tab=programar]");
   ok(await until(() => vis("#code-form")), "aba Programar abre");
   ok(txt("#code-fixed") === "Escolha a pasta do projeto. O Sigma Code só mexe dentro dela. Cada passo vai cifrado para uma máquina sorteada da rede e leva tudo o que o agente já leu: ao longo de uma tarefa, as máquinas de várias pessoas diferentes veem os seus arquivos. Arquivos de senha e chaves (.env, .key, .ssh) ficam de fora. Cada passo é pago em SIG.", "texto fixo (alcance real: várias máquinas) da SPEC 2.3");
   ok(!q("#code-auto").checked, "'aprovar alterações de arquivos sem perguntar' começa desmarcada");
+  ok(vis("#code-folder") && vis("#code-model") && vis("#code-auto"), "antes da primeira tarefa: pasta, modelo e a caixa no topo");
   ok(await until(() => q("#code-model").value === "qwen2.5-coder-7b"), "modelo padrão é um de código: " + q("#code-model").value);
+  ok(!qa("#code-model option").some((o) => /z-image|wan2|stable-diffusion/.test(o.value)), "só modelos de texto no Sigma Code");
   click("#code-pick");
   ok(await until(() => q("#code-folder").value.includes("meu-site")), "Escolher pasta preenche o campo");
   type("#code-task", "crie um formulário de contato");
-  click("#code-go");
-  ok(await until(() => q(".approve") && txt(".approve").includes("A IA quer alterar index.html. Confira as mudanças antes de aplicar.")), "cartão de arquivo com o texto da SPEC");
-  ok(!txt(".approve").includes("README.md"), "o título usa o target (index.html), não a chave-isca 'command' dos args (README.md)");
-  ok(byText(".approve button", "Aplicar") && byText(".approve button", "Recusar"), "botões Aplicar e Recusar");
+  key("#code-task", "Enter");
+  ok(await until(() => q(".approve") && txt(".approve").includes("A IA quer alterar index.html. Confira as mudanças antes de aplicar.")), "Enter começa; cartão de arquivo com o texto da SPEC");
+  ok(txt(".approve .ap-q") === "Aplicar esta alteração em index.html?", "pergunta curta: " + txt(".approve .ap-q"));
+  ok(!txt(".approve").includes("README.md"), "o cartão usa o target (index.html), não a chave-isca 'command' dos args (README.md)");
+  ok(byText(".approve button", "1 Sim, aplicar") && byText(".approve button", "2 Não aplicar"), "botões 1 Sim / 2 Não");
+  ok(q("#code-log").lastElementChild === q(".approve"), "o pedido fica embaixo da transcrição");
   wide("cartão de arquivo");
   ok(!q(".approve script") && !q(".approve img") && txt(".approve pre").includes("<script>"), "prévia aparece como texto");
   ok(txt(".approve").includes("Arquivos alterados nesta tarefa"), "lista de arquivos alterados no cartão de arquivo");
-  ok(txt("#code-log").includes("Passo 1:") && txt("#code-spent").includes("Total desta tarefa"), "custo do passo e total");
-  ok(q("#code-go").disabled && !q("#code-stop").disabled, "rodando: Começar travado, Parar livre");
-  click(byText(".approve button", "Aplicar"));
-  ok(await until(() => q(".approve.cmd") && txt(".approve.cmd").includes("Executar este comando no seu computador? Ele foi escrito pela IA de outra pessoa da rede. Só execute se você entende o que ele faz.")), "cartão de comando com o texto da SPEC");
-  ok(byText(".approve button", "Executar") && byText(".approve button", "Não executar"), "botões Executar e Não executar");
+  ok(txt("#code-log .cc-user") === "› crie um formulário de contato", "a tarefa aparece na transcrição com ›");
+  ok(byText("#code-log .cc-call", "Listar(.)") && byText("#code-log .cc-call", "Ler(README.md)"), "ferramentas em linhas curtas: Listar(.) e Ler(README.md)");
+  const ler = byText("#code-log .cc-tool", "Ler(README.md)");
+  ok(txt(ler.querySelector(".cc-out")).includes("⎿ # Meu site") && txt(ler).includes("+4 linhas") && !ler.querySelector("pre"), "saída recolhida embaixo de ⎿");
+  click(ler.querySelector(".cc-call"));
+  ok(await until(() => byText("#code-log .cc-tool", "Ler(README.md)").querySelector("pre.cc-pre")), "clicar abre a saída inteira");
+  ok(!q("#code-log img") && txt("#code-log").includes("<img src=x"), "texto e saídas do agente aparecem como texto");
+  ok(txt("#code-log").includes("Passo 1:") && q("#code-log .cc-cost") && txt("#code-spent").includes("Total desta sessão"), "custo de cada passo (discreto) e o total");
+  ok(q("#code-go").disabled && !q("#code-stop").disabled && vis("#code-stop"), "rodando: enviar travado, Parar à vista");
+  ok(vis("#code-status") && txt("#code-status") === "Esperando a sua aprovação · ver o pedido", "aviso de que está esperando a aprovação");
+  ok(await until(() => D.activeElement === q(".approve")), "o foco vai para o pedido de aprovação");
+  key(".approve", "1");
+  ok(await until(() => q(".approve.cmd") && txt(".approve.cmd").includes("Executar este comando no seu computador? Ele foi escrito pela IA de outra pessoa da rede. Só execute se você entende o que ele faz.")), "tecla 1 aprova; cartão de comando com o texto da SPEC");
+  ok(txt(".approve.cmd .ap-q") === "Executar este comando?" && byText(".approve button", "1 Sim, executar") && byText(".approve button", "2 Não executar"), "pergunta curta e botões 1 Sim / 2 Não");
   wide("cartão de comando");
   ok(txt(".approve.cmd .changed").includes("index.html"), "lista 'arquivos alterados nesta tarefa' no cartão de comando");
-  click(byText(".approve button", "Não executar"));
-  ok(await until(() => txt("#code-log").includes("Pronto: criei o index.html") && txt("#code-log").includes("recusado"), 8000), "comando recusado e tarefa terminou");
-  ok(!q("#code-log img") && txt("#code-log").includes("<img src=x"), "texto do agente aparece como texto");
-  const reg = await registro(), starts = reg.filter((r) => r.path === "/api/code/start");
+  let reg = await registro();
+  ok(reg.some((r) => r.path === "/api/code/answer" && r.body.ok === true), "tecla 1 mandou ok: true");
+  ok(await until(() => D.activeElement === q(".approve.cmd")), "o foco vai para o pedido novo");
+  key(".approve.cmd", "2");
+  ok(await until(() => txt("#code-log").includes("Pronto: criei o index.html") && q("#code-log .cc-tool.refused .tag.bad"), 8000), "tecla 2 recusa; a tarefa terminou");
+  ok(q("#code-log .cc-final") && byText("#code-log .cc-call", "Rodar(python -m http.server 8000)"), "resumo final destacado e Rodar(comando)");
+  reg = await registro();
+  const starts = reg.filter((r) => r.path === "/api/code/start");
   ok(starts.length === 1 && starts[0].body.auto_files === false, "tarefa sem marcar a caixa: auto_files false");
+  // depois de terminar, a mesma caixa continua a sessão
+  ok(await until(() => !q("#code-go").disabled && txt("#code-go") === "Enviar" && vis("#code-new") && !vis("#code-folder") && vis("#code-head")), "terminou: a caixa manda a próxima instrução (Enviar) e aparece Nova sessão");
+  ok(txt("#code-head").includes("meu-site") && txt("#code-head").includes("qwen2.5-coder-7b"), "o topo mostra a pasta e o modelo da sessão: " + txt("#code-head"));
+  type("#code-task", "agora adicione um campo de telefone");
+  click("#code-go");
+  ok(await until(() => q(".approve") && txt(".approve .ap-q") === "Aplicar esta alteração em index.html?"), "a instrução nova continua a mesma sessão e pede para alterar o arquivo");
+  reg = await registro();
+  const cont = reg.filter((r) => r.path === "/api/code/continue").pop();
+  ok(cont && cont.body.text === "agora adicione um campo de telefone" && reg.filter((r) => r.path === "/api/code/start").length === 1, "mandou /api/code/continue {text} (sem começar outra sessão)");
+  ok(q(".approve pre .d-add") && q(".approve pre .d-del") && q(".approve pre .d-hunk"), "o diff aparece com + e − coloridos");
+  ok(qa("#code-log .cc-user").map((e) => txt(e)).join("|") === "› crie um formulário de contato|› agora adicione um campo de telefone", "os dois turnos na transcrição");
+  click(byText(".approve button", "Sim, aplicar"));
+  ok(await until(() => txt("#code-log").includes("Pronto: adicionei o campo de telefone no formulário.") && byText("#code-log .cc-call", "Editar(index.html)"), 8000), "aplicou e terminou o segundo turno: Editar(index.html)");
+  wide("sessão com dois turnos");
+  click("#code-new");
+  ok(await until(() => vis("#code-folder") && !vis("#code-new") && txt("#code-go") === "Começar" && txt("#code-log").includes("Nenhuma tarefa ainda")), "Nova sessão: começa do zero");
+  reg = await registro();
+  ok(reg.some((r) => r.path === "/api/code/reset"), "mandou /api/code/reset");
   q("#code-auto").checked = true;
   type("#code-task", "outra tarefa");
   await until(() => !q("#code-go").disabled);
@@ -1004,9 +1591,12 @@ R.config = async () => {
   type("#cfg-ai-ram", "2,5");
   type("#cfg-disk", "12,5");
   click("#cfg-battery");
+  ok(vis("#cfg-ai-image") && q("#cfg-ai-image").checked && !q("#cfg-ai-video").checked, "IA de imagem e de vídeo nas configurações");
+  click("#cfg-ai-video");
   click("#cfg-save");
   const s = await until(async () => (await registro()).filter((r) => r.path === "/api/settings").pop());
-  ok(s && s.body.ai_ram_gb === 2.5 && s.body.disk_gb === 12.5 && s.body.mine_on_battery === true, "valores com vírgula e a bateria vão certos: " + JSON.stringify(s && s.body));
+  ok(s && s.body.ai_ram_gb === 2.5 && s.body.disk_gb === 12.5 && s.body.mine_on_battery === true && s.body.ai_video === true && !("ai_image" in s.body),
+     "valores com vírgula, a bateria e o vídeo vão certos (só o que mudou): " + JSON.stringify(s && s.body));
   type("#cfg-ai-ram", "64");
   click("#cfg-save");
   ok(await until(() => vis("#cfg-err") && txt("#cfg-err").includes("Memória para IA: escolha de 0 a 15 GB")), "memória acima da do PC: " + txt("#cfg-err"));
@@ -1045,6 +1635,35 @@ R.funcoes = async () => {   // as funções puras do painel (declarações de fu
   eq(W.cdText("rel", now + 3600, now), "daqui a 01:00:00", "frase: daqui a");
   eq(W.cdText("rel", now - 1, now), "agora mesmo", "frase: agora mesmo");
   eq(W.cdText("epoch", now - 5, now), "00:00:00", "relógio grande zera, sem 'agora'");
+  // markdown das respostas: tudo escapado antes; só marcas conhecidas viram HTML
+  const md = (s) => { const d = D.createElement("div"); d.innerHTML = W.richText(s); return d; };
+  let m = md(%XSS_JSON% + " **negrito** e *itálico* e `<b>código</b>`");
+  ok(!m.querySelector("img") && !m.querySelector("b") && m.querySelector("strong") && m.querySelector("em") && m.querySelector("code").textContent === "<b>código</b>",
+     "markdown: texto hostil fica como texto; negrito, itálico e código inline");
+  m = md("[a](javascript:alert(1)) [b](https://ok.invalid/x?a=1&b=2) [c](data:text/html,oi) http://nu.invalid/p.");
+  const links = [...m.querySelectorAll("a")];
+  ok(links.length === 2 && links[0].getAttribute("href") === "https://ok.invalid/x?a=1&b=2" && links[1].getAttribute("href") === "http://nu.invalid/p"
+     && links.every((a) => a.rel === "noopener noreferrer" && a.target === "_blank") && m.textContent.includes("[a](javascript:alert(1))")
+     && m.textContent.includes("[c](data:text/html,oi)"),
+     "markdown: só links http/https viram link (rel noopener noreferrer, outra aba): " + links.map((a) => a.getAttribute("href")).join(" "));
+  m = md("- um\n  - sub um\n  - sub dois\n- dois");
+  ok(m.querySelectorAll("ul > li > ul > li").length === 2 && m.querySelectorAll(":scope > ul > li").length === 2, "markdown: lista com sublista");
+  m = md("3. c\n4. d\n   1. d1");
+  ok(m.querySelector("ol[start='3'] > li > ol > li") && m.querySelectorAll(":scope > ol > li").length === 2, "markdown: lista numerada com o número de início e sublista");
+  m = md("| a | b |\n|:--|--:|\n| <i>1</i> | 2 |\n\n> citação\n> **forte**\n\n---\n\n# Título\n\n```js\nalert('<x>')\n```");
+  ok(m.querySelector(".md-table table td") && !m.querySelector("td i") && m.querySelector("td[style='text-align:right']") && m.querySelector("blockquote strong")
+     && m.querySelector("hr") && m.querySelector("h3") && txt(m.querySelector(".codeblk .code-head span")) === "js" && m.querySelector(".codeblk code").textContent === "alert('<x>')"
+     && m.querySelector("[data-copy-code]"), "markdown: tabela, citação, linha, título e bloco de código com linguagem e Copiar");
+  // títulos (achado MD_HEAD): o fecho "##" sai só quando vem separado por espaço; sem espaço depois do # não é título
+  eq(W.richText("## Título ##"), "<h4>Título</h4>", "markdown: título sem o fecho ##");
+  eq(W.richText("# C#"), "<h3>C#</h3>", "markdown: o # colado ao texto do título fica");
+  eq(W.richText("#sem espaço"), "<p>#sem espaço</p>", "markdown: #palavra não é título");
+  m = md("<think>pensando em <img src=x></think>Resposta");
+  ok(m.querySelector("details.think summary") && txt(m.querySelector("details.think summary")) === "Pensamento" && !m.querySelector("img")
+     && txt(m.querySelector(":scope > p")) === "Resposta", "markdown: o <think> vai para um bloco 'Pensamento' que abre e fecha");
+  eq(W.looksDiff("--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b"), true, "prévia com cara de diff");
+  eq(W.looksDiff("index.html (48 bytes)\n<h1>oi</h1>"), false, "prévia comum não é diff");
+  eq(W.elapsedTxt(12400), "12 s", "tempo esperando em segundos"); eq(W.elapsedTxt(125000), "2 min 05 s", "tempo esperando em minutos");
 };
 R.largura = async () => {
   for (const t of %TABS%) {
@@ -1052,6 +1671,13 @@ R.largura = async () => {
     await sleep(400);
     wide(`aba ${t}`);
   }
+  click("[data-tab=ia]");
+  await until(() => qa("#ai-list .side-item").length);
+  click("#ai-toggle");
+  ok(await until(() => vis("#ai-list") && q("#ai").classList.contains("side-open")), "IA no celular: a gaveta de conversas abre");
+  wide("gaveta de conversas");
+  click("#ai-scrim");
+  ok(await until(() => !vis("#ai-list")), "tocar fora fecha a gaveta");
   click("[data-tab=carteira]");
   await sleep(300);
   click("#btn-swap");
@@ -1091,7 +1717,8 @@ R.comando = async () => {   // comando hostil de várias linhas: o cartão mostr
   ok(pre.scrollHeight <= pre.clientHeight + 2,
      `o comando inteiro cabe, sem rolagem que esconda o resto (${pre.scrollHeight} <= ${pre.clientHeight})`);
   ok(txt(".approve.cmd").includes("Este comando tem 61 linhas"), "o título avisa o número de linhas: " + txt(".approve.cmd").slice(0, 90));
-  ok(byText(".approve button", "Executar") && byText(".approve button", "Não executar"), "botões Executar e Não executar");
+  ok(byText(".approve button", "1 Sim, executar") && byText(".approve button", "2 Não executar"), "botões 1 Sim, executar e 2 Não executar");
+  ok(q("#code-log").lastElementChild === q(".approve.cmd"), "o pedido fica embaixo da transcrição");
   wide("cartão de comando de várias linhas");
 };
 R.votar = async () => {   // Votações (SPEC-v2.3 §4): lista, voto com trava e confirmação, proposta de regra
@@ -1166,13 +1793,17 @@ R.votar = async () => {   // Votações (SPEC-v2.3 §4): lista, voto com trava e
 M380 = (380, 800)
 ROTEIROS = {   # nome[-variação]: (cenário, tamanho da janela)
     "trocar": ("pronto", None), "importar": ("so-endereco", None), "chat": ("pronto", None),
+    "conversas": ("pronto", None), "conversas-380": ("pronto", M380), "imagem": ("pronto", None),
+    "imagem-380": ("pronto", M380), "video": ("pronto", None),
     "programar": ("pronto", None), "programar-380": ("pronto", M380), "assistente": ("assistente", None),
     "assistente-380": ("assistente", M380), "assistente-bateria": ("assistente-bateria", None),
     "config": ("pronto", None), "config-sem-recursos": ("sem-recursos", None),
     "gate": ("sem-conexao", None), "gate-380": ("sem-conexao", M380),
     "comando": ("codigo-linhas", None), "comando-380": ("codigo-linhas", M380),
     "largura": ("pronto", M380), "largura-codigo": ("codigo", M380), "funcoes": ("pronto", None),
-    "funcoes-demanda": ("demanda-alta", None), "votar": ("pronto", None), "votar-380": ("pronto", M380)}
+    "funcoes-demanda": ("demanda-alta", None), "votar": ("pronto", None), "votar-380": ("pronto", M380),
+    "receita": ("pronto", None), "apagar": ("pronto", None), "longa": ("conversa-longa", None),
+    "catalogo": ("pronto", None), "catalogo-v1": ("sem-midia", None)}
 
 _FEES = {}
 
@@ -1190,11 +1821,38 @@ def fee_cases():
     return _FEES
 
 
+_CATALOG_COST = {}
+
+
+def catalog_cases():
+    """{id: {name, total, day, budget}} dos itens de imagem e vídeo do catálogo: o total (principal + extras), o aluguel
+    de 2 cópias por dia pela conta do sigma/app.py (o que a chain cobra pelo total) e o orçamento de uma semana."""
+    if not _CATALOG_COST:
+        from sigma import app as A
+        mi = Mock("pronto").state()["mining"]
+        for it in catalog():
+            if it["task"] != "text":
+                day = A.App._rent_per_window(None, it["total_size"], 2, mi, it["task"]) * 86400 // mi["window_seconds"]
+                _CATALOG_COST[it["id"]] = {"name": it["name"], "total": it["total_size"], "day": day,
+                                           "budget": max(1, -(-day * 7 // UNIT))}
+    return _CATALOG_COST
+
+
+def long_fit():
+    """Quantas mensagens da conversa longa, mais a pergunta nova, o client.fit_messages deixa ir (resposta Média)."""
+    from sigma.client import fit_messages
+    msgs = [{"role": m["role"], "content": m["content"]} for m in long_chat()]
+    kept, cut = fit_messages(msgs + [{"role": "user", "content": "mais uma pergunta"}], 512)
+    return {"count": len(kept), "cut": cut}
+
+
 def test_page():
     return (TEST_PAGE.replace("%BAD%", BAD_MM).replace("%GOOD%", GOOD_MM).replace("%KEY_OTHER%", KEY_OTHER)
             .replace("%KEY_ME%", KEY_ME).replace("%ME%", ME).replace("%TABS%", json.dumps(list(TABS)))
             .replace("%LIMIT%", LIMIT_429).replace("%SAME%", SAME_ID).replace("%HOSTILE%", HOSTILE)
-            .replace("%PID_A%", PID["a1"]).replace("%PID%", "ff" * 32).replace("%FEES%", json.dumps(fee_cases())))
+            .replace("%PID_A%", PID["a1"]).replace("%PID%", "ff" * 32).replace("%FEES%", json.dumps(fee_cases()))
+            .replace("%XSS_JSON%", json.dumps(XSS)).replace("%CATALOG_COST%", json.dumps(catalog_cases()))
+            .replace("%LONG_FIT%", json.dumps(long_fit())).replace("%LONG_FIRST%", LONG_FIRST))
 
 
 # ------------------------------------------------------------------ servidor
@@ -1216,7 +1874,9 @@ class Mocks:
 
 
 def make_server(port=PORT, default="pronto", checking=False):
-    mocks, csp = Mocks(port, default), page_csp()
+    # o CSP do app; se o app.py ainda não liberou blob: para as imagens e vídeos gerados, o mock acrescenta (o contrato
+    # combinado) e a conferência estática "o CSP do app.py permite blob:" avisa que falta no app
+    mocks, csp = Mocks(port, default), media_csp(page_csp())
     framed = re.sub(r"frame-ancestors [^;]+", "frame-ancestors 'self'", csp)
 
     class H(BaseHTTPRequestHandler):
@@ -1261,7 +1921,11 @@ def make_server(port=PORT, default="pronto", checking=False):
                 d = json.loads(self.rfile.read(n) or b"{}") if n else {}
                 if u.path != "/api/state":
                     mock.record(method, u.path, d)
-                self._send(200, handle(mock, method, u.path, parse_qs(u.query), d))
+                res = handle(mock, method, u.path, parse_qs(u.query), d)
+                if isinstance(res, Raw):
+                    self._send(200, res.data, res.ctype)
+                else:
+                    self._send(200, res)
             except Bad as e:
                 self._send(400, dict({"error": str(e)}, **({"code": e.code} if e.code else {})))
             except KeyError:
@@ -1350,12 +2014,96 @@ def missing_fields(real, fake):
     return out
 
 
+def catalog_gap():
+    """O que o catálogo do mock tem de diferente do sigma/catalog.py: campos de cada classe que faltam, total ou memória
+    fora da conta do catálogo (total = principal + extras; memória pela classe) e receitas diferentes."""
+    from sigma import catalog as C
+    fields, recipes = {}, {i["id"]: i.get("recipe") for i in C.CATALOG if i["task"] != "text"}
+    for it in C.CATALOG:
+        fields.setdefault(it["task"], set()).update(it)
+    out = []
+    for it in catalog():
+        out += [f"{it['id']}.{k}" for k in sorted(fields.get(it["task"], set()) - set(it))]
+        total = it["size"] + sum(f["size"] for f in it.get("files", []))
+        if it.get("total_size", total) != total or it["ram_mb"] != C.ram_mb(total, it["task"]):
+            out.append(f"{it['id']}: total_size/ram_mb")
+        if it["task"] != "text" and it.get("recipe") != recipes.get(it["id"]):
+            out.append(f"{it['id']}: recipe")
+    return out
+
+
+MD_SECTION = ("// ------------------------------------------------------------- markdown seguro",
+              "// ------------------------------------------------------------- custo antes de enviar")
+
+
+def node_json(node, program, timeout=120):
+    """Roda um programa no node e devolve o JSON que ele imprime."""
+    fd, path = tempfile.mkstemp(suffix=".js")
+    os.close(fd)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(program)
+        r = subprocess.run([node, path], capture_output=True, text=True, encoding="utf-8", timeout=timeout)
+    finally:
+        os.remove(path)
+    if r.returncode:
+        raise RuntimeError(r.stderr.strip()[-300:])
+    return json.loads(r.stdout)
+
+
+def panel_js_checks(node, js):
+    """[(ok, mensagem)]: funções puras do painel rodando no node (sem navegador). O markdown em tempo linear: a resposta
+    vem da máquina de um estranho e não pode travar o painel (achado MD_HEAD); e o corte da conversa que vai com a
+    pergunta, que tem de ser o do client.fit_messages."""
+    from sigma.client import CONTEXT, fit_messages
+    res = []
+    a, b = js.find(MD_SECTION[0]), js.find(MD_SECTION[1])
+    esc = next((line for line in js.splitlines() if line.startswith("const esc = ")), "")
+    heads = {"## Título ##": "<h4>Título</h4>", "# C#": "<h3>C#</h3>", "# a #b": "<h3>a #b</h3>",
+             "#sem espaço": "<p>#sem espaço</p>", "### fim ###   ": "<h5>fim</h5>", "# ###": "<h3></h3>"}
+    if a < 0 or b < a or not esc:
+        res.append((False, "markdown do painel: não achei a seção 'markdown seguro' (nem o esc) no script"))
+    else:
+        out = node_json(node, f"{esc}\n{js[a:b]}\nconst t0 = Date.now();\n"
+                              "richText('# Resumo' + ' '.repeat(2000) + '.');\n"
+                              "richText('{\"final\":\"ok\"}\\n# x' + ' '.repeat(2000) + 'y');\n"
+                              f"console.log(JSON.stringify({{ms: Date.now() - t0, heads: {json.dumps(list(heads))}.map(richText)}}));\n")
+        res.append((out["ms"] < 1000, f"markdown do painel: um título com 2.000 espaços sai na hora ({out['ms']} ms; "
+                                      "a regex cúbica levava ~4 s por linha, ~13 s com 3.000)"))
+        bad = {s: h for s, h, want in zip(heads, out["heads"], heads.values()) if h != want}
+        res.append((not bad, "markdown do painel: títulos com e sem o fecho ##" + (f": {bad}" if bad else "")))
+    m = re.search(r"^function fitMessages\(.*?^\}$", js, re.M | re.S)
+    if not m:
+        return res + [(False, "corte da conversa: não achei o fitMessages no script do painel")]
+    turn = lambda k, text: {"role": "user" if k % 2 == 0 else "assistant", "content": text}
+    short = [turn(k, f"mensagem curta {k}") for k in range(200)]
+    longc = [{"role": x["role"], "content": x["content"]} for x in long_chat()]
+    ask = {"role": "user", "content": "e agora?"}
+    cases = [(short + [ask], 512), (longc + [ask], 512), (longc + [ask], 1024), (longc + [ask], 256),
+             ([turn(0, "x" * 11_000)] + short[1:40] + [ask], 256),     # a primeira cabe; o meio sai
+             ([turn(0, "x" * 12_000)] + short[1:40] + [ask], 256)]     # a primeira não cabe
+    got = node_json(node, m.group(0) + f"\nconsole.log(JSON.stringify({json.dumps(cases)}.map(([msgs, mt]) => "
+                                       f"fitMessages(msgs, mt, {CONTEXT}))));\n")
+    diff = []
+    for (msgs, mt), g in zip(cases, got):
+        want, cut = fit_messages(msgs, mt)
+        if g["messages"] != want or g["cut"] != cut:
+            diff.append(f"{len(msgs)} mensagens, max_tokens {mt}: painel manda {len(g['messages'])}, o cliente {len(want)}")
+    res.append((not diff and got[1]["cut"] > 0, "corte da conversa no painel = client.fit_messages (a primeira pergunta "
+                f"e as mais recentes que cabem; a conversa longa vai com {len(got[1]['messages'])} de 201)"
+                + (f": {diff}" if diff else "")))
+    return res
+
+
 def static_checks(port):
     """[(ok, mensagem)]: página, CSP, HTML, JS, rotas e campos."""
     res = []
     code, page, headers = call(port, "GET", "/", token=None)
     res.append((code == 200, f"GET / serve o app.html ({len(page):,} bytes)"))
-    res.append((headers.get("Content-Security-Policy") == page_csp(), "a página vai com o mesmo CSP do app"))
+    res.append((headers.get("Content-Security-Policy") == media_csp(page_csp()),
+                "a página vai com o mesmo CSP do app (com blob: para as imagens e vídeos gerados)"))
+    res.append((csp_has_media(page_csp()), "o PAGE_CSP do sigma/app.py permite blob: em img-src e media-src"
+                + ("" if csp_has_media(page_csp()) else f" (ainda não: {page_csp()!r})")))
     src = page.decode("utf-8")
     p = Tags()
     p.feed(src)
@@ -1388,11 +2136,24 @@ def static_checks(port):
         finally:
             os.remove(path)
         res.append((r.returncode == 0, "JavaScript sem erro de sintaxe (node --check)" + (": " + r.stderr[:300] if r.returncode else "")))
+        try:
+            res += panel_js_checks(node, "\n".join(p.scripts))
+        except Exception as e:   # node travado ou saída estranha: falha com o porquê
+            res.append((False, f"funções do painel no node: {e!r}"))
     used = {u.split("?")[0] for u in re.findall(r'"(/api/[a-z/-]+(?:\?[^"]*)?)"', src)}
+    prefixes = {u for u in used if u.endswith("/")}   # rotas com um pedaço variável: /api/media/<hash>, /api/chats/<id>
+    used -= prefixes
     routes = app_routes()
     paths = {p for _, p in routes}
     res.append((used <= paths, f"as {len(used)} rotas usadas pelo painel existem no sigma/app.py"
                 + (f": faltam {sorted(used - paths)}" if used - paths else "")))
+    with open(APP_PY, encoding="utf-8") as f:
+        app_src = f.read()
+    # o app atende essas rotas fora da tabela ROUTES: basta o começo do caminho aparecer num texto do código
+    # ("/api/media/" num startswith, r"/api/chats/(c[0-9a-f]{12})" num fullmatch), não num comentário
+    no_prefix = sorted(p + "<…>" for p in prefixes if not re.search(r"""["']""" + re.escape(p), app_src))
+    res.append((not no_prefix, f"as {len(prefixes)} rotas com parâmetro usadas pelo painel aparecem no sigma/app.py"
+                + (f": faltam {no_prefix}" if no_prefix else "")))
     spec = paths - used - {"/api/ping", "/api/quit"}
     res.append((True, "rotas do app que o painel não usa: " + (", ".join(sorted(spec)) or "nenhuma")))
     res.append((call(port, "GET", "/api/ping", token=None)[0] == 200, "/api/ping responde sem token"))
@@ -1410,6 +2171,13 @@ def static_checks(port):
              ("POST", "/api/ai/chat"): {"model": "qwen2.5-0.5b", "messages": [{"role": "user", "content": "oi"}], "max_tokens": 64, "max_price": 2000},
              ("POST", "/api/ai/cancel"): {}, ("GET", "/api/code/state"): None,
              ("POST", "/api/ai/quote"): {"model": "qwen2.5-0.5b", "messages": [{"role": "user", "content": "isto demora"}]},
+             ("POST", "/api/ai/image"): {"model": "z-image-turbo", "prompt": "um gato", "size": "512x512", "count": 2},
+             ("POST", "/api/ai/video"): {"model": "wan2.1-t2v-1.3b", "prompt": "ondas", "size": "832x480", "seconds": 2},
+             ("GET", "/api/chats"): None,
+             ("POST", "/api/chats/save"): {"task": "text", "model": "qwen2.5-0.5b",
+                                           "messages": [{"role": "user", "content": "oi", "time": 1}]},
+             ("POST", "/api/chats/rename"): {"id": "ca1a1a1a1a1a1", "title": "Outro nome"},
+             ("POST", "/api/chats/delete"): {"id": "cc3c3c3c3c3c3"},
              ("POST", "/api/code/start"): {"folder": r"C:\Users\teste\projetos\x", "task": "oi"},
              ("POST", "/api/code/stop"): {}, ("POST", "/api/code/pick-folder"): {},
              ("GET", "/api/sites"): None,
@@ -1420,7 +2188,8 @@ def static_checks(port):
              ("POST", "/api/governance/propose"): {"title": "Uma decisão de teste", "text": "oi"},
              ("POST", "/api/governance/vote"): {"proposal_id": PID["a1"], "choice": "nao", "amount": "1,5"},
              ("POST", "/api/quit"): {}}
-    missing = sorted(f"{m} {p}" for m, p in routes if (m, p) not in tries and p != "/api/code/answer")
+    later = {"/api/code/answer", "/api/code/continue", "/api/code/reset"}   # conferidas logo abaixo, em sequência
+    missing = sorted(f"{m} {p}" for m, p in routes if (m, p) not in tries and p not in later)
     res.append((not missing, "o mock conhece todas as rotas do sigma/app.py" + (f": faltam {missing}" if missing else "")))
     for (method, path), body in tries.items():
         if method == "GET":
@@ -1432,6 +2201,43 @@ def static_checks(port):
     st = json.loads(call(port, "POST", "/api/code/start", {"folder": r"C:\p\x", "task": "t"}, token=tok)[1])
     code, raw, _ = call(port, "POST", "/api/code/answer", {"id": (st.get("pending") or {}).get("id"), "ok": False}, token=tok)
     res.append((code == 200 and bool(json.loads(raw).get("steps")), f"POST /api/code/answer -> {code}"))
+    # sessão com vários turnos: parar, continuar (mesma sessão), parar e começar uma sessão nova
+    call(port, "POST", "/api/code/stop", {}, token=tok)
+    st = json.loads(call(port, "GET", "/api/code/state", token=tok)[1])
+    res.append((st.get("can_continue") is True and [t["n"] for t in st.get("turns", [])] == [1]
+                and all(s.get("turn") == 1 for s in st["steps"]), "GET /api/code/state tem can_continue, turns e steps[].turn"))
+    code, raw, _ = call(port, "POST", "/api/code/continue", {"text": "agora o telefone"}, token=tok)
+    st = json.loads(call(port, "GET", "/api/code/state", token=tok)[1])
+    res.append((code == 200 and json.loads(raw) == {"ok": True} and st["running"] and len(st["turns"]) == 2
+                and st["steps"][-1]["turn"] == 2, f"POST /api/code/continue -> {code} (turno 2 da mesma sessão)"))
+    code, raw, _ = call(port, "POST", "/api/code/reset", {}, token=tok)
+    res.append((code == 400, "POST /api/code/reset com a tarefa rodando -> 400"))
+    call(port, "POST", "/api/code/stop", {}, token=tok)
+    code, raw, _ = call(port, "POST", "/api/code/reset", {}, token=tok)
+    st = json.loads(call(port, "GET", "/api/code/state", token=tok)[1])
+    res.append((code == 200 and not st["task"] and not st["steps"] and st["can_continue"] is False,
+                f"POST /api/code/reset -> {code} (Nova sessão)"))
+    # mídia e conversas guardadas
+    code, raw, hd = call(port, "POST", "/api/ai/image", {"model": "z-image-turbo", "prompt": "um gato", "size": "512x512",
+                                                         "count": 1}, token=tok)
+    h = json.loads(raw)["media"][0]["hash"]
+    code, raw, hd = call(port, "GET", "/api/media/" + h, token=tok)
+    res.append((code == 200 and hd.get("Content-Type") == "image/png" and raw.startswith(b"\x89PNG"),
+                "GET /api/media/<hash> devolve os bytes com o Content-Type certo"))
+    res.append((call(port, "GET", "/api/media/" + h, token=None)[0] == 401, "/api/media sem token -> 401"))
+    code, raw, _ = call(port, "POST", "/api/ai/image", {"model": "qwen2.5-0.5b", "prompt": "x", "size": "512x512"}, token=tok)
+    res.append((code == 400, "pedir imagem a um modelo de texto -> 400"))
+    lst = json.loads(call(port, "GET", "/api/chats", token="teste")[1])["chats"]
+    res.append((any(c["title"] == HOSTILE for c in lst) and all(CHAT_ID.fullmatch(c["id"]) for c in lst)
+                and [c["updated"] for c in lst] == sorted((c["updated"] for c in lst), reverse=True),
+                "GET /api/chats: ids no formato, mais recente primeiro, com o título hostil"))
+    one = json.loads(call(port, "GET", "/api/chats/cb2b2b2b2b2b2", token="teste")[1])
+    res.append((one["task"] == "image" and one["messages"][1]["media"][0]["mime"] == "image/png",
+                "GET /api/chats/<id>: conversa de imagem com mídia"))
+    saved = json.loads(call(port, "POST", "/api/chats/save", {"task": "image", "model": "z-image-turbo", "messages": [
+        {"role": "user", "content": "x" * 90, "time": 1}]}, token=tok)[1])
+    res.append((CHAT_ID.fullmatch(saved.get("id", "")) and saved.get("title") == "x" * 60,
+                "POST /api/chats/save sem id cria (título = 1a mensagem cortada em 60)"))
     code, raw, _ = call(port, "POST", "/api/send", {"to": BAD_MM, "amount": 1}, token=tok)
     res.append((code == 400 and json.loads(raw).get("error") == ADDR_TYPO, "endereço com checksum errado -> 400 com a frase do app"))
     code, raw, _ = call(port, "POST", "/api/send", {"to": OTHER, "amount": 10 ** 9}, token=tok)
@@ -1449,6 +2255,43 @@ def static_checks(port):
                 "o painel tem um nome em português para cada regra votável da chain"))
     res.append((not re.search(r"[Pp]róxima distribuição|0,5% do que falta|data-cd=\"epoch\"", src),
                 "sem 'próxima distribuição', sem 0,5% e sem contagem da época (emissão contínua da v2.3)"))
+    # o mock segue o app no que o painel depende: catálogo, limite de mensagens e imagem/vídeo só depois da v2
+    try:
+        gap = catalog_gap()
+        res.append((not gap, "o catálogo do mock segue o sigma/catalog.py (imagem e vídeo com files, total_size e recipe)"
+                    + (f": {gap}" if gap else "")))
+    except Exception as e:
+        res.append((False, f"não deu para ler o sigma/catalog.py: {e!r}"))
+    top = re.search(r"^MAX_CHAT_MESSAGES = (\d+)", app_src, re.M)
+    res.append((bool(top) and int(top.group(1)) == MAX_CHAT_MESSAGES,
+                f"o mock guarda até {MAX_CHAT_MESSAGES} mensagens por conversa, como o sigma/app.py"))
+    many = [{"role": "user" if k % 2 == 0 else "assistant", "content": "oi"} for k in range(MAX_CHAT_MESSAGES + 1)]
+    mock_takes = [call(port, "POST", "/api/ai/quote", {"model": "qwen2.5-0.5b", "messages": x}, token=tok)[0] == 200
+                  for x in (many, many + many[:1])]
+    try:
+        from sigma import app as A
+
+        def app_takes(msgs):
+            try:
+                A.App._chat_input({"model": "qwen2.5-0.5b", "messages": msgs})
+                return True
+            except A.AppError:
+                return False
+        in_app = [app_takes(many), app_takes(many + many[:1])]
+    except Exception as e:   # o app pode estar sendo editado por outra pessoa: avisa sem esconder
+        in_app = [repr(e)]
+    res.append((mock_takes == in_app == [True, False], f"a pergunta pode levar a conversa guardada inteira mais ela "
+                f"({MAX_CHAT_MESSAGES + 1} mensagens), não mais, no mock e no app._chat_input (mock {mock_takes}, "
+                f"app {in_app})"))
+    md_v2 = json.loads(call(port, "GET", "/api/models", token=tok)[1])
+    md_v1 = json.loads(call(port, "GET", "/api/models", token="teste.sem-midia.rotas")[1])
+    code, raw, _ = call(port, "POST", "/api/models/sponsor", {"catalog_id": "z-image-turbo", "budget": 300},
+                        token="teste.sem-midia.rotas")
+    res.append((md_v2["ai"].get("media") is True and md_v1["ai"].get("media") is False
+                and all(m.get("task", "text") == "text" for m in md_v1["network"].values())
+                and code == 400 and json.loads(raw).get("error") == NO_MEDIA_YET,
+                "ai.media do /api/models: true com a rede na v2; no cenário sem-midia, false, sem modelos de imagem e "
+                "vídeo na rede, e apadrinhar um deles -> 400 (como o app)"))
     try:
         gap = missing_fields(real_state(), json.loads(call(port, "GET", "/api/state", token="teste")[1]))
         res.append((not gap, "o mock tem todos os campos do /api/state do sigma/app.py" + (f": faltam {gap}" if gap else "")))
@@ -1526,22 +2369,30 @@ TAB_TEXTS = {
                  "Royalties", "Troco de pedidos de IA", "Devolução de pedidos de IA", "Devolução do orçamento",
                  "Votos devolvidos · votação encerrada · período #14", "Depósito devolvido · votação encerrada · período #14",
                  "Ganhos servindo a rede (pedidos de IA e aluguel)", "Cancelou um pedido de IA"],
-    "maquina": ["IA: llama.cpp · pronta", "Desligar tira os modelos da rede, mas os arquivos ficam guardados no disco", "15,9 GB", "186 GB"],
+    "maquina": ["IA: llama.cpp · pronta", "Desligar tira os modelos da rede, mas os arquivos ficam guardados no disco", "15,9 GB", "186 GB",
+                "Imagens e vídeos: pronto"],
     "ia": ["cifrada para uma máquina da rede sorteada na hora", "leva junto a conversa inteira",
-           "Quem pediu, quando e quanto pagou continua público"],
-    "programar": ["Escolha a pasta do projeto. O Sigma Code só mexe dentro dela", "Aprovar alterações de arquivos sem perguntar",
-                  "Escolher pasta", "Começar", "Parar"],
+           "Quem pediu, quando e quanto pagou continua público", "Como posso ajudar?", "Nova conversa", "Conversas",
+           "Hoje", "Ontem", "Anteriores", HOSTILE, "Gato astronauta em aquarela", "Custo máximo desta pergunta",
+           "qwen2.5-0.5b · 2.000 µSIG por mil tokens", "z-image-turbo · 40.000 µSIG por imagem",
+           "wan2.1-t2v-1.3b · 250.000 µSIG por segundo de vídeo", "Resposta", "Curta", "Média", "Longa"],
+    "programar": ["Sigma Code", "Escolha a pasta do projeto. O Sigma Code só mexe dentro dela", "Aprovar alterações de arquivos sem perguntar",
+                  "Escolher pasta", "Começar", "Parar", "Nova sessão", "qwen2.5-coder-7b · de código", "Nenhuma tarefa ainda"],
     "sites": ["Publique um site guardado pela rede", "Por enquanto, quem visita recebe os arquivos pelo servidor da rede",
               "Sites da rede rodam isolados: não podem usar cookies nem localStorage.",
               "5 µSIG por MB de disco", "a rede está 11,5% cheia: aluguel 1,04x"],
     "modelos": ["5 µSIG por MB de disco", "2 µSIG por MB de memória", "Memória: a rede está 30% cheia: aluguel 1,27x",
-                "Disco: a rede está 11,5% cheia: aluguel 1,04x", "(vai de 1x, vazia, a 4x, cheia)", "qwen2.5-coder-7b"],
+                "Disco: a rede está 11,5% cheia: aluguel 1,04x", "(vai de 1x, vazia, a 4x, cheia)", "qwen2.5-coder-7b",
+                "Texto", "Imagem", "Vídeo", "z-image-turbo", "131 imagens · 57 pedidos", "33 s de vídeo · 9 pedidos",
+                "182.344 tokens", "até 40.000 µSIG por imagem", "até 250.000 µSIG por segundo de vídeo",
+                "até 2.000 µSIG por mil tokens", "Gerar imagens", "Gerar vídeos", "Conversar",
+                "o tamanho × 1,2 + 512 MB no texto, 1.536 MB na imagem ou 4.096 MB no vídeo"],
     "rede": ["SIG impressos em cada período de 12 horas", "Período", "De 12 em 12 horas", "contas por segundo", "recebendo agora",
              "0,01% do que falta", f"{br(_PRONTO['mint_per_hour'])} SIG por hora", "última janela já fechada"],
     "votacoes": ["Quem decide é a rede", "Abertas agora", "Propor uma votação", "Encerradas", "1 SIG = 1 voto", "depósito de 10,00 SIG",
                  HOSTILE, "Aprovada: a regra mudou na hora.", "Rejeitada: não teve mais sim que não.", "termina em", "Quórum",
                  "O teto de 100 milhões de SIG e o tempo das janelas não podem ser votados."],
-    "config": ["Minerar também na bateria", "Iniciar o Sigma junto com o computador",
+    "config": ["Minerar também na bateria", "Iniciar o Sigma junto com o computador", "Hospedar IA de imagem", "Hospedar IA de vídeo",
                "Desligar a IA tira os modelos deste computador da rede, mas os arquivos baixados ficam guardados no disco."],
 }
 # cenários de falha: (cenário, aba, frases que precisam aparecer, frases que não podem aparecer)
@@ -1585,11 +2436,15 @@ SCENARIO_TEXTS = [
     ("so-endereco", "votacoes", ["Para votar e propor daqui, importe a chave dela.", "Importar a chave"], []),
     ("codigo", "inicio", ["O Sigma Code está esperando a sua aprovação para continuar."], []),
     ("codigo", "programar", ["Executar este comando no seu computador? Ele foi escrito pela IA de outra pessoa da rede. Só execute se você entende o que ele faz.",
-                             "Arquivos alterados nesta tarefa", "Não executar", "Esperando a sua aprovação · ver o pedido"],
+                             "Arquivos alterados nesta tarefa", "Executar este comando?", "1 Sim, executar", "2 Não executar",
+                             "Esperando a sua aprovação · ver o pedido", "› suba um servidor para eu ver o site",
+                             "Total desta sessão", "C:\\Users\\teste\\projetos\\meu-site"],
      ["O Sigma Code está esperando a sua aprovação"]),
     ("preco-rede", "modelos", ["7 µSIG por MB de disco"], ["5 µSIG por MB de disco"]),
     ("preco-rede", "sites", ["7 µSIG por MB de disco"], ["5 µSIG por MB de disco"]),
     ("demanda-alta", "modelos", ["100 µSIG por MB de disco", "100 µSIG por MB de memória", "a rede está 100% cheia: aluguel 11x"], []),
+    ("sem-midia", "modelos", ["Ainda não dá para apadrinhar: a rede só aceita modelos de imagem e vídeo depois da atualização das regras v2."],
+     ["Gerar imagens", "Gerar vídeos"]),
     ("pronto", "inicio", ["Baixando o modelo smollm2-1.7b para a rede:"], []),
     ("assistente", "inicio", ["Vão substituir você por um robô."], []),
 ]

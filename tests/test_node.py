@@ -5,7 +5,7 @@ uma tx da MetaMask (sigma/evm.py), do fórum (sigma/forum.py) e da configuraçã
 
 Cada teste roda um nó produtor de verdade numa pasta temporária, com relógio falso (o teste avança o tempo
 e fecha os blocos). Os cenários de ataque dos achados da revisão viraram testes: o ruim não acontece mais.
-Portas usadas: 8811-8815 (só 127.0.0.1; a 8816 aparece num teste, mas o servidor não chega a subir).
+Portas usadas: 8811-8815 e 8863 (só 127.0.0.1; a 8816 aparece num teste, mas o servidor não chega a subir).
 """
 import hashlib
 import hmac
@@ -33,6 +33,7 @@ import sigma  # noqa: E402
 from sigma import chain, crypto, evm, forum, netsafe, rpc  # noqa: E402
 from sigma import node as nodemod  # noqa: E402
 from sigma.chain import UNIT, TxError, canon, make_tx  # noqa: E402
+from sigma.client import Client  # noqa: E402
 from sigma.crypto import G, N, Wallet, _mul, keccak256, to_eth  # noqa: E402
 from sigma.pow import share_ok  # noqa: E402
 
@@ -41,6 +42,7 @@ FAST = {"epoch_seconds": 60, "window_seconds": 10, "min_share_bits": 1, "max_sha
         "hosting_per_mb_window": 5, "ram_per_mb_window": 0, "demand_max_bps": 0}
 HW = {"cpu_cores": 8, "ram_mb": 16000, "ai_ram_mb": 8000, "vram_mb": 0, "disk_mb": 50000, "gpu": ""}
 PORT_HTTP, PORT_EVIL, PORT_TAIL, PORT_PEER, PORT_REAL = 8811, 8812, 8813, 8814, 8815
+PORT_MEDIA = 8863
 
 
 # ------------------------------------------------------------------ ajudantes
@@ -137,12 +139,14 @@ class Net:
     """Nó produtor de verdade numa pasta temporária, com relógio falso: o teste avança o tempo e fecha os
     blocos com produce_block (o mesmo caminho do loop do nó)."""
 
-    def __init__(self, test, params=None, **kw):
+    def __init__(self, test, params=None, rules=None, **kw):
         self.dir = tempfile.mkdtemp(prefix="sgn")
         test.addCleanup(shutil.rmtree, self.dir, True)
         self.producer = Wallet.generate()
         self.genesis = {"network": "sigma", "chain_id": 51515, "time": T0, "validators": [self.producer.pub],
                         "alloc": {}, "params": dict(FAST, **(params or {}))}
+        if rules:
+            self.genesis["rules"] = rules   # rede que já nasce nessa versão das regras (2: imagem e vídeo)
         self.t = T0 + 1
         self.kw = kw
         self.node = self._open()
@@ -1542,3 +1546,62 @@ class TestV23Api(unittest.TestCase):
         self.assertEqual((d["yes"], d["no"], d["voters"]), (50 * UNIT, 0, 1))
         self.assertEqual(d["votes"], [{"address": b.address, "choice": "sim", "amount": 50 * UNIT}])
         self.assertIsNone(nodemod.proposal_info(net.node.state, "x"))
+
+
+# ------------------------------------------------------------------ v2.5: modelos de imagem e vídeo
+VAE = {"role": "vae", "url": "https://huggingface.co/org/imagem-um/resolve/main/ae.safetensors",
+       "sha256": hashlib.sha256(b"vae").hexdigest(), "size": 1_000_000}
+
+
+class TestMediaMachines(unittest.TestCase):
+    """Revisão 2.5 #24: no /machines, `models` só tem os modelos de texto; os de imagem e vídeo vão em
+    `media_models`. Um app 2.4 não sabe a classe dos modelos: com um de imagem em `models`, ele o listaria no chat
+    e o escolheria (pick_model) como se fosse de texto, e todo pedido seria recusado. Só a resposta HTTP muda: o
+    estado da chain, e o /machine/<endereço> que a própria máquina lê, continuam com todos em `models`."""
+
+    def test_machines_lists_media_models_apart(self):
+        net = Net(self, rules=2)
+        n = net.node
+        sponsor, machines = Wallet.generate(), [Wallet.generate(), Wallet.generate()]
+        net.fund(sponsor)
+        for mw in machines:
+            net.send(mw, "register_machine", dict(machine_data(random_address(), pub=mw.pub), tasks=["text", "image"]))
+        net.send(sponsor, "register_model", model_data("texto-um"))
+        net.send(sponsor, "register_model", dict(model_data("imagem-um"), task="image", files=[VAE], replicas=2))
+        self.assertTrue(net.block())
+        net.next_window()                                     # a rede atribui os modelos às máquinas
+        for mw in machines:
+            for name in ("imagem-um", "texto-um"):
+                if mw.address in n.state.models[name]["assigned"]:
+                    net.send(mw, "pin_model", {"name": name})
+            net.send(mw, "ping", {})
+        self.assertTrue(net.block())
+        st, addrs = n.state, [mw.address for mw in machines]
+        (holder,) = [a for a in addrs if "texto-um" in st.machines[a]["models"]]
+        self.assertEqual(sorted(st.machines[holder]["models"]), ["imagem-um", "texto-um"])
+        root = st.root()
+        recs = nodemod.machines_info(st)
+        for a in addrs:
+            self.assertEqual((recs[a]["models"], recs[a]["media_models"]),
+                             (["texto-um"] if a == holder else [], ["imagem-um"]))
+        self.assertEqual(st.root(), root)                    # a vista não mexe no estado
+        self.assertEqual(sorted(st.machines[holder]["models"]), ["imagem-um", "texto-um"])
+
+        serve(self, nodemod.make_handler(n), PORT_MEDIA)
+        recs = json.loads(req(PORT_MEDIA, "GET", "/machines")[2])
+        # o que um app 2.4 enxerga (lista do chat, pick_model): só `models`, e nele nenhum modelo de imagem
+        self.assertEqual({name for r in recs.values() for name in r["models"]}, {"texto-um"})
+        self.assertEqual([recs[a]["media_models"] for a in addrs], [["imagem-um"]] * 2)
+        mine = json.loads(req(PORT_MEDIA, "GET", f"/machine/{holder}")[2])
+        self.assertEqual(sorted(mine["models"]), ["imagem-um", "texto-um"])   # a máquina vê tudo o que hospeda
+        c = Client(f"http://127.0.0.1:{PORT_MEDIA}")         # o cliente 2.5 lê os dois campos
+        self.assertEqual(c.hosted_models(), {"texto-um": {holder: 2000}, "imagem-um": {a: 20_000 for a in addrs}})
+        self.assertEqual(c.pick_model(prefer="coder"), "texto-um")   # o de imagem está em mais máquinas
+
+    def test_wallet_page_reads_media_models_too(self):
+        """A carteira (página que o próprio nó serve) mostra também os modelos de imagem e vídeo das máquinas."""
+        with open(os.path.join(ROOT, "sigma", "web", "carteira.html"), encoding="utf-8") as f:
+            page = f.read()
+        self.assertIn("const machineModels = (mc) => [...(mc.models || []), ...(mc.media_models || [])];", page)
+        self.assertEqual(page.count("mc.models"), 1)         # só no ajudante: as duas tabelas usam machineModels
+        self.assertEqual(page.count("machineModels(mc)"), 2)

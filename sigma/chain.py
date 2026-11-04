@@ -4,11 +4,13 @@ Tudo que envolve dinheiro (saldo, escrow, pagamento, aluguel, emissão) é
 decidido aqui, de forma determinística, para que qualquer nó consiga
 reexecutar a chain e chegar exatamente no mesmo estado.
 
-Não existe SIG fora da mineração: o genesis nasce sem saldos e a única fonte
-de SIG é a emissão contínua (0,01% do que falta dos 100 milhões a cada 12 h,
-saindo um pouco em todo bloco), dividida pelos pontos de prova de trabalho de
-cada carteira. Depois disso o SIG só circula: quem usa IA, computação e
-hospedagem paga as máquinas que hospedam. Não há taxa, queima nem stake.
+O genesis nasce sem saldos. O SIG nasce de duas formas: a emissão contínua
+(0,01% do que falta dos 100 milhões a cada 12 h, saindo um pouco em todo
+bloco), dividida pelos pontos de prova de trabalho de cada carteira, e, uma vez
+só, a carteira dos fundadores (1 milhão de SIG, 1% do teto), criada na altura
+da atualização v2 da rede principal (UPGRADE_GRANTS). Depois disso o SIG só
+circula: quem usa IA, computação e hospedagem paga as máquinas que hospedam.
+Não há taxa, queima nem stake.
 
 Ciclo de cada bloco: begin_block (atualização das regras, janela, época,
 aluguel, atribuições, limpeza) → apply_tx de cada transação → end_block
@@ -39,11 +41,18 @@ from .pow import report_points, share_ok
 
 UNIT = 1_000_000            # 1 SIG = 1.000.000 µSIG
 # ---- atualizações das regras (docs/ATUALIZACOES.md)
-RULES = 1                   # a versão mais nova das regras que este código sabe executar
+RULES = 2                   # a versão mais nova das regras que este código sabe executar
+# v1: a rede da v2.4. v2 (v2.5): modelos de imagem e vídeo, preço por imagem e por segundo de vídeo
 # atualizações marcadas: hash do genesis da rede -> {versão: altura do primeiro bloco com ela}. Uma rede nova
 # já nasce na versão RULES; as entradas daqui só valem para a rede cujo genesis tem aquele hash.
 SCHEDULE = {}
 UPGRADE_HISTORY_KEEP = 50
+# saldos que uma atualização cria na altura dela, uma vez só: hash do genesis -> {versão: [(endereço, µSIG)]}.
+# A v2 da rede principal cria a carteira dos fundadores: 1 milhão de SIG (1% do teto) para as primeiras despesas do
+# projeto (marketing, administração, infraestrutura). Fica pública no estado (ext["grants"]) e no histórico.
+MAINNET_GENESIS = "a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029"
+FOUNDERS = "sigfd1980713ecf1a514ad3f4a15828bb2d0c00a09e"
+UPGRADE_GRANTS = {MAINNET_GENESIS: {2: [(FOUNDERS, 1_000_000 * 1_000_000)]}}
 # As chaves do genesis ficam congeladas: um parâmetro novo entra por uma atualização (no estado, na altura dela),
 # nunca em DEFAULT_PARAMS — senão o estado do genesis muda e a chain antiga deixa de bater.
 DEFAULT_PARAMS = {"epoch_seconds": 43200, "window_seconds": 300, "min_share_bits": 12, "max_shares": 32,
@@ -66,6 +75,16 @@ GOVERNABLE = {"mint_bps": (0, 50), "hosting_per_mb_window": (1, MAX_HOSTING_PRIC
               "proposal_deposit": (UNIT, 10_000 * UNIT), "quorum_bps": (0, 5000)}
 MAX_AI_PRICE = 1_000_000    # µSIG por mil tokens: nenhuma máquina engole o escrow com um preço absurdo
 MAX_COMPUTE_PRICE = 1_000_000
+# ---- classes de IA (regras v2): além de texto, modelos que geram imagem e vídeo (stable-diffusion.cpp)
+TASKS = ("text", "image", "video")
+TASK_PRICE = {"text": "ai_per_1k_tokens", "image": "ai_per_image", "video": "ai_per_video_second"}
+MEDIA_PRICES = {"ai_per_image": 20_000, "ai_per_video_second": 100_000}   # padrão: 0,02 SIG/imagem, 0,1 SIG/s
+MAX_MEDIA_PRICE = 100_000_000   # µSIG por imagem ou por segundo de vídeo (100 SIG)
+MEDIA_UNITS = {"image": 4, "video": 10}            # no máximo 4 imagens ou 10 s de vídeo por pedido
+MEDIA_CLAIM_TIMEOUT = {"image": 1800, "video": 7200}   # gerar leva mais que responder texto (no CPU, muito mais)
+MEDIA_RAM_MB = {"image": 1536, "video": 4096}      # memória de trabalho além dos pesos (a do texto é 512)
+MODEL_ROLES = ("vae", "clip_l", "clip_g", "t5xxl", "llm")   # arquivos extras de um modelo de imagem/vídeo
+MAX_MODEL_FILES = 4
 MAX_SHARE_BITS = 200
 MAX_NONCE = 2 ** 62
 CLAIM_TIMEOUT = 600         # segundos para entregar um job reivindicado
@@ -118,7 +137,7 @@ SIGNED_KEYS = frozenset({"type", "data", "nonce", "pub", "sig", "id"})
 UNSIGNED_KEYS = frozenset({"type", "data", "id"})          # work e evm
 TX_FIELDS = {
     "transfer": {"to", "amount"},
-    "register_machine": {"payout", "name", "hw", "endpoint", "prices", "ai", "compute", "pub"},
+    "register_machine": {"payout", "name", "hw", "endpoint", "prices", "ai", "compute", "pub", "tasks"},
     "ping": set(),
     "claim_job": {"job_id"},
     "submit_result": {"job_id", "result_hash", "usage", "failed"},
@@ -126,7 +145,7 @@ TX_FIELDS = {
     "deploy_site": {"name", "manifest", "budget", "replicas"},
     "pin_site": {"name", "version"},
     "register_model": {"name", "url", "sha256", "size", "royalty_bps", "reinvest_bps", "replicas", "license",
-                       "description", "budget"},
+                       "description", "budget", "task", "files"},
     "fund_model": {"name", "amount"},
     "update_model": {"name", "royalty_bps", "reinvest_bps", "new_sponsor"},
     "retire_model": {"name"},
@@ -137,7 +156,8 @@ TX_FIELDS = {
     "work": {"miner", "window", "bits", "nonces", "worker"},
     "evm": {"raw"},
 }
-JOB_FIELDS = {"ai": {"kind", "model", "spec_hash", "escrow", "max_price", "max_tokens", "machine", "client_pub"},
+JOB_FIELDS = {"ai": {"kind", "model", "spec_hash", "escrow", "max_price", "max_tokens", "machine", "client_pub",
+                     "units"},
               "compute": {"kind", "task", "replicas", "escrow", "max_price"}}
 SIGNED_TYPES = frozenset(TX_FIELDS) - {"work", "evm"} | {"create_job"}
 HW_KEYS = frozenset(HW_FIELDS + ("gpu",))
@@ -388,13 +408,33 @@ def _only(d, allowed, where):
     _need(not extra, f"campos desconhecidos {where}: {', '.join(k[:40] for k in extra[:10])}")
 
 
-def _fields(type_, d):
+# campos que só existem a partir de uma versão das regras: antes dela, são recusados como sempre foram
+FIELDS_SINCE = {"register_machine": {"tasks": 2}, "register_model": {"task": 2, "files": 2}, "create_job": {"units": 2}}
+
+
+def _fields(type_, d, rules):
     if type_ == "create_job":
         allowed = JOB_FIELDS.get(d.get("kind")) if isinstance(d.get("kind"), str) else None
         _need(allowed is not None, "kind deve ser 'ai' ou 'compute'")
     else:
         allowed = TX_FIELDS[type_]
-    _only(d, allowed, f"em {type_}")
+    since = FIELDS_SINCE.get(type_, {})
+    _only(d, {k for k in allowed if since.get(k, 1) <= rules}, f"em {type_}")
+
+
+def model_task(m):
+    """Classe do modelo: texto (o padrão, e todo modelo de antes da v2), imagem ou vídeo."""
+    return m.get("task", "text")
+
+
+def claim_timeout(job):
+    """Prazo para entregar um job reivindicado: imagem e vídeo (v2) demoram mais que texto."""
+    return MEDIA_CLAIM_TIMEOUT.get(job.get("media"), CLAIM_TIMEOUT)
+
+
+def machine_tasks(mc):
+    """Classes que a máquina aceita hospedar (antes da v2, só texto)."""
+    return mc.get("tasks", ["text"])
 
 
 def _same_id(tx, txid):
@@ -436,7 +476,7 @@ class State:
 
     def __init__(self, genesis):
         if genesis.get("alloc"):
-            raise ValueError("genesis inválido: 'alloc' deve ser vazio (nenhum SIG existe fora da mineração)")
+            raise ValueError("genesis inválido: 'alloc' deve ser vazio (nenhum SIG nasce no genesis)")
         self.params = _check_params(genesis)
         rules = genesis.get("rules", 1)
         if not (_is_int(rules) and 1 <= rules):
@@ -573,9 +613,17 @@ class State:
             return
         if target > RULES:                       # só por segurança: SCHEDULE só marca versões que o código tem
             raise UpgradeRequired(target, height)
-        u["rules"] = target
+        old, u["rules"] = u["rules"], target
         u["history"].append({"rules": target, "height": height, "time": self.now})
         del u["history"][1:-UPGRADE_HISTORY_KEEP]
+        for version in range(old + 1, target + 1):   # saldos criados pela atualização (UPGRADE_GRANTS)
+            for addr, amount in (UPGRADE_GRANTS.get(self.genesis_hash) or {}).get(version, ()):
+                amount = min(amount, self.params["supply_cap"] - self.mining["minted"])   # nunca passa do teto
+                if amount > 0:
+                    self.mining["minted"] += amount
+                    self._give(addr, amount, "founders", f"v{version}")
+                    self.ext.setdefault("grants", []).append(
+                        {"address": addr, "amount": amount, "rules": version, "height": height})
 
     # ---------------------------------------------------------- ciclo do bloco
     def begin_block(self, height, time, prev_hash):
@@ -749,7 +797,7 @@ class State:
                 self._target_deadline(job)
                 continue
             for mach, claim in sorted(job["claims"].items()):
-                if mach not in job["results"] and now - claim["time"] > CLAIM_TIMEOUT:
+                if mach not in job["results"] and now - claim["time"] > claim_timeout(job):
                     del job["claims"][mach]       # sumiu sem entregar: perde reputação e o job reabre
                     self.machines[mach]["reputation"] -= 1
                     job["status"] = "open"
@@ -764,7 +812,7 @@ class State:
         """Pedido direcionado: a máquina escolhida tem TARGET_TIMEOUT para reivindicar e CLAIM_TIMEOUT para
         entregar. Passou do prazo: o cliente recebe tudo de volta (o job não reabre) e a máquina leva falta."""
         claim = job["claims"].get(job["machine"])
-        start, limit = (job["created"], TARGET_TIMEOUT) if claim is None else (claim["time"], CLAIM_TIMEOUT)
+        start, limit = (job["created"], TARGET_TIMEOUT) if claim is None else (claim["time"], claim_timeout(job))
         if self.now - start > limit:
             job["missed"] = True
             self._refund(job, "expired")
@@ -806,7 +854,7 @@ class State:
         if type_ == "evm":
             return self._apply_evm(tx)
         _need(isinstance(type_, str) and type_ in SIGNED_TYPES, f"tipo de transação desconhecido: {str(type_)[:40]}")
-        _fields(type_, tx["data"])
+        _fields(type_, tx["data"], self.rules)
         pub, sig = tx.get("pub"), tx.get("sig")
         _need(isinstance(pub, str) and HEX128.match(pub) and isinstance(sig, str) and HEX128.match(sig)
               and _sig_ok(pub, canon(tx_body(tx)), sig), "assinatura inválida")
@@ -835,7 +883,7 @@ class State:
             type_, data = _system_call(e["data"])
             _canon_ok([type_, data])             # o JSON veio de dentro do raw: confere de novo aqui
             _need(type_ in SIGNED_TYPES, f"operação desconhecida: {type_[:40]}")
-            _fields(type_, data)
+            _fields(type_, data, self.rules)
             getattr(self, "_tx_" + type_)(sender, data, txid)
         else:
             _need(e["to"] is not None, "criação de contratos não é suportada")
@@ -911,20 +959,34 @@ class State:
               "endpoint deve ser vazio ou uma URL http(s)")
         prices = d.get("prices", {})
         _need(isinstance(prices, dict), "prices inválido")
-        _only(prices, DEFAULT_PRICES, "em prices")     # o aluguel é preço da rede, não da máquina
+        media = self.rule(2)                       # v2: preço por imagem e por segundo de vídeo
+        _only(prices, {**DEFAULT_PRICES, **(MEDIA_PRICES if media else {})}, "em prices")   # o aluguel é da rede
         ai_price = prices.get("ai_per_1k_tokens", DEFAULT_PRICES["ai_per_1k_tokens"])
         _need(_is_int(ai_price) and 1 <= ai_price <= MAX_AI_PRICE,
               f"ai_per_1k_tokens deve ser no máximo {_pt(MAX_AI_PRICE)} µSIG por mil tokens (e pelo menos 1)")
         compute_price = prices.get("compute_per_unit", DEFAULT_PRICES["compute_per_unit"])
         _need(_is_int(compute_price) and 1 <= compute_price <= MAX_COMPUTE_PRICE,
               f"compute_per_unit deve ser no máximo {_pt(MAX_COMPUTE_PRICE)} µSIG por unidade (e pelo menos 1)")
+        clean_prices = {"ai_per_1k_tokens": ai_price, "compute_per_unit": compute_price}
+        if media:
+            for key, default in MEDIA_PRICES.items():
+                clean_prices[key] = prices.get(key, default)
+                _need(_is_int(clean_prices[key]) and 1 <= clean_prices[key] <= MAX_MEDIA_PRICE,
+                      f"{key} deve ser no máximo {_pt(MAX_MEDIA_PRICE)} µSIG (e pelo menos 1)")
         ai, compute = _flag(d, "ai"), _flag(d, "compute")
         pub = d.get("pub")
         if pub is not None:   # a chave que recebe os pedidos cifrados
             pub = _pub(pub, "pub")
             _need(address_of(pub) == sender, "pub não corresponde à chave da máquina")
         offer = {"payout": payout, "name": name, "hw": clean_hw, "ai": ai, "compute": compute,
-                 "endpoint": endpoint, "prices": {"ai_per_1k_tokens": ai_price, "compute_per_unit": compute_price}}
+                 "endpoint": endpoint, "prices": clean_prices}
+        if media:   # classes de IA que a máquina aceita hospedar: texto, imagem e/ou vídeo. Sem o motor de texto
+            # (o Ollama fechado), ela fica só com imagem e vídeo, que rodam no stable-diffusion.cpp
+            tasks_ = d.get("tasks", ["text"])
+            _need(isinstance(tasks_, list) and len(tasks_) <= len(TASKS) and all(t in TASKS for t in tasks_)
+                  and len(set(tasks_)) == len(tasks_), "tasks deve ser uma lista com 'text', 'image' e/ou 'video'")
+            _need(tasks_ or not ai, "com a IA ligada, tasks precisa ter pelo menos uma classe")
+            offer["tasks"] = [t for t in TASKS if t in tasks_]
         seen = {"last_seen": self.mining["window"], "online": True}
         mc = self.machines.get(sender)
         if mc is None:
@@ -934,6 +996,8 @@ class State:
             return
         if not ai:   # desligou a IA: a rede tira os modelos daqui e realoca
             self._unhost(sender, sites=False)
+        elif media:  # deixou de aceitar uma classe (texto, imagem ou vídeo): só os modelos dela saem daqui
+            self._unhost_tasks(sender, offer["tasks"])
         mc.update(offer)
         if pub is not None:
             mc["pub"] = pub
@@ -966,6 +1030,20 @@ class State:
             for s in self.sites.values():
                 s["pinners"].pop(addr, None)
         self.machines[addr]["models"] = []
+
+    def _unhost_tasks(self, addr, tasks_):
+        """Tira da máquina os modelos (hospedados e atribuídos) de classes que ela não aceita mais."""
+        mc, w = self.machines[addr], self.mining["window"]
+        for name in sorted(self.models):
+            m = self.models[name]
+            if model_task(m) in tasks_:
+                continue
+            m["assigned"].pop(addr, None)
+            if m["pinners"].pop(addr, None) is not None:
+                m["former"][addr] = w
+                self._trim_former(m)
+            if name in mc["models"]:
+                mc["models"].remove(name)
 
     def _trim_former(self, m):
         """Ficam só as entradas do último dia, no máximo 2 × réplicas (as mais novas)."""
@@ -1003,16 +1081,30 @@ class State:
                "window": self.mining["window"], "escrow": escrow, "max_price": max_price, "claims": {},
                "results": {}, "payments": {}, "result_hash": None}
         if kind == "ai":
-            _need(_get(self.models, d.get("model")) is not None, "modelo não existe na rede (ou foi apagado)")
+            model = _get(self.models, d.get("model"))
+            _need(model is not None, "modelo não existe na rede (ou foi apagado)")
             _need(_hex64(d.get("spec_hash")), "spec_hash inválido")
-            # max_tokens é público e o escrow tem que cobri-lo: a máquina honesta não trabalha de graça sem saber
-            # (achado escrow-need-not-cover-price). +16 é o que a conversa soma por pedido.
-            max_tokens = _int_in(d.get("max_tokens"), "max_tokens", 1, CONTEXT)
-            need = _ceil_div((max_tokens + 16) * max_price, 1000)
-            _need(escrow >= need,
-                  f"o valor reservado precisa cobrir {max_tokens} tokens a {max_price} µSIG por mil "
-                  f"({_pt(need)} µSIG)")
-            job.update({"model": d["model"], "spec_hash": d["spec_hash"], "replicas": 1, "max_tokens": max_tokens})
+            media = model_task(model)
+            if media == "text":
+                _need("units" not in d, "pedido de texto usa max_tokens, não units")
+                # max_tokens é público e o escrow tem que cobri-lo: a máquina honesta não trabalha de graça sem
+                # saber (achado escrow-need-not-cover-price). +16 é o que a conversa soma por pedido.
+                max_tokens = _int_in(d.get("max_tokens"), "max_tokens", 1, CONTEXT)
+                need = _ceil_div((max_tokens + 16) * max_price, 1000)
+                _need(escrow >= need,
+                      f"o valor reservado precisa cobrir {max_tokens} tokens a {max_price} µSIG por mil "
+                      f"({_pt(need)} µSIG)")
+                job.update({"model": d["model"], "spec_hash": d["spec_hash"], "replicas": 1,
+                            "max_tokens": max_tokens})
+            else:   # v2: imagem (units = quantas imagens) ou vídeo (units = segundos), preço por unidade
+                _need("max_tokens" not in d, f"pedido de {media} usa units, não max_tokens")
+                what = "imagens" if media == "image" else "segundos de vídeo"
+                units = _int_in(d.get("units"), "units", 1, MEDIA_UNITS[media])
+                _need(escrow >= units * max_price,
+                      f"o valor reservado precisa cobrir {units} {what} a {max_price} µSIG cada "
+                      f"({_pt(units * max_price)} µSIG)")
+                job.update({"model": d["model"], "spec_hash": d["spec_hash"], "replicas": 1, "media": media,
+                            "units": units})
             client_pub = d.get("client_pub")
             if client_pub is not None:   # a resposta vai cifrada para esta chave
                 client_pub = _pub(client_pub, "client_pub")
@@ -1055,7 +1147,8 @@ class State:
         _need(mc["pub"] is not None, "a máquina escolhida não recebe pedidos cifrados (não publicou a chave pública)")
         _need(d["model"] in mc["models"], "a máquina escolhida não hospeda este modelo")
         _need(addr != sender, "você não pode mandar o pedido para a sua própria máquina")
-        _need(mc["prices"]["ai_per_1k_tokens"] <= max_price, "o preço da máquina escolhida está acima do máximo do pedido")
+        _need(self._ai_price(mc, d["model"]) <= max_price,
+              "o preço da máquina escolhida está acima do máximo do pedido")
         # fila limitada: assim a máquina sempre consegue reivindicar e responder dentro do prazo, e um cliente não
         # a derruba por faltas inundando-a de pedidos (achado targeted-flood-evicts-honest-host). O job novo ainda
         # não entrou em self.jobs, então conta só os que já estão vivos.
@@ -1064,6 +1157,12 @@ class State:
         _need(sum(1 for j in live if j["client"] == sender) < MAX_TARGET_PER_CLIENT,
               "você já tem pedidos demais nessa máquina; espere ela responder")
         return addr
+
+    def _ai_price(self, mc, name):
+        """Preço da máquina para o modelo: por mil tokens (texto), por imagem ou por segundo de vídeo."""
+        price = mc["prices"].get(TASK_PRICE[model_task(self.models[name])])
+        _need(price is not None, "esta máquina não tem preço para este tipo de IA")
+        return price
 
     def _tx_claim_job(self, sender, d, txid):
         job = _get(self.jobs, d.get("job_id"))
@@ -1077,7 +1176,7 @@ class State:
         _need(sender != job["client"], "o cliente não pode executar o próprio job")
         if job["kind"] == "ai":
             _need(job["model"] in mc["models"], "esta máquina não hospeda este modelo")
-            price = mc["prices"]["ai_per_1k_tokens"]
+            price = self._ai_price(mc, job["model"])
         else:
             _need(mc["compute"], "esta máquina não oferece computação")
             price = mc["prices"]["compute_per_unit"]
@@ -1096,8 +1195,12 @@ class State:
         failed = _flag(d, "failed")
         usage = d.get("usage", {})             # mesmo formato em qualquer job (na computação não conta)
         _need(isinstance(usage, dict), "usage inválido")
-        _only(usage, USAGE_KEYS, "em usage")
-        usage = {k: _int_in(usage.get(k, 0), k, 0, MAX_TOKENS) for k in USAGE_KEYS}
+        if job.get("media"):                   # v2: imagens ou segundos de vídeo entregues
+            _only(usage, ("units",), "em usage")
+            usage = {"units": _int_in(usage.get("units", 0), "units", 0, job["units"])}
+        else:
+            _only(usage, USAGE_KEYS, "em usage")
+            usage = {k: _int_in(usage.get(k, 0), k, 0, MAX_TOKENS) for k in USAGE_KEYS}
         res = {"hash": d["result_hash"], "time": self.now}
         if job["kind"] == "ai":
             _need(not failed or not any(usage.values()), "uma falha não cobra tokens: usage deve ser zero")
@@ -1146,8 +1249,13 @@ class State:
 
     def _settle_ai(self, job):
         (mach, res), = job["results"].items()
-        tokens = res["usage"]["tokens_in"] + res["usage"]["tokens_out"]
-        cost = min(job["escrow"], _ceil_div(tokens * job["claims"][mach]["price"], 1000))
+        price = job["claims"][mach]["price"]
+        if job.get("media"):   # imagem/vídeo: o preço da máquina por unidade entregue
+            units = res["usage"]["units"]
+            cost = min(job["escrow"], units * price)
+        else:
+            tokens = res["usage"]["tokens_in"] + res["usage"]["tokens_out"]
+            cost = min(job["escrow"], _ceil_div(tokens * price, 1000))
         model = self.models.get(job["model"])
         royalty = cost * model["royalty_bps"] // 10000 if model else 0
         self._pay(job, mach, cost, cut=royalty)
@@ -1156,7 +1264,10 @@ class State:
             model["budget"] += reinvest
             self._give(model["sponsor"], royalty - reinvest, "royalty", model["name"])
             model["royalties"] += royalty
-            model["tokens"] += tokens
+            if job.get("media"):
+                model["units"] = model.get("units", 0) + units
+            else:
+                model["tokens"] += tokens
             model["jobs"] += 1
             pin = model["pinners"].get(mach)
             if job.get("machine") == mach and pin:   # pedido direcionado entregue: as faltas zeram
@@ -1291,6 +1402,25 @@ class State:
         _need(isinstance(digest, str) and _hex64(digest.lower()), "sha256 deve ter 64 caracteres hexadecimais")
         size = d.get("size")
         _need(_is_int(size) and 0 < size <= MAX_MODEL_SIZE, "size deve estar entre 1 byte e 60 GB")
+        task = d.get("task", "text")              # v2: só aparece a partir da v2 (_fields recusa antes)
+        _need(task in TASKS, "task deve ser 'text', 'image' ou 'video'")
+        files = d.get("files", [])
+        _need(isinstance(files, list) and len(files) <= MAX_MODEL_FILES,
+              f"files deve ser uma lista de até {MAX_MODEL_FILES} arquivos")
+        _need(task != "text" or not files, "modelo de texto é um arquivo só (GGUF): sem files")
+        clean_files, roles = [], set()
+        for f in files:   # VAE, codificadores de texto: baixados e conferidos como o arquivo principal
+            _need(isinstance(f, dict), "cada arquivo de files deve ser um objeto")
+            _only(f, ("role", "url", "sha256", "size"), "em files")
+            role, furl, fsha, fsize = f.get("role"), f.get("url"), f.get("sha256"), f.get("size")
+            _need(role in MODEL_ROLES and role not in roles, f"role deve ser um de {', '.join(MODEL_ROLES)}, sem repetir")
+            _need(isinstance(furl, str) and len(furl) <= 500 and URL_RE.match(furl), "url de files inválida")
+            _need(isinstance(fsha, str) and _hex64(fsha.lower()), "sha256 de files inválido")
+            _need(_is_int(fsize) and 0 < fsize <= MAX_MODEL_SIZE, "size de files inválido")
+            roles.add(role)
+            clean_files.append({"role": role, "url": furl, "sha256": fsha.lower(), "size": fsize})
+        size_all = size + sum(f["size"] for f in clean_files)
+        _need(size_all <= MAX_MODEL_SIZE, "o modelo inteiro (com files) passa de 60 GB")
         royalty = self._bps(d, "royalty_bps", MAX_ROYALTY_BPS, 1000)
         reinvest = self._bps(d, "reinvest_bps", 10000, 0)
         replicas = d.get("replicas", 2)
@@ -1300,20 +1430,26 @@ class State:
         # modelo grande precisa cobrir um dia de aluguel de todas as cópias já no registro, senão vira lixo de
         # estado que ninguém consegue hospedar (achado window-turnover-models-x-machines). É a mesma conta da
         # funded(): até FUNDED_ABOVE o download é barato e não exige esse adiantamento.
-        if size > FUNDED_ABOVE:
-            minimo = self.rent_window({"replicas": replicas, "size": size}) \
-                * _ceil_div(MIN_FUNDED_SECONDS, self.params["window_seconds"])
+        # pesos + contexto (texto) ou + memória de trabalho da geração (imagem/vídeo), em MB
+        ram_mb = math.ceil(size_all / 1e6 * 1.2) + (512 if task == "text" else MEDIA_RAM_MB[task])
+        if size_all > FUNDED_ABOVE:
+            probe = {"replicas": replicas, "size": size_all}
+            if task != "text":
+                probe["ram_mb"] = ram_mb
+            minimo = self.rent_window(probe) * _ceil_div(MIN_FUNDED_SECONDS, self.params["window_seconds"])
             _need(budget >= minimo, f"o orçamento precisa cobrir um dia de hospedagem: {_pt(minimo)} µSIG")
         _need(self.bal(sender) >= budget, "saldo insuficiente para o budget")
         self._debit(sender, budget)
         self.retired_models.pop(name, None)
-        self.models[name] = {"name": name, "sponsor": sender, "url": url, "sha256": digest.lower(), "size": size,
-                             "ram_mb": math.ceil(size / 1e6 * 1.2) + 512,   # pesos + contexto, em MB
+        self.models[name] = {"name": name, "sponsor": sender, "url": url, "sha256": digest.lower(), "size": size_all,
+                             "ram_mb": ram_mb,
                              "license": license_, "description": description,
                              "royalty_bps": royalty, "reinvest_bps": reinvest, "replicas": replicas,
                              "budget": budget, "rent_paid": 0, "royalties": 0, "tokens": 0, "jobs": 0,
                              "assigned": {}, "pinners": {}, "cooldown": {}, "former": {}, "failed": 0,
                              "pinned_window": self.mining["window"], "created": self.now}
+        if task != "text":   # v2: classe, arquivos extras e o tamanho só do arquivo principal
+            self.models[name].update({"task": task, "files": clean_files, "main_size": size, "units": 0})
 
     def _tx_fund_model(self, sender, d, txid):
         m = self._model_of(sender, d)
@@ -1381,8 +1517,10 @@ class State:
             need = m["replicas"] - len(m["pinners"]) - len(m["assigned"])
             if need <= 0:
                 continue
+            task = model_task(m)
             fits = [a for a in eligible
-                    if a not in m["pinners"] and a not in m["assigned"]
+                    if task in machine_tasks(self.machines[a])
+                    and a not in m["pinners"] and a not in m["assigned"]
                     and m["cooldown"].get(a, w) <= w
                     and count.get(a, 0) < MAX_MODELS_PER_MACHINE
                     and self.machines[a]["hw"]["ai_ram_mb"] >= ram.get(a, 0) + m["ram_mb"]
@@ -1473,11 +1611,18 @@ class State:
         prop["yes" if choice == "sim" else "no"] += amount
 
     def _close_proposals(self):
-        """Votações que chegaram ao fim: aprovada com mais sim que não e quórum; o SIG travado volta a todos."""
+        """Votações que chegaram ao fim: aprovada com mais sim que não e quórum; o SIG travado volta a todos.
+        A partir da v2, uma votação também termina antes dos 10 dias quando um lado passa de metade de todos os votos
+        possíveis (todo o SIG que existe): o outro lado não teria como virar."""
         for pid in sorted(self.proposals):
             prop = self.proposals[pid]
-            if prop["status"] != "open" or self.now < prop["ends"]:
+            if prop["status"] != "open":
                 continue
+            early = self.rule(2) and max(prop["yes"], prop["no"]) * 2 > self.mining["minted"]
+            if self.now < prop["ends"] and not early:
+                continue
+            if early and self.now < prop["ends"]:
+                prop["early"] = True
             quorum = self.mining["minted"] * self.params["quorum_bps"] // 10_000
             passed = prop["yes"] > prop["no"] and prop["yes"] + prop["no"] >= quorum
             prop.update(status="approved" if passed else "rejected", closed=self.now, quorum=quorum,

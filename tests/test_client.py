@@ -5,6 +5,7 @@ nó, com máquinas que reivindicam, deixam expirar, falham com cada código ou r
 verdade sobe em 127.0.0.1:8850 e é desligado no fim. Nada sai da máquina.
 """
 import argparse
+import base64
 import collections
 import copy
 import hashlib
@@ -17,20 +18,40 @@ import random
 import shutil
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
-from sigma import chain, cli, client, crypto, engines, netsafe
+from sigma import catalog, chain, cli, client, crypto, engines, netsafe
 from sigma.chain import canon
 from sigma.client import Client, SigmaError
 from sigma.crypto import Wallet, address_of
 
 MODEL = "modelo-teste"
 QUESTION = "qual é a receita secreta do bolo da vovó?"
+PROMPT = "um farol azul na tempestade"
 FAIL_TEXT = {"context": "a conversa passou do limite do modelo (4.096 tokens)",
              "engine": "o motor de IA desta máquina falhou", "busy": "fila cheia", "unreadable": "pedido ilegível"}
+V2_PRICES = {"ai_per_1k_tokens": 2000, "compute_per_unit": 500, **chain.MEDIA_PRICES}   # máquina das regras v2
+PNG = b"\x89PNG\r\n\x1a\n" + b"imagem de teste"
+WEBM = b"\x1aE\xdf\xa3" + b"video de teste"
+MEDIA_TASKS = {"z-image": "image", "wan": "video"}
+T0 = 1_000_000.0
+
+
+class FakeClock:
+    """Relógio de mentira para o módulo client (mock.patch.object(client, "time", relógio)): sleep só avança."""
+
+    def __init__(self, t=T0):
+        self.t = t
+
+    def time(self):
+        return self.t
+
+    def sleep(self, s):
+        self.t += max(0.0, s)
 
 
 class FakeNet(Client):
@@ -47,6 +68,10 @@ class FakeNet(Client):
         self.create_mode, self.tx_mode = {}, {}   # máquina -> como o create_job termina; txid -> /tx/<id>
         self.blob_failures = 0      # quantas vezes o download de uma resposta falha antes de dar certo
         self.job_failures = 0       # quantas vezes /job/<id> cai (nó reiniciando) antes de voltar
+        self.tasks = {}             # modelo -> classe ("image", "video") que o /models diz; o resto é texto
+        self.models_down = False    # o /models falha (timeout) enquanto o /machines responde
+        self.media = False          # o /mining diz que a rede já aceita imagem e vídeo (regras v2)
+        self.clock = time.time      # relógio das máquinas de imagem/vídeo (os testes de prazo trocam)
 
     def add(self, name, behavior="ok", price=2000, seen=0, create="ok", **extra):
         """Máquina com o roteiro `behavior`; `seen` = janelas desde o último sinal (0 = nesta janela).
@@ -73,12 +98,17 @@ class FakeNet(Client):
     # ------------------------------------------------------------ "HTTP"
     def get(self, path, timeout=10):
         if path == "/mining":
-            out = {"window": self.window}
+            out = {"window": self.window, "media": self.media}
             if self.default_price is not None:
                 out["ai_default_price"] = self.default_price
             return out
         if path == "/machines":
             return copy.deepcopy(self.records)
+        if path == "/models":
+            if self.models_down:
+                raise SigmaError("não consegui falar com o nó: tempo esgotado")
+            names = {n for r in self.records.values() for n in (r.get("models") or []) + (r.get("media_models") or [])}
+            return {n: dict({"name": n}, **({"task": self.tasks[n]} if n in self.tasks else {})) for n in names}
         if path.startswith("/account/"):
             a = path.split("/")[2]
             return {"address": a, "balance": self.balances.get(a, 0), "next_nonce": self.nonces.get(a, 0)}
@@ -146,32 +176,42 @@ class FakeNet(Client):
             self.jobs[txid] = {"id": txid, "client": sender, "kind": "compute", "status": "done", "claims": {},
                                "results": {}, "result_hash": h, "escrow": d["escrow"], "cost": 0}
             return
+        task = self.tasks.get(d.get("model"), "text")   # imagem e vídeo (regras v2) levam units, não max_tokens
         assert set(d) == {"kind", "model", "spec_hash", "escrow", "max_price", "machine", "client_pub",
-                          "max_tokens"}, d
-        if not (isinstance(d["max_tokens"], int) and not isinstance(d["max_tokens"], bool)
-                and 1 <= d["max_tokens"] <= client.CONTEXT):   # §2: max_tokens público, 1..CONTEXT
+                          "max_tokens" if task == "text" else "units"}, d
+        if task != "text":
+            if not (isinstance(d["units"], int) and 1 <= d["units"] <= chain.MEDIA_UNITS[task]):
+                raise SigmaError("units fora do limite")
+            if d["escrow"] < d["units"] * d["max_price"]:
+                raise SigmaError(f"o valor reservado precisa cobrir {d['units']} unidades")
+        elif not (isinstance(d["max_tokens"], int) and not isinstance(d["max_tokens"], bool)
+                  and 1 <= d["max_tokens"] <= client.CONTEXT):   # §2: max_tokens público, 1..CONTEXT
             raise SigmaError("max_tokens precisa estar entre 1 e 4096")
-        need = math.ceil((d["max_tokens"] + 16) * d["max_price"] / 1000)
-        if d["escrow"] < need:                   # §2: o escrow precisa cobrir o preço combinado
-            raise SigmaError(f"o valor reservado precisa cobrir {d['max_tokens']} tokens")
+        elif d["escrow"] < math.ceil((d["max_tokens"] + 16) * d["max_price"] / 1000):
+            raise SigmaError(f"o valor reservado precisa cobrir {d['max_tokens']} tokens")   # §2: cobre o preço
         if d["spec_hash"] not in self.blobs:
             raise SigmaError("envie o pedido (/blob) antes de criar o job")
         m = self.records.get(d["machine"])
         if not m or not m["online"] or m["last_seen"] < self.window - 1 or not m.get("pub") or not m["ai"] \
-                or d["model"] not in m["models"] or d["machine"] == sender:
+                or d["model"] not in (m.get("models") or []) + (m.get("media_models") or []) \
+                or d["machine"] == sender:
             raise SigmaError("esta máquina não pode atender o pedido")
-        if m["prices"]["ai_per_1k_tokens"] > d["max_price"]:
+        if m["prices"][chain.TASK_PRICE[task]] > d["max_price"]:
             raise SigmaError("o preço da máquina está acima do máximo")
         if address_of(d["client_pub"]) != sender:
             raise SigmaError("client_pub não é de quem pede")
         if self.balances.get(sender, 0) < d["escrow"]:
             raise SigmaError("saldo insuficiente para o escrow")
         self.balances[sender] -= d["escrow"]
+        size = {"max_tokens": d["max_tokens"]} if task == "text" else {"media": task, "units": d["units"]}
         self.jobs[txid] = {"id": txid, "client": sender, "kind": "ai", "model": d["model"], "status": "open",
                            "claims": {}, "results": {}, "escrow": d["escrow"], "max_price": d["max_price"],
                            "machine": d["machine"], "client_pub": d["client_pub"], "spec_hash": d["spec_hash"],
-                           "max_tokens": d["max_tokens"], "result_hash": None}
+                           "result_hash": None, **size}
         self.polls[txid] = 0
+
+    def _tx_register_model(self, sender, d, txid):
+        pass                                     # o teste confere o que foi enviado (self.txs)
 
     def _tx_cancel_job(self, sender, d, txid):
         job = self.jobs[d["job_id"]]
@@ -194,6 +234,8 @@ class FakeNet(Client):
             return
         n = self.polls[job["id"]] = self.polls[job["id"]] + 1
         m, how = job["machine"], self.behavior[job["machine"]]
+        if job.get("media"):
+            return self._tick_media(job, m, how)
         if how == "never":
             return
         if how == "expire":                     # dormindo: nunca reivindica, o prazo devolve o valor
@@ -238,6 +280,34 @@ class FakeNet(Client):
         else:
             self._answer(job, {"text": f"resposta de {self.name_of(m)}", "model": job["model"], "machine": m},
                          cost=7)
+
+    def _tick_media(self, job, m, how):
+        """Pedido de imagem/vídeo: a máquina pega na hora e, conforme `how`, gera ("ok"), nunca entrega ("hang":
+        a chain não encerra o job) ou, `s` segundos do relógio `clock` depois de pegar, entrega ("done:s"),
+        falha ("fail:s") ou some ("expire:s": a chain devolve o valor)."""
+        now, price = self.clock(), self.records[m]["prices"][chain.TASK_PRICE[job["media"]]]
+        if not job["claims"]:
+            job["claims"][m] = {"time": now, "price": price}
+            job["status"] = "running"
+        end, _, secs = how.partition(":")
+        if how == "hang" or (secs and now < job["claims"][m]["time"] + float(secs)):
+            return
+        if end == "expire":
+            job["missed"] = True
+            return self._close(job, "expired", job["escrow"])
+        if end == "fail":
+            return self._answer(job, {"text": "", "error": "o motor de imagem e vídeo desta máquina falhou",
+                                      "code": "engine", "model": job["model"], "machine": m}, failed=True)
+        req = json.loads(self.keys[m].unseal(self.blobs[job["spec_hash"]]))   # a máquina abre com a chave dela
+        assert req["task"] == job["media"] and req["prompt"] == PROMPT, req
+        self.requests.append(dict(req, machine=m))
+        if job["media"] == "image":
+            items = [{"mime": "image/png", "data": base64.b64encode(PNG).decode(), "width": 64, "height": 64}]
+            items *= job["units"]
+        else:
+            items = [{"mime": "video/webm", "data": base64.b64encode(WEBM).decode(), "seconds": job["units"]}]
+        self._answer(job, {"media": items, "task": job["media"], "model": job["model"], "machine": m},
+                     cost=job["units"] * price)
 
     def _answer(self, job, res, failed=False, cost=0, sealed=True):
         blob = crypto.seal(job["client_pub"], canon(res)) if sealed else canon(res)
@@ -654,6 +724,31 @@ class AskTest(unittest.TestCase):
         self.assertEqual(set(hosted), {"qwen-coder", MODEL})
         self.assertEqual(self.net.pick_model(prefer="coder"), "qwen-coder")
 
+    def test_pick_model_does_not_guess_the_class(self):
+        """Revisão 2.5 #23: sem o /models não dá para saber quais modelos são de texto. O pick_model não chuta
+        "texto": se o /models falhar, o erro sobe, em vez de escolher o de imagem (que está em mais máquinas)."""
+        self.net.add("texto", models=["qwen2.5-0.5b"])
+        for i in range(2):                       # nó que não separa os de mídia: o de imagem vem em `models`
+            self.net.add(f"img{i}", models=["z-image"], prices=dict(V2_PRICES))
+        self.net.tasks = dict(MEDIA_TASKS)
+        self.assertEqual(self.net.pick_model(prefer="coder"), "qwen2.5-0.5b")
+        self.net.models_down = True              # o /models dá timeout enquanto o /machines responde
+        with self.assertRaises(SigmaError) as cm:
+            self.net.pick_model(prefer="coder")
+        self.assertIn("não consegui falar com o nó", str(cm.exception))
+        self.assertEqual(self.net.txs, [])
+
+    def test_hosted_models_reads_the_media_models_too(self):
+        """Revisão 2.5 #24: o nó põe os modelos de imagem e vídeo de cada máquina em `media_models` (um app 2.4
+        só entende texto); o cliente 2.5 lê os dois campos, cada um com o preço da sua classe."""
+        t = self.net.add("texto", models=["qwen2.5-0.5b"])
+        i = self.net.add("img", models=[], media_models=["z-image", "wan"], prices=dict(V2_PRICES))
+        self.net.tasks = dict(MEDIA_TASKS)
+        self.assertEqual(self.net.hosted_models(), {"qwen2.5-0.5b": {t: 2000}, "z-image": {i: 20_000},
+                                                    "wan": {i: 100_000}})
+        self.net.models_down = True              # sem a classe, o que o nó pôs à parte não vira texto
+        self.assertEqual(self.net.hosted_models(), {"qwen2.5-0.5b": {t: 2000}})
+
     def test_cancel_job_tx(self):
         self.net.add("a", "never")
         self.net.default_price = 2000
@@ -662,6 +757,74 @@ class AskTest(unittest.TestCase):
         with self.assertRaises(SigmaError):
             self.net.ask(MODEL, ask_msgs(), on_job=lambda j: (jobs.append(j), stop.set()), should_stop=stop.is_set)
         self.assertIn(("cancel_job", {"job_id": jobs[0]}), self.net.txs)
+
+
+class GenerateTest(unittest.TestCase):
+    """client.generate (regras v2): imagens e vídeo cifrados para uma máquina, pagos pelo que ela entregar."""
+
+    def setUp(self):
+        self.me = Wallet.generate()
+        self.nets = []
+
+    def tearDown(self):
+        for net in self.nets:                    # todo pedido foi cifrado para uma máquina
+            for blob in net.uploads:
+                self.assertTrue(crypto.is_sealed(blob), blob[:60])
+                self.assertNotIn(PROMPT.encode(), blob)
+
+    def net(self, *machines, clock=None):
+        """Rede com as máquinas [(nome, roteiro, janelas desde o último sinal)], que listam os modelos de imagem
+        e vídeo em `media_models`, como o nó faz. Com `clock`, o tempo do cliente e das máquinas é o dele."""
+        net = FakeNet(self.me)
+        net.tasks = dict(MEDIA_TASKS)
+        if clock:
+            net.clock = clock.time
+            net.POLL_FAST = net.POLL_SLOW = 20.0    # cada consulta avança 20 s no relógio falso
+        self.nets.append(net)
+        addrs = [net.add(name, how, seen=seen, models=[], media_models=list(MEDIA_TASKS), prices=dict(V2_PRICES))
+                 for name, how, seen in machines]
+        return net, addrs
+
+    def test_image_from_a_machine_that_lists_it_apart(self):
+        net, (a,) = self.net(("a", "ok", 0))
+        items, job = net.generate("z-image", "image", {"prompt": PROMPT, "size": "512x512", "count": 2})
+        self.assertEqual([(x["mime"], x["data"], x["width"]) for x in items], [("image/png", PNG, 64)] * 2)
+        self.assertEqual((job["machine"], job["attempts"], job["status"]), (a, 1, "done"))
+        (d,) = net.created()
+        self.assertEqual((d["units"], d["max_price"], d["escrow"]), (2, 20_000, 40_000))
+        self.assertEqual(net.balances[self.me.address], 10 ** 9 - 40_000)
+
+    def test_each_attempt_gets_the_whole_time_the_chain_gives_it(self):
+        """Revisão 2.5 #13: a 1ª máquina falha (ou some) perto do fim do prazo dela. A 2ª pega o pedido e gera com
+        calma: o cliente espera por ela até a chain encerrar o job, em vez de desistir no prazo que sobrou da
+        1ª (a entrega seria cobrada sem a mídia aparecer)."""
+        for task, model, first, second, spec in (
+                ("video", "wan", "fail:7080", "done:3000", {"prompt": PROMPT, "seconds": 2}),
+                ("image", "z-image", "expire:1806", "done:900", {"prompt": PROMPT, "count": 1})):
+            with self.subTest(task=task, first=first):
+                clock = FakeClock()
+                net, (a, b) = self.net(("a", first, 0), ("b", second, 1), clock=clock)
+                with mock.patch.object(client, "time", clock):
+                    items, job = net.generate(model, task, spec)
+                self.assertEqual((job["machine"], job["attempts"], job["status"]), (b, 2, "done"))
+                self.assertEqual([d["machine"] for d in net.created()], [a, b])
+                units = spec.get("count") or spec.get("seconds")
+                self.assertEqual(net.balances[self.me.address], 10 ** 9 - units * V2_PRICES[chain.TASK_PRICE[task]])
+                self.assertGreater(clock.t - T0, chain.MEDIA_CLAIM_TIMEOUT[task] + 600)   # passou do prazo antigo
+
+    def test_late_media_says_when_the_value_comes_back(self):
+        """Revisão 2.5 #13: se a chain não encerrar o job a tempo, o aviso diz o prazo da máquina (até 2 h no
+        vídeo), e não 'em alguns minutos'."""
+        self.assertIn(f"{chain.MEDIA_CLAIM_TIMEOUT['image'] // 60} minutos", client.LATE_MEDIA["image"])
+        self.assertIn(f"{chain.MEDIA_CLAIM_TIMEOUT['video'] // 3600} horas", client.LATE_MEDIA["video"])
+        clock = FakeClock()
+        net, _ = self.net(("a", "hang", 0), ("b", "ok", 1), clock=clock)
+        with mock.patch.object(client, "time", clock), self.assertRaises(SigmaError) as cm:
+            net.generate("wan", "video", {"prompt": PROMPT, "seconds": 3})
+        self.assertEqual(str(cm.exception), client.LATE_MEDIA["video"])
+        self.assertNotIn("alguns minutos", str(cm.exception))
+        self.assertEqual(len(net.created()), 1)   # não cria outro pedido por cima do que a máquina pegou
+        self.assertGreaterEqual(clock.t - T0, chain.TARGET_TIMEOUT + chain.MEDIA_CLAIM_TIMEOUT["video"])
 
 
 class FitMessagesTest(unittest.TestCase):
@@ -815,6 +978,55 @@ class CliTest(unittest.TestCase):
         self.assertEqual((info["license"], info["sha256"]), ("mit", "cd" * 32))
         info = cli.model_source(self.source(catalog="qwen2.5-0.5b", url=None, sha256=None, size=None, name=None))
         self.assertEqual(info["name"], "qwen2.5-0.5b")
+
+    def test_catalog_image_and_video_keep_their_class_and_files(self):
+        """Revisão 2.5 #12: um item de imagem ou vídeo do catálogo vai para a rede como imagem ou vídeo, com o VAE
+        e o codificador de texto (antes saía como modelo de texto, só com o arquivo principal)."""
+        media = [x for x in catalog.CATALOG if x["task"] != "text"]
+        self.assertEqual({x["task"] for x in media}, {"image", "video"})
+        for item in media:
+            info = cli.model_source(self.source(catalog=item["id"], url=None, sha256=None, size=None, name=None))
+            self.assertEqual((info["task"], info["files"], info["size"]), (item["task"], item["files"], item["size"]))
+        info = cli.model_source(self.source(license="apache-2.0"))      # --url: GGUF de texto, um arquivo só
+        self.assertEqual((info["task"], info["files"]), ("text", None))
+
+    def test_model_register_from_the_catalog_sends_task_and_files(self):
+        net = FakeNet(Wallet.generate())
+        a = cli.build_parser().parse_args(["model-register", "--catalog", "z-image-turbo", "--budget", "100"])
+        a.json = False
+        with self.assertRaises(SigmaError) as cm:              # a rede ainda está na v1: nada é enviado
+            cli.run(a, net)
+        self.assertEqual(str(cm.exception), cli.NO_MEDIA_YET)
+        self.assertEqual(net.txs, [])
+        net.media = True                                       # a v2 chegou
+        text = self.out(cli.run, a, net)
+        item = catalog.find("z-image-turbo")
+        ((kind, d),) = net.txs
+        self.assertEqual(kind, "register_model")
+        # só o tamanho do arquivo principal: a chain soma os extras (como o app faz)
+        self.assertEqual((d["name"], d["task"], d["size"], d["files"]),
+                         ("z-image-turbo", "image", item["size"], item["files"]))
+        self.assertIn(f"({cli.fmt_size(item['total_size'])})", text)
+        a = cli.build_parser().parse_args(["model-register", "--catalog", "qwen2.5-0.5b", "--budget", "100"])
+        a.json = False
+        net.media = False                                      # texto não depende da v2 e vai sem task/files
+        self.out(cli.run, a, net)
+        self.assertNotIn("task", net.txs[-1][1])
+        self.assertNotIn("files", net.txs[-1][1])
+
+    def test_catalog_listing_shows_the_class_and_the_whole_size(self):
+        lines = self.out(cli.show_catalog, catalog.CATALOG).splitlines()
+        z = next(x for x in lines if x.startswith("z-image-turbo"))
+        self.assertIn("imagem", z)
+        self.assertIn(cli.fmt_size(catalog.find("z-image-turbo")["total_size"]), z)   # com o Qwen3 e o VAE
+        self.assertIn("vídeo", next(x for x in lines if x.startswith("wan2.1-t2v-1.3b")))
+        self.assertIn("texto", next(x for x in lines if x.startswith("qwen2.5-0.5b")))
+
+    def test_machines_view_lists_the_media_models_too(self):
+        """Revisão 2.5 #24: o nó põe os modelos de imagem e vídeo em `media_models`; a CLI mostra os dois."""
+        text = self.out(cli.show_machines, {"sigA": {"online": True, "name": "pc", "hw": {}, "models": ["qwen"],
+                                                     "media_models": ["z-image"], "jobs_done": 0, "earned": 0}})
+        self.assertIn("modelos: qwen, z-image", text)
 
     def test_main_uses_the_safe_https_opener_first(self):
         calls = []

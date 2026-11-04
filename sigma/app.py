@@ -75,15 +75,18 @@ TYPED_ADDRESS = re.compile(r"(0[xX]|sig)[0-9a-fA-F]{40}")
 CHAT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 HASH_RE = re.compile(r"^[0-9a-f]{64}\Z")    # id de votação (= id da transação que a abriu)
 ENGINES = ("auto", "ollama", "llamacpp", "mock")
-HOST_KEYS = ("ai_enabled", "compute_enabled", "disk_gb", "ai_ram_gb", "public_url", "engine", "ai_threads", "name")
-BOOL_SETTINGS = ("mining_enabled", "ai_enabled", "compute_enabled", "start_with_system", "mine_on_battery")
+HOST_KEYS = ("ai_enabled", "compute_enabled", "disk_gb", "ai_ram_gb", "public_url", "engine", "ai_threads", "name",
+             "ai_image", "ai_video")
+BOOL_SETTINGS = ("mining_enabled", "ai_enabled", "compute_enabled", "start_with_system", "mine_on_battery",
+                 "ai_image", "ai_video")
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 LABELS = {"cpu_percent": "Uso do processador", "mining_enabled": "Minerar SIG", "ai_enabled": "IA para a rede",
           "compute_enabled": "Computação para a rede", "disk_gb": "Disco para a rede",
           "ai_ram_gb": "Memória para IA", "node": "Endereço do nó",
           "start_with_system": "Iniciar o Sigma junto com o computador",
           "mine_on_battery": "Minerar também na bateria", "name": "Nome na rede",
-          "public_url": "Endereço público desta máquina", "engine": "Motor de IA", "ai_threads": "Núcleos para a IA"}
+          "public_url": "Endereço público desta máquina", "engine": "Motor de IA", "ai_threads": "Núcleos para a IA",
+          "ai_image": "Hospedar IA de imagem", "ai_video": "Hospedar IA de vídeo"}
 ADDR_TYPO = "Esse endereço tem um caractere errado. Copie e cole de novo direto da MetaMask, sem digitar."
 ADDR_BAD = ("endereço inválido: ele começa com 0x (ou sig) e tem mais 40 letras e números. Copie e cole de novo "
             "direto da MetaMask.")
@@ -98,9 +101,24 @@ CANCELED = "Pedido cancelado. O valor reservado voltou para a sua carteira."
 CANCEL_MEMORY = 60           # s que um Cancelar adiantado (antes da pergunta chegar) fica valendo
 CLAIMED = ("Um computador já está respondendo. Espere mais um pouco: se ele não entregar, o valor reservado "
            "volta para você sozinho.")
-# o painel é um arquivo só, sem nada de fora: nem fontes, nem scripts, nem imagens de terceiros
-PAGE_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; "
-            "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+# o painel é um arquivo só, sem nada de fora: nem fontes, nem scripts, nem imagens de terceiros. As imagens e
+# vídeos que a IA gera chegam por /api/media (com o token) e viram blob: na página
+PAGE_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; "
+            "media-src blob:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+TASKS = ("text", "image", "video")
+UNITS = {"text": "mil tokens", "image": "imagem", "video": "segundo de vídeo"}
+MEDIA_LIMITS = {"image": {"sizes": ["512x512", "768x768", "1024x1024", "768x1024", "1024x768"], "max_count": 4},
+                "video": {"sizes": ["832x480", "480x832"], "seconds": [2, 3, 5]}}
+MAX_MEDIA_PRICE = 100_000_000   # teto da chain por imagem e por segundo de vídeo
+MEDIA_EXT = {"image/png": ".png", "video/webm": ".webm"}
+MEDIA_FILE = re.compile(r"^([0-9a-f]{64})\.(png|webm)\Z")
+MEDIA_GRACE = 600             # s: mídia que nenhuma conversa cita, mas recém-chegada (o painel ainda vai guardar)
+CHAT_FILE_ID = re.compile(r"^c[0-9a-f]{12}\Z")
+MAX_CHATS = 500               # conversas guardadas (as mais antigas saem)
+MAX_CHAT_MESSAGES = 1000
+MAX_CHAT_CHARS = 2_000_000    # texto de uma conversa (as mídias ficam em arquivos à parte)
+# + o bloco da v2, se o nó já marcou (App._no_media_yet)
+NO_MEDIA_YET = "a rede ainda não aceita modelos de imagem e vídeo: eles entram na atualização das regras v2"
 API_CSP = "default-src 'none'; frame-ancestors 'none'"
 
 
@@ -342,15 +360,33 @@ def site_files(items):
     return files
 
 
-def ai_ceilings(machines, mining, me=None):
-    """Teto de preço (µSIG por mil tokens) que o cliente vai usar em cada modelo, pela mesma regra do
-    client.ask: máquinas online, com IA ligada e `pub`, que sinalizaram nesta janela ou na anterior; vale o
-    maior entre o preço padrão da rede e o da mais barata. O painel mostra o custo máximo antes de enviar."""
+def _media_of(msgs):
+    """Hashes das imagens e vídeos que as mensagens de uma conversa guardada citam (só hashes válidos: eles viram
+    nome de arquivo em <dados>/midia)."""
+    out = set()
+    for m in msgs if isinstance(msgs, list) else []:
+        for it in m.get("media") if isinstance(m, dict) and isinstance(m.get("media"), list) else []:
+            if isinstance(it, dict) and HASH_RE.match(str(it.get("hash"))):
+                out.add(it["hash"])
+    return out
+
+
+def ai_ceilings(machines, mining, me=None, tasks=None):
+    """Teto de preço que o cliente vai usar em cada modelo, pela mesma regra do client.ask/generate: máquinas
+    online, com IA ligada e `pub`, que sinalizaram nesta janela ou na anterior; vale o maior entre o preço padrão
+    da rede e o da mais barata. Na unidade da classe do modelo (`tasks`: nome -> classe): µSIG por mil tokens,
+    por imagem ou por segundo de vídeo. O painel mostra o custo máximo antes de enviar. Os modelos de imagem e
+    vídeo de cada máquina vêm em `media_models` (o nó deixa em `models` só os de texto, que um app 2.4 entende)."""
     mining = mining if isinstance(mining, dict) else {}
+    tasks = tasks or {}
     w = mining.get("window")
-    default = mining.get("ai_default_price")
-    if not isinstance(default, int) or isinstance(default, bool) or default <= 0:
-        default = getattr(chain, "DEFAULT_PRICES", {}).get("ai_per_1k_tokens", 2000)
+    defaults = {"text": mining.get("ai_default_price"), **{
+        t: (mining.get("media_default_prices") or {}).get(chain.TASK_PRICE[t]) for t in ("image", "video")}}
+    fallback = {"text": getattr(chain, "DEFAULT_PRICES", {}).get("ai_per_1k_tokens", 2000),
+                "image": chain.MEDIA_PRICES["ai_per_image"], "video": chain.MEDIA_PRICES["ai_per_video_second"]}
+    for t, v in defaults.items():
+        if not isinstance(v, int) or isinstance(v, bool) or v <= 0:
+            defaults[t] = fallback[t]
     best = {}
     for addr, m in machines.items() if isinstance(machines, dict) else ():
         pub = m.get("pub") if isinstance(m, dict) else None
@@ -359,13 +395,15 @@ def ai_ceilings(machines, mining, me=None):
         seen = m.get("last_seen")
         if isinstance(w, int) and not (isinstance(seen, int) and seen >= w - 1):
             continue
-        price = (m.get("prices") or {}).get("ai_per_1k_tokens")
-        if not isinstance(price, int) or isinstance(price, bool) or not 0 < price <= MAX_AI_PRICE:
-            continue
-        for name in m.get("models") or []:
-            if isinstance(name, str):
+        for name in [n for k in ("models", "media_models") if isinstance(m.get(k), list) for n in m[k]]:
+            if not isinstance(name, str):
+                continue
+            task = tasks.get(name, "text")
+            price = (m.get("prices") or {}).get(chain.TASK_PRICE.get(task, "ai_per_1k_tokens"))
+            top = MAX_AI_PRICE if task == "text" else MAX_MEDIA_PRICE
+            if isinstance(price, int) and not isinstance(price, bool) and 0 < price <= top:
                 best[name] = min(best.get(name, price), price)
-    return {name: max(default, p) for name, p in best.items()}
+    return {name: max(defaults.get(tasks.get(name, "text"), 1), p) for name, p in best.items()}
 
 
 def _ping_auth(token, nonce):
@@ -696,12 +734,13 @@ class CodeRunner:
         self.thread = None
         self.waiting = None       # aprovação aberta: {"id", "event", "ok"}
         self.n = 0
+        self.agent = None         # o agente da sessão: continua com /api/code/continue
         self.info = self._blank()
 
     @staticmethod
     def _blank(**kw):
         return dict({"running": False, "folder": "", "model": "", "task": "", "auto_files": False, "steps": [],
-                     "pending": None, "spent": 0, "final": None, "error": None}, **kw)
+                     "pending": None, "spent": 0, "final": None, "error": None, "turns": []}, **kw)
 
     @staticmethod
     def agent_class():
@@ -711,7 +750,9 @@ class CodeRunner:
     def state(self):
         with self.lock:
             i = self.info
-            return dict(i, steps=[dict(s) for s in i["steps"]], pending=dict(i["pending"]) if i["pending"] else None)
+            return dict(i, steps=[dict(s) for s in i["steps"]], pending=dict(i["pending"]) if i["pending"] else None,
+                        turns=[dict(t) for t in i["turns"]],
+                        can_continue=bool(self.agent) and not i["running"])
 
     def summary(self):
         with self.lock:
@@ -720,6 +761,7 @@ class CodeRunner:
     def _add(self, step):
         """Guarda um passo da conversa (com o lock já pego)."""
         step.setdefault("n", self.n)
+        step.setdefault("turn", len(self.info["turns"]))
         self.info["steps"].append(step)
         del self.info["steps"][:-CODE_STEPS]
 
@@ -741,11 +783,17 @@ class CodeRunner:
         client = app._spender()
         model = d.get("model")
         try:   # "no ar" = alguma máquina que aceita pedido cifrado agora (a mesma regra do client.ask)
+            # o Sigma Code conversa: só modelo de texto. A classe vem do /models (sem ela, não dá para saber)
+            tasks = app._model_tasks()
             if model in (None, ""):
                 model = client.pick_model(prefer="coder")
+                if tasks.get(model, "text") != "text":   # o cliente errou a classe: a sessão só falharia
+                    raise AppError(NO_CODE_MODEL)
             elif not isinstance(model, str) or not catalog.MODEL_NAME.match(model):
                 raise AppError("modelo inválido")
-            elif model not in client.hosted_models():
+            elif tasks.get(model, "text") != "text":
+                raise AppError(f"o modelo {model} gera imagens ou vídeos: o Sigma Code precisa de um modelo de texto")
+            elif model not in client.hosted_models(tasks):
                 raise AppError(f"o modelo {model} não está no ar agora: escolha outro")
         except SigmaError as e:   # sem modelo no ar, ou o nó fora do ar (aí vale a frase do cliente)
             raise AppError(NO_CODE_MODEL if "nenhuma máquina" in str(e) else friendly(e)) from None
@@ -756,17 +804,54 @@ class CodeRunner:
             if self.info["running"]:
                 raise busy
             self.stop_ev.clear()
-            self.waiting, self.n = None, 0
-            self.info = self._blank(running=True, folder=folder, model=model, task=task, auto_files=auto)
+            self.waiting, self.n, self.agent = None, 0, agent
+            self.info = self._blank(running=True, folder=folder, model=model, task=task, auto_files=auto,
+                                    turns=[{"n": 1, "text": task[:CODE_TEXT]}])
             self.thread = threading.Thread(target=self._run, args=(agent, task), name="sigma-code", daemon=True)
             self.thread.start()
         app.log(f"[sigma code] tarefa nova em {folder} com o modelo {model}"
                 + (" (gravar arquivos sem perguntar)" if auto else ""))
         return self.state()
 
-    def _run(self, agent, task):
+    def follow_up(self, d):
+        """Próxima instrução da mesma sessão (mesma pasta, mesmo modelo, a conversa continua)."""
+        text = d.get("text").strip() if isinstance(d.get("text"), str) else ""
+        if not text:
+            raise AppError("escreva a próxima instrução para o Sigma Code")
+        if len(text) > 20_000:
+            raise AppError("a instrução passa de 20.000 caracteres: resuma o pedido")
+        client = self.app._spender()
+        with self.lock:
+            if self.info["running"]:
+                raise AppError("o Sigma Code ainda está trabalhando: espere terminar ou clique em Parar")
+            agent = self.agent
+            if agent is None:
+                raise AppError("não há sessão para continuar: comece uma tarefa")
+            # a carteira e o nó de agora (a pessoa pode ter trocado desde o começo da sessão): quem paga é a carteira
+            # que o painel mostra. O agente está parado, então trocar o cliente aqui não corre com nada
+            agent.client = client
+            self.stop_ev.clear()
+            self.waiting = None
+            self.info["turns"].append({"n": len(self.info["turns"]) + 1, "text": text[:CODE_TEXT]})
+            self.info.update(running=True, final=None, error=None, pending=None)
+            self.thread = threading.Thread(target=self._run, args=(agent, text, True), name="sigma-code",
+                                           daemon=True)
+            self.thread.start()
+        self.app.log(f"[sigma code] instrução nova na mesma sessão ({self.info['folder']})")
+        return self.state()
+
+    def reset(self):
+        """Nova sessão: esquece a conversa terminada (a pasta e os arquivos ficam como estão)."""
+        with self.lock:
+            if self.info["running"]:
+                raise AppError("o Sigma Code ainda está trabalhando: clique em Parar antes")
+            self.agent, self.n = None, 0
+            self.info = self._blank()
+        return {"ok": True}
+
+    def _run(self, agent, task, follow_up=False):
         try:
-            final = agent.run(task)
+            final = agent.run(task, follow_up=follow_up)
             with self.lock:
                 if isinstance(final, str) and final and not self.info["final"]:
                     self.info["final"] = final
@@ -1117,6 +1202,7 @@ class App:
             self.log("falta escolher a carteira: abra o painel para começar a minerar")
         threading.Thread(target=self._poll_loop, name="sigma-poll", daemon=True).start()
         threading.Thread(target=self.start_services, name="sigma-start", daemon=True).start()
+        threading.Thread(target=self._media_gc, name="sigma-midia", daemon=True).start()
 
     def _detect_hw(self):
         try:
@@ -1143,7 +1229,7 @@ class App:
         return {"cpu_percent": 50, "mining_enabled": True, "ai_enabled": True, "compute_enabled": True,
                 "disk_gb": 20, "ai_ram_gb": max(1, round(gib(ram) * 0.4)) if ram else 4,
                 "node": DEFAULT_NODE, "start_with_system": False, "mine_on_battery": False, "name": name,
-                "public_url": "", "engine": "auto", "ai_threads": 0}
+                "public_url": "", "engine": "auto", "ai_threads": 0, "ai_image": True, "ai_video": False}
 
     def _clean(self, k, v):
         """Valida uma configuração (vinda do painel, da linha de comando ou do config.json)."""
@@ -1393,7 +1479,8 @@ class App:
         s = self.settings
         return {"ai_enabled": s["ai_enabled"], "compute_enabled": s["compute_enabled"], "disk_gb": s["disk_gb"],
                 "ai_ram_gb": s["ai_ram_gb"], "public_url": s["public_url"], "engine": s["engine"],
-                "ai_threads": s["ai_threads"] or None, "name": s["name"], **self.hidden}
+                "ai_threads": s["ai_threads"] or None, "name": s["name"], "ai_image": s["ai_image"],
+                "ai_video": s["ai_video"], **self.hidden}
 
     def start_services(self):
         """Liga o que falta (Host e minerador). Pode ser chamado de novo: só completa o que não subiu."""
@@ -1580,7 +1667,8 @@ class App:
         t, prices = self._prices
         if fresh or time.time() - t > PRICES_SECONDS:
             try:
-                prices = ai_ceilings(self._read("/machines"), self._read("/mining"), self._payout())
+                prices = ai_ceilings(self._read("/machines"), self._read("/mining"), self._payout(),
+                                     self._model_tasks())
             except (SigmaError, ValueError, OSError):
                 pass   # fica com o que já sabia; tenta de novo daqui a pouco
             self._prices = (time.time(), prices)
@@ -1696,6 +1784,10 @@ class App:
                         "jobs_done": hs.get("jobs_done", 0), "jobs_failed": hs.get("jobs_failed", 0),
                         "earned": hs.get("earned", 0), "reputation": hs.get("reputation", 0),
                         "ai_queue": hs.get("ai_queue", 0), "engine_down": bool(hs.get("engine_down")),
+                        # v2: motor de imagem/vídeo (stable-diffusion.cpp), fila dele e as classes que a máquina aceita
+                        "media_engine": hs.get("media_engine") or {"kind": "sdcpp", "ready": False, "detail": "",
+                                                                   "installing": False, "install_progress": 0.0},
+                        "media_queue": hs.get("media_queue", 0), "tasks": hs.get("tasks") or ["text"],
                         "last_error": hs.get("last_error") or self._errors.get("host")},
             "epochs": c.get("epochs") or [],   # /mining/epochs do nó, mais recente primeiro
             "code": self.code.summary(),
@@ -1853,9 +1945,34 @@ class App:
         self.log("chave privada exportada pelo painel")
         return {"private_key": format(self.wallet.priv, "064x")}
 
+    def _model_tasks(self, models=None):
+        """nome -> classe (text/image/video) dos modelos da rede."""
+        models = self._read("/models") if models is None else models
+        return {n: chain.model_task(m) for n, m in (models or {}).items() if isinstance(m, dict)}
+
+    def _net_media(self):
+        mi = self.cache.get("mining") or self._read("/mining") or {}
+        return bool(mi.get("media"))
+
+    def _no_media_yet(self):
+        """NO_MEDIA_YET com o bloco em que a v2 entra, quando o nó já marcou (as `upgrades` do /status)."""
+        ups = (self.cache.get("status") or {}).get("upgrades")
+        if not isinstance(ups, list):
+            return NO_MEDIA_YET                  # /status ainda não lido: não dá para dizer se já tem bloco
+        for u in ups:
+            h = u.get("height") if isinstance(u, dict) and u.get("rules") == 2 else None
+            if isinstance(h, int) and not isinstance(h, bool):
+                return f"{NO_MEDIA_YET}, marcada para o bloco {h}"
+        return f"{NO_MEDIA_YET}, que ainda não tem bloco marcado"
+
     def api_models(self, q):
-        return {"network": self._read("/models"), "catalog": [dict(i) for i in catalog.CATALOG],
-                "ai": {"prices": self._ai_prices(), "context": AI_CONTEXT}}
+        network = self._read("/models")
+        tasks = self._model_tasks(network)
+        media = self._net_media()
+        # media_note: o porquê de imagem e vídeo ainda não valerem (o painel não oferece Apadrinhar para eles)
+        return {"network": network, "catalog": [dict(i) for i in catalog.CATALOG],
+                "ai": {"prices": self._ai_prices(), "context": AI_CONTEXT, "tasks": tasks, "units": dict(UNITS),
+                       "limits": MEDIA_LIMITS, "media": media, "media_note": None if media else self._no_media_yet()}}
 
     @staticmethod
     def _model_name(v):
@@ -1870,6 +1987,8 @@ class App:
             if not info:
                 raise AppError("esse modelo não está no catálogo")
             name, desc = d.get("name") or info["id"], info["description"]
+            if info.get("task", "text") != "text" and not self._net_media():
+                raise AppError(self._no_media_yet())
         elif d.get("url"):
             info = catalog.resolve_hf_url(d["url"])
             name, desc = d.get("name") or catalog.suggest_name(info["file"]), f"{info['repo']} · {info['file']}"
@@ -1882,17 +2001,19 @@ class App:
         royalty = _pct(_opt(d, "royalty", 10), "royalty", 50)
         reinvest = _pct(_opt(d, "reinvest", 0), "reinvest", 100)
         replicas, budget = _int(_opt(d, "replicas", 2), "replicas", 1, 5), micro(d.get("budget"), "budget")
-        least = self._min_model_budget(int(info["size"]), replicas)
+        task = info.get("task", "text")
+        least = self._min_model_budget(int(info.get("total_size") or info["size"]), replicas, task)
         if least and budget < least:
             raise AppError(f"o orçamento precisa pagar pelo menos um dia de hospedagem das {replicas} cópias: "
                            f"{sig_txt(least)}. Com menos que isso, os computadores da rede não baixam o modelo.")
         txid = self._spender().register_model(name, info["url"], info["sha256"], info["size"], _sig(budget),
                                               Decimal(royalty) / 100, Decimal(reinvest) / 100, replicas,
-                                              desc[:200], info["license"])
-        self.log(f"você é o padrinho de '{name}' ({info['size'] / GIB:.1f} GB): a rede escolhe as máquinas")
+                                              desc[:200], info["license"], task=task, files=info.get("files"))
+        total = int(info.get("total_size") or info["size"])
+        self.log(f"você é o padrinho de '{name}' ({total / GIB:.1f} GB): a rede escolhe as máquinas")
         return dict(self._done(txid), name=name)
 
-    def _rent_per_window(self, size, replicas, mi=None):
+    def _rent_per_window(self, size, replicas, mi=None, task="text"):
         """Aluguel por janela de todas as cópias de um modelo, como a chain cobra agora (chain.copy_fee): disco +
         memória que ele reserva, cada um com o multiplicador da demanda. None se o nó não informar os preços."""
         mi = mi or self.cache.get("mining") or self._read("/mining") or {}
@@ -1900,18 +2021,18 @@ class App:
         if not all(isinstance(v, int) and not isinstance(v, bool) for v in (disk, ram)):
             return None
         db, rb = rent.get("disk_bps", 10_000), rent.get("ram_bps", 10_000)
-        ram_mb = math.ceil(size / 1e6 * 1.2) + 512           # pesos + contexto, a mesma conta da chain
+        ram_mb = catalog.ram_mb(size, task)                   # pesos + contexto/geração, a mesma conta da chain
         cost = size * disk * db + ram_mb * 1_000_000 * ram * rb
         return replicas * max(1, -(-cost // (1_000_000 * 10_000)))
 
-    def _min_model_budget(self, size, replicas):
+    def _min_model_budget(self, size, replicas, task="text"):
         """µSIG que pagam um dia de aluguel de todas as cópias, ao preço e à demanda de agora (o mesmo cálculo do
         nó e das máquinas, que não baixam modelo com orçamento menor). 0 se o nó não informar o preço."""
         if size <= chain.FUNDED_ABOVE:
             return 0                          # poucos MB: as máquinas baixam com qualquer orçamento
         mi = self.cache.get("mining") or self._read("/mining") or {}
         ws = mi.get("window_seconds")
-        rent = self._rent_per_window(size, replicas, mi)
+        rent = self._rent_per_window(size, replicas, mi, task)
         if rent is None or not isinstance(ws, (int, float)) or ws <= 0:
             return 0
         return rent * math.ceil(86400 / ws)
@@ -1983,8 +2104,9 @@ class App:
         if not isinstance(model, str) or not model:
             raise AppError("escolha o modelo")
         msgs = d.get("messages")
-        if not isinstance(msgs, list) or not 1 <= len(msgs) <= 200:
-            raise AppError("messages deve ser uma lista com 1 a 200 mensagens")
+        # uma conversa guardada (até MAX_CHAT_MESSAGES) mais a pergunta nova; o fit_messages corta pelo contexto
+        if not isinstance(msgs, list) or not 1 <= len(msgs) <= MAX_CHAT_MESSAGES + 1:
+            raise AppError(f"messages deve ser uma lista com 1 a {MAX_CHAT_MESSAGES + 1} mensagens")
         clean = []
         for m in msgs:
             if not isinstance(m, dict) or m.get("role") not in ("system", "user", "assistant") \
@@ -2005,14 +2127,314 @@ class App:
 
     def api_ai_quote(self, d):
         """Custo máximo da próxima pergunta, para o painel mostrar antes de enviar. Usa o mesmo teto e a mesma
-        conta do client.ask: reserva = (tokens da conversa + resposta) × teto / 1000; o que sobrar volta."""
+        conta do client.ask: reserva = (tokens da conversa + resposta) × teto / 1000; o que sobrar volta.
+        Imagem/vídeo: unidades (imagens ou segundos) × teto por unidade (client.generate)."""
         from .client import fit_messages
+        task = self._model_tasks().get(d.get("model"), "text") if isinstance(d.get("model"), str) else "text"
+        if task != "text":
+            model, spec, units = self._media_input(d, task)
+            price = self._ai_prices().get(model)
+            return {"model": model, "task": task, "price": price, "unit": UNITS[task],
+                    "max_cost": units * price if price else None}
         model, clean, max_tokens = self._chat_input(d)
         msgs, trimmed = fit_messages(clean, max_tokens)   # longa demais até para a última mensagem: 400 com o porquê
         price = self._ai_prices().get(model)
         tokens = sum(len(m["content"]) // 3 + 8 for m in msgs) + 16
-        return {"model": model, "price": price, "max_tokens": max_tokens, "trimmed": trimmed,
-                "max_cost": max(1, -(-(tokens + max_tokens) * price // 1000)) if price else None}
+        return {"model": model, "task": "text", "price": price, "unit": UNITS["text"], "max_tokens": max_tokens,
+                "trimmed": trimmed, "max_cost": max(1, -(-(tokens + max_tokens) * price // 1000)) if price else None}
+
+    def _media_input(self, d, task):
+        """Pedido de imagem/vídeo vindo do painel -> (modelo, spec, unidades). A receita (passos, escala e o tamanho
+        padrão) vem do catálogo quando o modelo é um dos dele (mesmo arquivo); o resto do pedido são valores de
+        listas fechadas."""
+        model = d.get("model")
+        if not isinstance(model, str) or not catalog.MODEL_NAME.match(model):
+            raise AppError("escolha o modelo")
+        prompt = d.get("prompt")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise AppError("descreva o que você quer " + ("na imagem" if task == "image" else "no vídeo"))
+        if len(prompt) > 2000:
+            raise AppError("a descrição passa de 2.000 caracteres")
+        lim = MEDIA_LIMITS[task]
+        net = (self._read("/models") or {}).get(model) or {}
+        recipe = next((i.get("recipe") or {} for i in catalog.CATALOG
+                       if i.get("task") == task and i["sha256"] == net.get("sha256")), {})
+        # sem tamanho no pedido vale o da receita (o SD 1.5 foi treinado em 512x512); o escolhido vale mais que ela
+        size = _opt(d, "size", recipe["size"] if recipe.get("size") in lim["sizes"] else lim["sizes"][0])
+        if size not in lim["sizes"]:
+            raise AppError("formato inválido: escolha um de " + ", ".join(lim["sizes"]))
+        spec = {"prompt": prompt.strip(), "size": size}
+        spec.update({k: v for k, v in recipe.items() if k in ("steps", "cfg", "sampler", "flow_shift")})
+        if task == "image":
+            units = _int(_opt(d, "count", 1), "quantidade", 1, lim["max_count"])
+            spec["count"] = units
+        else:
+            units = _opt(d, "seconds", lim["seconds"][0])
+            if units not in lim["seconds"]:
+                raise AppError("duração inválida: escolha " + ", ".join(f"{x} s" for x in lim["seconds"]))
+            spec["seconds"] = units
+        return model, spec, units
+
+    def media_path(self, h, mime=None):
+        """Arquivo de uma imagem/vídeo gerado (fica na pasta de dados, para as conversas guardadas)."""
+        if mime:
+            return os.path.join(self.data_dir, "midia", h + MEDIA_EXT[mime])
+        for ext in MEDIA_EXT.values():
+            p = os.path.join(self.data_dir, "midia", h + ext)
+            if os.path.isfile(p):
+                return p
+        return None
+
+    def _keep_media(self, items):
+        out = []
+        os.makedirs(os.path.join(self.data_dir, "midia"), exist_ok=True)
+        for it in items:
+            h = hashlib.sha256(it["data"]).hexdigest()
+            path = self.media_path(h, it["mime"])
+            if not os.path.isfile(path):
+                with open(path + ".tmp", "wb") as f:
+                    f.write(it["data"])
+                os.replace(path + ".tmp", path)
+            out.append(dict({k: it[k] for k in ("width", "height", "seconds") if k in it}, hash=h, mime=it["mime"]))
+        return out
+
+    def _api_media(self, d, task):
+        if not self._net_media():
+            raise AppError(self._no_media_yet())
+        model, spec, units = self._media_input(d, task)
+        if self._model_tasks().get(model) != task:
+            raise AppError(f"o modelo {model} não gera " + ("imagens" if task == "image" else "vídeos"))
+        cid = self._chat_id(d)
+        max_price = _opt(d, "max_price", None)
+        max_price = None if max_price is None else _int(max_price, "max_price", 1, MAX_MEDIA_PRICE)
+        client = self._spender()
+        ctx = {"stop": threading.Event(), "job": None, "id": cid}
+        with self.chat_lock:
+            if cid is not None and self.canceled_ids.pop(cid, None) is not None:
+                raise AppError(CANCELED, code="canceled")
+            self.chats.append(ctx)
+        try:
+            items, job = client.generate(model, task, spec, max_price=max_price, should_stop=ctx["stop"].is_set,
+                                         on_job=lambda jid: ctx.update(job=jid))
+        except SigmaError as e:
+            if ctx["stop"].is_set() and "cancelado" in str(e).lower():
+                raise AppError(CANCELED, code="canceled") from None
+            raise
+        finally:
+            with self.chat_lock:
+                self.chats.remove(ctx)
+        self.wake.set()
+        media_out = self._keep_media(items)
+
+        def num(k):
+            v = job.get(k)
+            return v if isinstance(v, int) and not isinstance(v, bool) else None
+        return {"task": task, "media": media_out, "cost": num("cost") or 0, "machine": job.get("machine"),
+                "attempts": num("attempts"), "job": job.get("id"), "max_cost": num("escrow"),
+                "price": num("max_price")}
+
+    def api_image(self, d):
+        return self._api_media(d, "image")
+
+    def api_video(self, d):
+        return self._api_media(d, "video")
+
+    # ------------------------------------------------------------- conversas
+    def _chats_dir(self):
+        return os.path.join(self.data_dir, "conversas")
+
+    def _chat_path(self, cid):
+        if not isinstance(cid, str) or not CHAT_FILE_ID.match(cid):
+            raise AppError("conversa inválida")
+        return os.path.join(self._chats_dir(), cid + ".json")
+
+    def _load_chat(self, cid):
+        try:
+            with open(self._chat_path(cid), encoding="utf-8") as f:
+                c = json.load(f)
+        except (OSError, ValueError):
+            raise AppError("essa conversa não existe mais") from None
+        return c if isinstance(c, dict) else {}
+
+    def api_chats(self, q):
+        out = []
+        try:
+            names = os.listdir(self._chats_dir())
+        except OSError:
+            names = []
+        for n in names:
+            if not n.endswith(".json") or not CHAT_FILE_ID.match(n[:-5]):
+                continue
+            try:
+                c = self._load_chat(n[:-5])
+            except AppError:
+                continue
+            out.append({"id": n[:-5], "title": str(c.get("title") or "")[:120], "task": c.get("task", "text"),
+                        "model": str(c.get("model") or ""), "updated": c.get("updated") or 0,
+                        "count": len(c.get("messages") or [])})
+        out.sort(key=lambda c: -float(c["updated"] or 0))
+        return {"chats": out}
+
+    def api_chat_get(self, cid):
+        c = self._load_chat(cid)
+        c["id"] = cid
+        return c
+
+    @staticmethod
+    def _clean_messages(msgs):
+        if not isinstance(msgs, list) or len(msgs) > MAX_CHAT_MESSAGES:
+            raise AppError(f"messages deve ser uma lista de até {MAX_CHAT_MESSAGES} mensagens")
+        clean, chars = [], 0
+        for m in msgs:
+            if not isinstance(m, dict) or m.get("role") not in ("user", "assistant") \
+                    or not isinstance(m.get("content", ""), str):
+                raise AppError("cada mensagem precisa de role (user ou assistant) e content (texto)")
+            c = {"role": m["role"], "content": m.get("content", "")}
+            chars += len(c["content"])
+            media_ = m.get("media")
+            if media_ is not None:
+                if not isinstance(media_, list) or len(media_) > 4:
+                    raise AppError("media deve ser uma lista de até 4 itens")
+                c["media"] = []
+                for it in media_:
+                    if not isinstance(it, dict) or not HASH_RE.match(str(it.get("hash"))) \
+                            or it.get("mime") not in MEDIA_EXT:
+                        raise AppError("mídia inválida na conversa")
+                    c["media"].append({"hash": it["hash"], "mime": it["mime"], **{
+                        k: it[k] for k in ("width", "height", "seconds")
+                        if isinstance(it.get(k), int) and not isinstance(it.get(k), bool) and 0 < it[k] <= 100_000}})
+            for k in ("cost", "time"):
+                if isinstance(m.get(k), (int, float)) and not isinstance(m.get(k), bool) and m[k] >= 0:
+                    c[k] = m[k]
+            for k, top in (("machine", 64), ("error", 500), ("model", 48)):
+                if isinstance(m.get(k), str):
+                    c[k] = m[k][:top]
+            clean.append(c)
+        if chars > MAX_CHAT_CHARS:
+            raise AppError("conversa longa demais para guardar: comece uma nova")
+        return clean
+
+    def api_chat_save(self, d):
+        cid = d.get("id") or "c" + secrets.token_hex(6)
+        path = self._chat_path(cid)
+        task = d.get("task", "text")
+        if task not in TASKS:
+            raise AppError("task deve ser text, image ou video")
+        model = d.get("model") or ""
+        if model and (not isinstance(model, str) or not catalog.MODEL_NAME.match(model)):
+            raise AppError("modelo inválido")
+        msgs = self._clean_messages(d.get("messages"))
+        if d.get("id") and not os.path.isfile(path):
+            # apagada depois que o painel a abriu (a resposta chegou depois do Apagar, ou outra janela apagou): ela não
+            # volta para a lista, citando imagens e vídeos que já saíram do disco
+            raise AppError("essa conversa foi apagada: para continuar, clique em Nova conversa")
+        old = self._load_chat(cid) if os.path.isfile(path) else {}
+        title = d.get("title")
+        if not isinstance(title, str) or not title.strip():
+            title = old.get("title") or next((m["content"] for m in msgs if m["role"] == "user" and m["content"]),
+                                             "Conversa nova")
+        title = " ".join(str(title).split())[:60] or "Conversa nova"
+        now = time.time()
+        c = {"title": title, "task": task, "model": model, "created": old.get("created") or now, "updated": now,
+             "messages": msgs}
+        os.makedirs(self._chats_dir(), exist_ok=True)
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(c, f, ensure_ascii=False)
+        os.replace(path + ".tmp", path)
+        # 'Tentar de novo' troca a resposta: a imagem ou o vídeo que saiu da conversa sai também do disco
+        self._drop_media(_media_of(old.get("messages")) - _media_of(msgs))
+        self._trim_chats()
+        return {"id": cid, "title": title, "updated": now}
+
+    def _trim_chats(self):
+        chats = self.api_chats({})["chats"]
+        for c in chats[MAX_CHATS:]:
+            self._delete_chat(c["id"])
+
+    def _delete_chat(self, cid):
+        path = self._chat_path(cid)
+        try:
+            gone = _media_of(self._load_chat(cid).get("messages"))
+        except AppError:
+            gone = set()
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        self._drop_media(gone)   # as imagens e vídeos que só essa conversa usava saem do disco
+
+    def _media_in_use(self):
+        """Hashes das imagens e vídeos que as conversas guardadas citam, ou None se alguma delas não deu para ler
+        agora (na dúvida, nada sai do disco). Uma estragada não cita nada: ela nem aparece no painel."""
+        folder = self._chats_dir()
+        try:
+            names = [n for n in os.listdir(folder) if n.endswith(".json") and CHAT_FILE_ID.match(n[:-5])]
+        except FileNotFoundError:
+            return set()
+        except OSError:
+            return None
+        used = set()
+        for n in names:
+            try:
+                with open(os.path.join(folder, n), encoding="utf-8") as f:
+                    c = json.load(f)
+            except FileNotFoundError:   # apagada agora há pouco
+                continue
+            except OSError:             # presa por outro programa (antivírus?)
+                return None
+            except ValueError:          # estragada
+                continue
+            used |= _media_of(c.get("messages") if isinstance(c, dict) else None)
+        return used
+
+    def _drop_media(self, gone):
+        """Tira do disco as mídias de `gone` que nenhuma conversa guardada cita mais."""
+        used = self._media_in_use() if gone else None
+        if used is None:
+            return
+        for h in gone - used:
+            p = self.media_path(h)
+            if p:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+
+    def _media_gc(self):
+        """Na abertura: tira do disco as mídias que nenhuma conversa cita (o resultado chegou com o painel fechado
+        e não foi guardado), menos as que chegaram há pouco (MEDIA_GRACE), que o painel ainda vai guardar."""
+        folder = os.path.join(self.data_dir, "midia")
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            return
+        used = self._media_in_use() if names else None
+        if used is None:
+            return
+        old = time.time() - MEDIA_GRACE
+        for n in names:
+            m, p = MEDIA_FILE.match(n), os.path.join(folder, n)
+            try:
+                if m and m.group(1) not in used and os.path.getmtime(p) < old:
+                    os.remove(p)
+            except OSError:
+                pass
+
+    def api_chat_delete(self, d):
+        self._chat_path(d.get("id"))
+        self._delete_chat(d["id"])
+        return {"ok": True}
+
+    def api_chat_rename(self, d):
+        cid, title = d.get("id"), d.get("title")
+        if not isinstance(title, str) or not title.strip():
+            raise AppError("escreva o nome da conversa")
+        c = self._load_chat(cid)
+        c["title"] = " ".join(title.split())[:60]
+        with open(self._chat_path(cid) + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(c, f, ensure_ascii=False)
+        os.replace(self._chat_path(cid) + ".tmp", self._chat_path(cid))
+        return {"ok": True}
 
     def api_chat(self, d):
         model, clean, max_tokens = self._chat_input(d)
@@ -2130,6 +2552,12 @@ class App:
     def api_code_stop(self, d):
         return self.code.stop()
 
+    def api_code_continue(self, d):
+        return self.code.follow_up(d)
+
+    def api_code_reset(self, d):
+        return self.code.reset()
+
     def api_code_pick_folder(self, d):
         folder = self.ask_ui(_pick_folder)
         return {"folder": os.path.normpath(folder) if folder else ""}
@@ -2212,6 +2640,16 @@ class App:
 #   POST /api/ai/chat             {"model", "messages", "max_tokens"?, "max_price"?, "id"?} -> {"text", "cost",
 #                                  "machine", "trimmed", "attempts", "job", "max_cost", "price"}
 #   POST /api/ai/cancel           {"id"?} -> {"ok", "running", "claimed", "message"}
+#   POST /api/ai/image            {"model", "prompt", "size", "count", "max_price"?, "id"?} -> {"task", "media":
+#                                  [{"hash", "mime", "width", "height"}], "cost", "machine", "attempts", "job",
+#                                  "max_cost", "price"}   (regras v2; "price" é µSIG por imagem)
+#   POST /api/ai/video            {"model", "prompt", "size", "seconds", "max_price"?, "id"?} -> o mesmo, com
+#                                  "seconds" em cada mídia ("price" é µSIG por segundo de vídeo)
+#   GET  /api/media/<hash>        -> os bytes da imagem (image/png) ou do vídeo (video/webm) gerado
+#   GET  /api/chats               -> {"chats": [{"id", "title", "task", "model", "updated", "count"}]}
+#   GET  /api/chats/<id>          -> {"id", "title", "task", "model", "created", "updated", "messages"}
+#   POST /api/chats/save          {"id"?, "title"?, "task", "model", "messages"} -> {"id", "title", "updated"}
+#   POST /api/chats/delete        {"id"} -> {"ok"};  POST /api/chats/rename {"id", "title"} -> {"ok"}
 #   GET  /api/code/state          -> CodeRunner.state(): {"running", "folder", "model", "task", "auto_files",
 #                                    "steps": [{"n", "kind", "text", "tool"?, "args"?, "output"?, "cost"?,
 #                                    "machine"?, "refused"?}], "pending": {"id", "tool", "args", "reason",
@@ -2219,6 +2657,8 @@ class App:
 #   POST /api/code/start          {"folder", "task", "model"?, "auto_files"?} -> /api/code/state
 #   POST /api/code/answer         {"id", "ok"} -> /api/code/state
 #   POST /api/code/stop           {} -> /api/code/state
+#   POST /api/code/continue       {"text"} -> /api/code/state   (próxima instrução da mesma sessão)
+#   POST /api/code/reset          {} -> {"ok"}                  (Nova sessão)
 #   POST /api/code/pick-folder    {} -> {"folder": caminho ou ""}   (sem janelinha: 400 "digite o caminho da pasta")
 #   GET  /api/sites               -> {"mine": [site + "url"], "hosted": [nomes]}
 #   POST /api/sites/publish       {"name", "budget", "replicas"?, "files": [{"path", "data_b64"}]} -> {"txid", "url"}
@@ -2241,10 +2681,18 @@ ROUTES = {
     ("POST", "/api/ai/quote"): App.api_ai_quote,
     ("POST", "/api/ai/chat"): App.api_chat,
     ("POST", "/api/ai/cancel"): App.api_ai_cancel,
+    ("POST", "/api/ai/image"): App.api_image,
+    ("POST", "/api/ai/video"): App.api_video,
+    ("GET", "/api/chats"): App.api_chats,
+    ("POST", "/api/chats/save"): App.api_chat_save,
+    ("POST", "/api/chats/delete"): App.api_chat_delete,
+    ("POST", "/api/chats/rename"): App.api_chat_rename,
     ("GET", "/api/code/state"): App.api_code_state,
     ("POST", "/api/code/start"): App.api_code_start,
     ("POST", "/api/code/answer"): App.api_code_answer,
     ("POST", "/api/code/stop"): App.api_code_stop,
+    ("POST", "/api/code/continue"): App.api_code_continue,
+    ("POST", "/api/code/reset"): App.api_code_reset,
     ("POST", "/api/code/pick-folder"): App.api_code_pick_folder,
     ("GET", "/api/sites"): App.api_sites,
     ("POST", "/api/sites/publish"): App.api_publish,
@@ -2329,7 +2777,20 @@ def make_handler(app):
                 return
             if not self._allowed(True):
                 return
-            fn = ROUTES.get((method, u.path))
+            if method == "GET" and u.path.startswith("/api/media/"):   # bytes, não JSON
+                h = u.path[len("/api/media/"):]
+                path = app.media_path(h) if HASH_RE.match(h) else None
+                if not path:
+                    return self._send(404, {"error": "não encontrado"})
+                try:
+                    with open(path, "rb") as f:
+                        data = f.read()
+                except OSError:   # saiu agora há pouco (a conversa foi guardada sem ela)
+                    return self._send(404, {"error": "não encontrado"})
+                return self._send(200, data, "image/png" if path.endswith(".png") else "video/webm")
+            m = re.fullmatch(r"/api/chats/(c[0-9a-f]{12})", u.path) if method == "GET" else None
+            fn = (lambda a, q, cid=m.group(1) if m else None: a.api_chat_get(cid)) if m \
+                else ROUTES.get((method, u.path))
             if fn is None:
                 known = any(p == u.path for _, p in ROUTES)
                 return self._send(405 if known else 404, {"error": "método não permitido" if known

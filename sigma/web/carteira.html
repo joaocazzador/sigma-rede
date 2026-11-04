@@ -127,7 +127,7 @@ label.check input { width: 20px; height: 20px; flex: none; margin: 0; accent-col
     </div>
     <div class="cta-mine">
       <h3>Ainda não tem SIG?</h3>
-      <p class="muted">SIG só nasce da mineração: ninguém ganha de graça, nem os criadores. Baixe o app, informe o endereço da
+      <p class="muted">SIG nasce da mineração (fora a reserva pública dos fundadores, 1% do teto). Baixe o app, informe o endereço da
         sua carteira e deixe o computador trabalhar. O SIG novo sai um pouco em cada bloco e é dividido entre quem está
         minerando, na proporção do trabalho de cada computador.</p>
       <a class="btn primary" href="/baixar">Baixar o Sigma</a>
@@ -603,12 +603,15 @@ const LABEL = {transfer: "Transferência", mint: "Recompensa da mineração", re
 // créditos que a rede faz direto no saldo, somados por época (o nó junta num lançamento só)
 const CREDIT = {rent: "Aluguel por guardar sites e modelos", job: "Pagamento por pedidos atendidos", royalty: "Royalties de modelos",
   change: "Troco de pedidos", refund: "Devolução de pedidos", budget: "Devolução de orçamento",
-  vote: "Votos devolvidos (votação encerrada)", deposit: "Depósito de votação devolvido"};
+  vote: "Votos devolvidos (votação encerrada)", deposit: "Depósito de votação devolvido",
+  founders: "Reserva dos fundadores (criada na atualização v2)"};
 const JOB_STATUS = {open: "esperando um computador", running: "um computador está respondendo", done: "concluído",
   failed: "não deu certo: valor devolvido", disputed: "as máquinas não concordaram: valor devolvido",
   expired: "ninguém respondeu a tempo: valor devolvido", canceled: "cancelado: valor devolvido"};
 const windowSecs = () => data.mining?.window_seconds || 300;
 const myMachines = () => Object.entries(data.machines || {}).filter(([, m]) => m.payout === me);
+// modelos que a máquina hospeda: o nó põe os de texto em `models` e os de imagem e vídeo em `media_models`
+const machineModels = (mc) => [...(mc.models || []), ...(mc.media_models || [])];
 // quem relatou uma das duas últimas janelas ainda está minerando (mesma regra do nó)
 const mining = () => data.miner && data.mining && data.miner.last_window != null && data.miner.last_window >= data.mining.window - 2;
 
@@ -733,7 +736,7 @@ function render() {
           <tr><th>Máquina</th><th>Situação</th><th>Modelos de IA</th><th>Ganhos</th><th>Reputação</th><th>Hardware</th></tr>` +
           list.map(([a, mc]) => `<tr><td>${esc(mc.name || "sem nome")}<div class="muted mono">${short(a)}</div></td>
             <td class="${mc.online ? "ok" : "bad"}">${mc.online ? "online" : "offline"}</td>
-            <td>${esc((mc.models || []).join(", ") || (mc.ai ? "esperando a rede" : "IA desligada"))}</td>
+            <td>${esc(machineModels(mc).join(", ") || (mc.ai ? "esperando a rede" : "IA desligada"))}</td>
             <td>${sig(mc.earned || 0)}</td><td class="${mc.reputation < 0 ? "bad" : ""}">${mc.reputation}</td>
             <td class="muted">${mc.hw ? `${mc.hw.cpu_cores} núcleos · ${gb(mc.hw.ram_mb)} RAM · ${gb(mc.hw.disk_mb)} disco${mc.hw.gpu ? " · " + esc(mc.hw.gpu) : ""}` : ""}</td></tr>`).join("") +
           `</table></div>`
@@ -822,7 +825,7 @@ function render() {
         `<h3>Máquinas</h3>` + (mcs.length ? `<div class="table-wrap"><table><tr><th>Nome</th><th>Situação</th><th>Oferece</th><th>Ganhos</th><th>Reputação</th></tr>` +
           mcs.map(([a, mc]) => `<tr><td>${esc(mc.name || "sem nome")}<div class="muted mono">${short(a)}</div></td>
             <td class="${mc.online ? "ok" : "bad"}">${mc.online ? "online" : "offline"}</td>
-            <td>${esc([...(mc.models || []), mc.compute ? "computação" : "", mc.hw?.disk_mb ? gb(mc.hw.disk_mb) + " de disco" : ""].filter(Boolean).join(", "))}</td>
+            <td>${esc([...machineModels(mc), mc.compute ? "computação" : "", mc.hw?.disk_mb ? gb(mc.hw.disk_mb) + " de disco" : ""].filter(Boolean).join(", "))}</td>
             <td>${sig(mc.earned || 0)}</td><td class="${mc.reputation < 0 ? "bad" : ""}">${mc.reputation}</td></tr>`).join("") + `</table></div>`
           : `<div class="empty">Nenhuma máquina registrada ainda.</div>`) +
         `<h3>Últimos blocos</h3><div class="table-wrap"><table><tr><th>Bloco</th><th>Hash</th><th>Transações</th><th>Hora</th></tr>` +

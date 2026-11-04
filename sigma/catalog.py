@@ -17,15 +17,26 @@ MODEL_NAME = re.compile(r"^[a-z0-9][a-z0-9.-]{2,47}$")   # mesma regra da chain
 MAX_SIZE = 60_000_000_000
 
 
-def ram_mb(size):
+MEDIA_RAM_MB = {"text": 512, "image": 1536, "video": 4096}   # mesma conta da chain (chain.MEDIA_RAM_MB)
+
+
+def ram_mb(size, task="text"):
     """Memória que uma máquina precisa reservar para servir o modelo (mesma conta da chain)."""
-    return math.ceil(size / 1e6 * 1.2) + 512
+    return math.ceil(size / 1e6 * 1.2) + MEDIA_RAM_MB.get(task, 512)
 
 
-def _item(id_, name, repo, file, size, sha256, license, description):
-    return {"id": id_, "name": name, "repo": repo, "file": file, "url": f"{HF}/{repo}/resolve/main/{file}",
+def _item(id_, name, repo, file, size, sha256, license, description, task="text", files=(), recipe=None):
+    """Um modelo do catálogo. Imagem/vídeo (regras v2): `files` são os arquivos extras (VAE, codificador de
+    texto) como (papel, repo, arquivo, tamanho, sha256) e `recipe` os passos e a escala que o modelo pede."""
+    extra = [{"role": role, "url": f"{HF}/{r}/resolve/main/{f}", "sha256": h, "size": n}
+             for role, r, f, n, h in files]
+    total = size + sum(x["size"] for x in extra)
+    item = {"id": id_, "name": name, "repo": repo, "file": file, "url": f"{HF}/{repo}/resolve/main/{file}",
             "size": size, "sha256": sha256, "license": license, "description": description,
-            "ram_mb": ram_mb(size)}
+            "ram_mb": ram_mb(total, task), "task": task}
+    if task != "text":
+        item.update(files=extra, total_size=total, recipe=dict(recipe or {}))
+    return item
 
 
 CATALOG = [
@@ -61,6 +72,32 @@ CATALOG = [
           "qwen2.5-coder-7b-instruct-q4_k_m.gguf", 4683073536,
           "509287f78cb4d4cf6b3843734733b914b2c158e43e22a7f4bf5e963800894d3c", "Apache-2.0",
           "Um dos melhores modelos abertos de programação do seu tamanho; pede uns 6 GB de memória."),
+    # ---- imagem e vídeo (regras v2, stable-diffusion.cpp)
+    _item("z-image-turbo", "Z-Image Turbo", "leejet/Z-Image-Turbo-GGUF", "z_image_turbo-Q4_K.gguf", 3864250304,
+          "14b375ab4f226bc5378f68f37e899ef3c2242b8541e61e2bc1aff40976086fbd", "Apache-2.0",
+          "Imagens bonitas em 8 passos, inclusive com texto escrito nelas; pede uns 10 GB de memória.",
+          task="image",
+          files=(("llm", "unsloth/Qwen3-4B-Instruct-2507-GGUF", "Qwen3-4B-Instruct-2507-Q4_K_M.gguf", 2497281120,
+                  "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597"),
+                 ("vae", "Comfy-Org/Z-Image-Turbo", "split_files/vae/ae.safetensors", 335304388,
+                  "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38")),
+          recipe={"steps": 8, "cfg": 1.0, "sampler": "euler", "size": "1024x1024"}),
+    _item("stable-diffusion-1.5", "Stable Diffusion 1.5", "stable-diffusion-v1-5/stable-diffusion-v1-5",
+          "v1-5-pruned-emaonly.safetensors", 4265146304,
+          "6ce0161689b3853acaa03779ec93eafe75a02f4ced659bee03f50797806fa2fa", "OpenRAIL",
+          "O clássico das imagens abertas: leve, roda em PCs modestos (512x512); pede uns 7 GB de memória.",
+          task="image", recipe={"steps": 20, "cfg": 7.0, "sampler": "euler_a", "size": "512x512"}),
+    _item("wan2.1-t2v-1.3b", "Wan 2.1 Texto para Vídeo 1.3B", "Comfy-Org/Wan-2.1",
+          "split_files/diffusion_models/wan2.1_t2v_1.3B_fp16.safetensors", 2838303560,
+          "be531024cd9018cb5b48c40cfbb6a6191645b1c792eb8bf4f8c1c6e10f924dc5", "Apache-2.0",
+          "Vídeos curtos (2 a 5 s) a partir de uma frase. Pesado: no processador leva vários minutos; pede uns "
+          "12 GB de memória.",
+          task="video",
+          files=(("vae", "Comfy-Org/Wan-2.1", "split_files/vae/wan_2.1_vae.safetensors", 253815318,
+                  "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b"),
+                 ("t5xxl", "city96/umt5-xxl-encoder-gguf", "umt5-xxl-encoder-Q4_K_M.gguf", 3655145312,
+                  "17cf97a5bbbc60a646d6105b832b6f657ce904a8a1ad970e4b59df0c67584a40")),
+          recipe={"steps": 20, "cfg": 6.0, "sampler": "euler", "size": "832x480", "flow_shift": 3.0}),
 ]
 
 

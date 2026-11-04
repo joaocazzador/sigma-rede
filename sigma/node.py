@@ -5,8 +5,9 @@ blocos, guarda blobs (conteúdo endereçado por hash), serve o site, os download
     python -m sigma.node run  --dir dados/no1 --port 8700 --producer [--downloads dist]
     python -m sigma.node run  --dir dados/no2 --port 8701 --genesis dados/no1/genesis.json --peer http://127.0.0.1:8700
 
-Nenhum SIG nasce fora da mineração: o genesis tem `alloc` vazio e cada época imprime 0,5% do que falta
-dos 100 milhões, dividido pelo trabalho (pontos) de quem minerou.
+O genesis tem `alloc` vazio. O SIG nasce da emissão contínua (0,01% do que falta dos 100 milhões a cada 12 h,
+um pouco em cada bloco, dividido pelo trabalho de quem minerou) e, uma vez só, da carteira dos fundadores que a
+atualização v2 da rede principal cria (chain.UPGRADE_GRANTS; aparece em /status como `grants`).
 
 Memória limitada: só os últimos MEM_BLOCKS blocos ficam na RAM; os mais antigos são lidos do chain.jsonl
 quando alguém pede (`offsets` guarda a posição de cada altura no arquivo).
@@ -248,6 +249,8 @@ def mining_info(st):
             "demand_max_bps": p["demand_max_bps"], "rent": dict(m.get("rent") or {}),
             "proposal_deposit": p["proposal_deposit"], "quorum_bps": p["quorum_bps"],
             "ai_default_price": chain.DEFAULT_PRICES["ai_per_1k_tokens"],
+            # v2: preço de referência por imagem e por segundo de vídeo, e se a rede já aceita essas classes
+            "media_default_prices": dict(chain.MEDIA_PRICES), "media": st.rule(2),
             "now": time.time()}
 
 
@@ -300,12 +303,30 @@ def hosting_index(st):
             assign.setdefault(addr, []).append(
                 {"name": name, "url": m.get("url"), "sha256": m.get("sha256"), "size": m.get("size"),
                  "ram_mb": m.get("ram_mb"), "status": "pinned" if addr in pinners else "assigned",
-                 "budget": m.get("budget"), "rent_window": rent})
+                 "budget": m.get("budget"), "rent_window": rent,
+                 # v2: classe do modelo e, para imagem/vídeo, os arquivos extras (VAE, codificador de texto)
+                 "task": chain.model_task(m), "files": list(m.get("files") or []),
+                 "main_size": m.get("main_size", m.get("size"))})
     for name, s in sorted(st.sites.items()):
         if s.get("status") == "active":
             for addr in s.get("pinners") or {}:
                 sites.setdefault(addr, []).append(name)
     return assign, sites
+
+
+def machines_info(st):
+    """/machines: o registro de cada máquina, com os modelos de imagem e vídeo à parte, em `media_models`; em
+    `models` ficam só os de texto. Um app 2.4 não conhece a classe dos modelos: com um de imagem em `models`, ele
+    o listaria e escolheria como se fosse de texto, e todo pedido seria recusado. Só a resposta HTTP muda: o
+    estado da chain (e o /machine/<endereço>, que a própria máquina lê) continua com todos em `models`."""
+    out = {}
+    for a, m in st.machines.items():
+        rec = dict(MACHINE_DEFAULTS, **m)
+        names = rec.get("models") or []
+        rec["models"] = [n for n in names if chain.model_task(st.models.get(n) or {}) == "text"]
+        rec["media_models"] = [n for n in names if chain.model_task(st.models.get(n) or {}) != "text"]
+        out[a] = rec
+    return out
 
 
 def machine_info(st, addr, index=None):
@@ -1492,7 +1513,9 @@ def make_handler(node):
                             # versão das regras: a desta chain, a mais nova que este programa conhece, as marcadas
                             "genesis": st.genesis_hash, "rules": st.rules, "rules_known": chain.RULES,
                             "upgrades": chain.upcoming_upgrades(st.genesis_hash, h),
-                            "upgrade_required": node.upgrade_required}
+                            "upgrade_required": node.upgrade_required,
+                            # saldos criados por atualizações (a carteira dos fundadores), públicos
+                            "grants": list((st.ext or {}).get("grants") or [])}
                     info = node.mining(st)
                     body.update(supply={k: info[k] for k in SUPPLY_KEYS}, now=info["now"],
                                 forum=node.cached(st, "forum", node.forum.stats))
@@ -1516,8 +1539,7 @@ def make_handler(node):
                         g = proposal_info(st, parts[1])
                         return self._send(200 if g else 404, g or {"error": "votação não existe"})
                 if parts[0] in ("machines", "providers") and len(parts) == 1:
-                    return self._send(200, node.cached(st, "machines", lambda: json_bytes(
-                        {a: dict(MACHINE_DEFAULTS, **m) for a, m in st.machines.items()})))
+                    return self._send(200, node.cached(st, "machines", lambda: json_bytes(machines_info(st))))
                 if parts[0] == "machine" and len(parts) == 2:
                     m = machine_info(st, norm_address(parts[1]),
                                      node.cached(st, "hosting", lambda: hosting_index(st)))
