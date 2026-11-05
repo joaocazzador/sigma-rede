@@ -341,7 +341,7 @@ class AskTest(unittest.TestCase):
 
     def test_constants(self):
         self.assertEqual(client.CONTEXT, engines.CONTEXT)
-        self.assertEqual(client.JOB_END, ("done", "failed", "disputed", "expired", "canceled"))
+        self.assertEqual(client.JOB_END, ("done", "failed", "disputed", "expired", "canceled", "review", "rejected"))
         self.assertIsInstance(client._RNG, random.SystemRandom)
 
     def test_private_success(self):

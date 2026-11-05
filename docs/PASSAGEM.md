@@ -28,6 +28,7 @@ A rede usa regras versionadas, que entram numa altura marcada sem recomeçar a c
 | v4 | 4032 | 2.8 | modelo de texto em partes, até 600 GB (os gigantes do catálogo) |
 | v5 | 4300 | 2.10 | falha em imagem ou vídeo tira 1 de reputação; a memória de IA conta só o maior modelo da máquina (eles se revezam na RAM), até 8 modelos por máquina |
 | v6 | 5800 | 2.11 | o cliente libera o pedido de uma máquina que sumiu da rede (release_job): valor de volta na hora, falta para a máquina |
+| v7 | ALTURA_V7 | 2.12 | corrida (até 2 máquinas ociosas a mais; a primeira que entrega vence) e vigia (a entrega fica "review"; uma máquina sorteada aprova ou reprova; 5% para ela; o cliente contesta uma vez; sem veredito em 30 min paga sozinho) |
 
 - A v4 foi marcada para ~23h20 de 04/11. Confira em `/mining`, que deve mostrar `"parts": true`.
 - Versões que não mudaram regras:

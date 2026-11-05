@@ -15,6 +15,7 @@ O arquivo de um modelo baixado fica guardado enquanto o modelo existir na rede, 
 rede colocar o modelo aqui de novo, ele volta em segundos, sem baixar tudo outra vez.
 """
 import base64
+import binascii
 import json
 import multiprocessing
 import os
@@ -141,6 +142,7 @@ class _Unreadable(Exception):
 
 # o que um pedido malformado levanta ao ser lido: além de JSON e campos inválidos, número infinito (Infinity e
 # 1e999 passam no json do Python) virando inteiro (OverflowError) e JSON aninhado demais (RecursionError)
+RACE_LOST = "outra máquina entregou primeiro"
 VIDEO_MIN_VRAM_MB = 6000     # placa de vídeo mínima para aceitar vídeo sozinho (o Wan 1.3B cabe em ~6 GB)
 MAX_PROGRESS_TEXT = 60_000   # caracteres do texto parcial mandados no progresso (o fim, se passar)
 
@@ -243,7 +245,10 @@ class Host:
         self._swap = False
         self._pausing = 0
         self._we_paused = False
-        self._awake = awake.KeepAwake(log)    # o PC não dorme enquanto hospeda modelos ou responde um pedido
+        self._awake = awake.KeepAwake(log)
+        self._race_checks = {}                # job -> (quando consultou, outra máquina já entregou?)
+        self._delivered = {}                  # job -> entrega desta máquina, para mandar à vigia (v7)
+        self._watched = {}                    # job -> quando esta máquina já vigiou (não vigia duas vezes)    # o PC não dorme enquanto hospeda modelos ou responde um pedido
         self._errors = {}                     # origem -> (hora, mensagem)
         self._engine_desc = (0.0, None)
         self._queue = deque()                 # pedidos de IA já reivindicados, na ordem em que chegaram
@@ -268,7 +273,7 @@ class Host:
             self.group.start()
         for target, name in ((self._main_loop, "registro"), (self._models_loop, "modelos"),
                              (self._jobs_loop, "jobs"), (self._ai_loop, "ia"), (self._media_loop, "midia"),
-                             (self._answers_loop, "respostas")):
+                             (self._answers_loop, "respostas"), (self._review_loop, "vigia")):
             t = threading.Thread(target=target, name=f"sigma-maquina-{name}", daemon=True)
             t.start()
             self._threads.append(t)
@@ -1379,6 +1384,9 @@ class Host:
                 continue
             if job.get("kind") == "ai":
                 target = job.get("machine")
+                if target and target != self.address and self.address in (job.get("racers") or {}):
+                    self._take_race(job, ready)
+                    continue
                 if target:
                     if target == self.address:
                         # um cliente com mais de MAX_QUEUE direcionados abertos aqui: os extras voltam "busy" na
@@ -1394,6 +1402,14 @@ class Host:
             elif job.get("kind") == "compute" and compute and len(claims) < job.get("replicas", 1) \
                     and prices["compute_per_unit"] <= job.get("max_price", 0) and not self._computing():
                 self._take_compute(job)
+        # corridas (v7) que a escolhida já pegou: esta máquina ainda pode correr, se estiver livre
+        for job in self.client.jobs("running") if ready else []:
+            if self._stop.is_set():
+                return
+            jid = job.get("id")
+            if isinstance(jid, str) and jid not in self._handled and self.address in (job.get("racers") or {}) \
+                    and self.address not in (job.get("claims") or {}):
+                self._take_race(job, ready)
 
     def _forget_handled(self):
         old = time.time() - 2 * 3600   # um job aberto expira bem antes disso
@@ -1431,6 +1447,31 @@ class Host:
             if kind == "text":
                 return len(self._queue) + (1 if self._current else 0)
             return len(self._mqueue) + (1 if self._mcurrent else 0)
+
+    def _take_race(self, job, ready):
+        """Corrida (v7): esta máquina foi chamada para correr junto. Só entra se estiver livre e com o modelo
+        pronto (entrar ocupada atrasaria tudo e uma falha de imagem ou vídeo custa reputação); senão, deixa."""
+        kind = job.get("media") or "text"
+        if job.get("model") not in ready or self._queue_size(kind) or (kind == "text" and self._engine_down_since):
+            return
+        self._take_targeted(job)
+
+    def _race_lost(self, job, every=10.0):
+        """Corrida: outra máquina já entregou (o pedido fechou)? Consulta o nó no máximo a cada `every` s."""
+        if not job.get("racers"):
+            return False
+        now = time.time()
+        last = self._race_checks.get(job["id"], (0.0, False))
+        if now - last[0] < every:
+            return last[1]
+        try:
+            lost = self.client.job(job["id"]).get("status") not in ("open", "running")
+        except SigmaError:
+            lost = False
+        self._race_checks[job["id"]] = (now, lost)
+        if len(self._race_checks) > 500:
+            self._race_checks.clear()
+        return lost
 
     def _take_targeted(self, job, force_busy=False):
         """Pedido direcionado a esta máquina: reivindica na hora (sem travar, wait=False) e responde em ordem. O
@@ -1535,7 +1576,7 @@ class Host:
     def _prepare(self, item):
         """Baixa e abre o pedido (cifrado para a chave desta máquina). Nada dele vai para o disco nem para o log."""
         job = item["job"]
-        h = job.get("spec_hash")
+        h = (job.get("racers") or {}).get(self.address) or job.get("spec_hash")   # corrida: a cópia desta máquina
         if not isinstance(h, str) or not HASH_RE.match(h):
             raise _Unreadable()
         blob = self.client.get_blob(h)
@@ -1544,6 +1585,11 @@ class Host:
                 blob = self.wallet.unseal(blob)
             except ValueError:
                 raise _Unreadable() from None
+        return self._parse_request(item, blob)
+
+    def _parse_request(self, item, blob):
+        """O pedido já aberto (bytes) vira o que o motor roda (texto: mensagens; mídia: media.clean_spec)."""
+        job = item["job"]
         if job.get("media") in ("image", "video"):
             return self._prepare_media(item, blob)
         try:
@@ -1716,6 +1762,8 @@ class Host:
 
         def on_text(partial):
             prog.update(stage="escrevendo", text=partial[-MAX_PROGRESS_TEXT:], chars=len(partial))
+            if self._race_lost(job):
+                raise EngineError(RACE_LOST)
         try:
             text, tin, tout = self.engine.chat(model, item["messages"], max(1, item["max_tokens"]),
                                                json_mode=item["json"], timeout=left,
@@ -1723,6 +1771,8 @@ class Host:
         except ContextOverflow:   # o motor recusou por contexto (ou cortou calado): falha "context", não "engine"
             return self._fail(job, "context")
         except EngineError as e:
+            if self._race_lost(job, every=0):
+                return self.log(f"[máquina] job {job['id'][:10]}: outra máquina entregou primeiro; parei")
             self._error("ia", f"IA falhou no job {job['id'][:10]}: {e}")
             return self._fail(job, "engine", f"o motor de IA desta máquina falhou: {str(e)[:200]}")
         finally:
@@ -1736,6 +1786,7 @@ class Host:
             return self._fail(job, "unreadable", "a chave pública de quem pediu é inválida")
         tin, tout = (min(MAX_TOKENS, max(0, int(x))) for x in (tin, tout))
         self._deliver(job, blob, {"tokens_in": tin, "tokens_out": tout})
+        self._remember_delivery(job, data)
         self._ok("ia")
         secs = f"{time.time() - t0:.1f}".replace(".", ",")
         self.log(f"[máquina] IA {model} job {job['id'][:10]}: {tin}+{tout} tokens em {secs} s")
@@ -1753,9 +1804,12 @@ class Host:
         prog = _Progress(self.client, job, self.log)
         prog.update(stage="carregando o modelo", pct=1)
         try:
-            results = self.media.generate(model, spec, timeout=left, should_stop=self._stop.is_set,
+            results = self.media.generate(model, spec, timeout=left,
+                                          should_stop=lambda: self._stop.is_set() or self._race_lost(job),
                                           on_progress=(lambda info: prog.update(**info)) if prog.pub else None)
         except EngineError as e:
+            if self._race_lost(job, every=0):
+                return self.log(f"[máquina] job {job['id'][:10]}: outra máquina entregou primeiro; parei")
             self._error("ia", f"geração falhou no job {job['id'][:10]}: {e}")
             return self._fail(job, "engine", f"o motor de imagem e vídeo desta máquina falhou: {str(e)[:200]}")
         except Exception as e:   # erro que o motor não previu (ex.: o sd-cli que nem abre): falha, nunca falta
@@ -1773,6 +1827,7 @@ class Host:
         except ValueError:
             return self._fail(job, "unreadable", "a chave pública de quem pediu é inválida")
         self._deliver(job, blob, {"units": max(0, min(units, item["units"]))})
+        self._remember_delivery(job, data)
         self._ok("ia")
         secs = f"{time.time() - t0:.1f}".replace(".", ",")
         what = f"{units} imagem(ns)" if item["media"] == "image" else f"{units} s de vídeo"
@@ -1859,6 +1914,135 @@ class Host:
                 self._fail(job, fcode, fmsg, wait=False)
             except SigmaError:
                 return
+
+    # ------------------------------------------------------------ vigia (v7)
+    def _remember_delivery(self, job, data):
+        """A entrega (antes da cifra do cliente) fica na memória enquanto a vigia pode pedir (até 2 h)."""
+        now = time.time()
+        with self._lock:
+            self._delivered[job["id"]] = {"data": data, "time": now, "sent_to": None}
+            for k in [k for k, v in self._delivered.items() if now - v["time"] > 7200]:
+                del self._delivered[k]
+
+    def _review_loop(self):
+        while not self._stop.wait(15):
+            try:
+                self._review_pass()
+            except Exception as e:
+                self._error("vigia", f"vigia: {type(e).__name__}: {e}")
+
+    def _review_pass(self):
+        rec = self._record
+        if not rec or not rec.get("online"):
+            return
+        try:
+            jobs = self.client.jobs("review")
+        except SigmaError:
+            return
+        for job in jobs or []:
+            if self._stop.is_set():
+                return
+            rv = job.get("review") or {}
+            jid, watcher = job.get("id"), rv.get("watcher")
+            if not isinstance(jid, str) or not watcher:
+                continue
+            mine = self._delivered.get(jid)
+            if rv.get("machine") == self.address and mine and mine["sent_to"] != watcher:
+                pub = (self.client.machine(watcher) or {}).get("pub")
+                if pub:
+                    try:
+                        self.client.send_watch(jid, "result", pub, watcher, mine["data"])
+                        mine["sent_to"] = watcher
+                    except SigmaError as e:
+                        self._error("vigia", f"vigia: não consegui mandar a entrega do job {jid[:10]}: {e}")
+            if watcher == self.address and jid not in self._watched:
+                self._watch(job)
+
+    def _watch(self, job):
+        """Esta máquina é a vigia: confere a entrega (e, se o pedido foi sorteado, refaz o trabalho) e manda o
+        veredito. Sem o pedido ou a entrega a tempo, não vota: a rede paga sozinha no fim do prazo."""
+        jid, rv = job["id"], job["review"]
+        req, res = self.client.get_watch(jid, "request"), self.client.get_watch(jid, "result")
+        if req is None or res is None:
+            if time.time() > rv.get("until", 0) - 120:
+                self._watched[jid] = time.time()   # não chegou a tempo: deixa a rede pagar
+            return
+        self._watched[jid] = time.time()
+        try:
+            verdict, why = self._judge(job, req, res)
+        except Exception as e:   # na dúvida, não reprova ninguém
+            verdict, why = "ok", f"não consegui conferir ({type(e).__name__})"
+        try:
+            self._tx("review_job", {"job_id": jid, "verdict": verdict}, wait=False)
+            self.log(f"[máquina] vigia do job {jid[:10]}: {'aprovado' if verdict == 'ok' else 'REPROVADO'} ({why})")
+        except SigmaError as e:
+            self._error("vigia", f"vigia: não consegui mandar o veredito do job {jid[:10]}: {e}")
+
+    def _judge(self, job, req, res):
+        """(veredito, motivo). Sempre: a entrega abre, é do tipo pedido e tem o que foi cobrado. Se o pedido foi
+        sorteado (review.redo), refaz o trabalho aqui e compara o que dá para comparar."""
+        try:
+            out = json.loads(res)
+        except ValueError:
+            return "bad", "entrega ilegível"
+        if not isinstance(out, dict) or out.get("error"):
+            return "bad", "entrega sem resultado"
+        item = {"job": job, "since": time.time()}
+        try:
+            self._parse_request(item, req)
+        except (_Unreadable, *MALFORMED):
+            return "ok", "pedido ilegível para a vigia (não é culpa de quem entregou)"
+        usage = ((job.get("results") or {}).get(job["review"]["machine"]) or {}).get("usage") or {}
+        if job.get("media"):
+            items = out.get("media")
+            if not isinstance(items, list) or not items:
+                return "bad", "nenhuma mídia na entrega"
+            for x in items:
+                try:
+                    data = base64.b64decode(x["data"], validate=True)
+                except (KeyError, TypeError, ValueError, binascii.Error):
+                    return "bad", "mídia corrompida"
+                if job["media"] == "image" and not media.png_size(data):
+                    return "bad", "imagem inválida"
+                if job["media"] == "video" and data[:4] != media.WEBM_MAGIC:
+                    return "bad", "vídeo inválido"
+            if job["media"] == "image" and len(items) < int(usage.get("units") or 0):
+                return "bad", "cobrou mais imagens do que entregou"
+        else:
+            text = out.get("text")
+            if not isinstance(text, str) or not text.strip():
+                return "bad", "resposta vazia"
+        if not job["review"].get("redo"):
+            return "ok", "entrega válida"
+        return self._redo(job, item, out)
+
+    def _redo(self, job, item, out):
+        """Refaz o pedido sorteado e compara. A IA não repete palavra por palavra (nem pixel por pixel): compara
+        o formato (tamanho da imagem, duração do vídeo) e, no texto, se a resposta não é uma fração mínima da que
+        esta máquina daria."""
+        model = job.get("model")
+        if not self._model_ready(model):
+            return "ok", "entrega válida (sem o modelo pronto para refazer)"
+        self._busy(True)
+        try:
+            if job.get("media"):
+                mine = self.media.generate(model, item["spec"], timeout=MEDIA_CLAIM_TIMEOUT[job["media"]] - 300,
+                                           should_stop=self._stop.is_set)
+                theirs = out["media"][0]
+                if job["media"] == "image":
+                    w, h = media.png_size(base64.b64decode(theirs["data"]))
+                    if (w, h) != (item["spec"]["width"], item["spec"]["height"]) and mine:
+                        return "bad", f"refeito: o tamanho não confere ({w}x{h})"
+                return "ok", "refeito e conferido"
+            text, _, _ = self.engine.chat(model, item["messages"], max(1, item["max_tokens"]), json_mode=item["json"])
+            theirs = out.get("text") or ""
+            if len(text) > 200 and len(theirs.strip()) * 20 < len(text):
+                return "bad", "refeito: a entrega é muito menor que a resposta de verdade"
+            return "ok", "refeito e conferido"
+        except EngineError:
+            return "ok", "entrega válida (não consegui refazer aqui)"
+        finally:
+            self._busy(False)
 
     def busy(self):
         """Respondendo um pedido ou com algum já pego na fila: não é hora de reiniciar (atualização automática)."""

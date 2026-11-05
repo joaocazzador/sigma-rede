@@ -26,7 +26,9 @@ from .chain import UNIT, canon, make_tx
 from .crypto import checksum_ok, norm_address, progress_message, seal
 
 DEFAULT_NODE = "https://sigma.195-35-29-232.sslip.io"
-JOB_END = ("done", "failed", "disputed", "expired", "canceled")
+JOB_END = ("done", "failed", "disputed", "expired", "canceled", "review", "rejected")
+_REQUESTS = {}   # job -> pedido (bytes) dos últimos pedidos desta execução, para mandar de novo à vigia
+DELIVERED = ("done", "review")   # v7: "review" já tem a entrega (a vigia confere depois; o valor segue reservado)
 CONTEXT = 4096       # contexto dos modelos da rede (o mesmo engines.CONTEXT das máquinas; um teste confere)
 GONE_CHECK = 60      # segundos entre as conferências de "a máquina sumiu?" enquanto espera (regras v6)
 ATTEMPTS = 3         # cada pergunta tenta no máximo 3 máquinas diferentes
@@ -390,6 +392,51 @@ class Client:
         return self.post("/progress", {"job_id": job_id, "machine": w.address, "seq": seq, "data": data,
                                        "sig": w.sign(progress_message(job_id, seq, data))}, timeout=20)
 
+    # ------------------------------------------------------------ vigia (v7)
+    def send_watch(self, job_id, role, watcher_pub, watcher, data: bytes):
+        """Manda a cópia (pedido, se cliente; entrega, se máquina) cifrada para a vigia do pedido."""
+        w = self._signer()
+        hexdata = seal(watcher_pub, data).hex()
+        return self.post("/watch", {"job_id": job_id, "role": role, "sender": w.address, "data": hexdata,
+                                    "sig": w.sign(progress_message(job_id + ":" + role + ":" + watcher, 0, hexdata))},
+                         timeout=120)
+
+    def get_watch(self, job_id, role):
+        """Vigia: a cópia do papel ('request' ou 'result') cifrada para esta máquina -> bytes, ou None."""
+        w = self._signer()
+        try:
+            v = self.get(f"/watch/{_q(job_id)}/{_q(role)}/{_q(w.address)}", timeout=60)
+            return w.unseal(bytes.fromhex(v["data"]))
+        except Exception:
+            return None
+
+    def dispute(self, job_id):
+        """Cliente (v7): contesta a entrega (uma vez). A rede sorteia outra vigia; o pedido vai para ela."""
+        self.send_tx("dispute_job", {"job_id": job_id})
+        job = self.job(job_id)
+        request = _REQUESTS.get(job_id)
+        if request is not None:
+            self.watch_request(job, request)
+        return job
+
+    def watch_request(self, job, request: bytes):
+        """Cliente: manda o pedido para a vigia do job em revisão (de novo se a contestação trocou a vigia)."""
+        _REQUESTS[job["id"]] = request          # guarda para mandar de novo se o cliente contestar
+        while len(_REQUESTS) > 200:
+            _REQUESTS.pop(next(iter(_REQUESTS)))
+        rv = job.get("review") or {}
+        watcher = rv.get("watcher")
+        if not watcher or job.get("status") != "review":
+            return False
+        pub = (self.machine(watcher) or {}).get("pub")
+        if not pub:
+            return False
+        try:
+            self.send_watch(job["id"], "request", pub, watcher, request)
+            return True
+        except (SigmaError, ValueError):
+            return False
+
     def progress(self, job_id):
         """Cliente: a última notícia da máquina sobre o pedido -> dict (com "age", segundos desde que chegou ao
         nó) ou None (ainda nenhuma, máquina antiga, ou não abre com esta carteira)."""
@@ -702,9 +749,12 @@ class Client:
                 break
             try:
                 spec_hash = self.put_blob(seal(rec["pub"], request))
-                job_id = self.send_tx("create_job", {"kind": "ai", "model": model, "spec_hash": spec_hash,
-                                                     "escrow": escrow, "max_price": ceiling, "machine": addr,
-                                                     "client_pub": w.pub, "units": units}, wait=False)
+                data = {"kind": "ai", "model": model, "spec_hash": spec_hash, "escrow": escrow,
+                        "max_price": ceiling, "machine": addr, "client_pub": w.pub, "units": units}
+                racers = self._race(order, addr, request)
+                if racers:
+                    data["racers"] = racers
+                job_id = self.send_tx("create_job", data, wait=False)
             except (SigmaError, ValueError) as e:
                 last_error = e
                 if not _queue_full(e):
@@ -733,7 +783,10 @@ class Client:
             status = job.get("status")
             if status == "canceled":
                 raise SigmaError(CANCELED)
-            if status == "done":
+            if status in DELIVERED:
+                addr = job.get("winner") or (job.get("review") or {}).get("machine") or addr
+                if status == "review":
+                    self.watch_request(job, request)    # a vigia precisa do pedido para conferir a entrega
                 res = self._open_result(job, addr, deadline=until)
                 items = _media_items(res)
                 if items is None:
@@ -780,9 +833,12 @@ class Client:
                 break
             try:
                 spec_hash = self.put_blob(seal(rec["pub"], request))   # o nó só guarda bytes cifrados
-                job_id = self.send_tx("create_job", {"kind": "ai", "model": model, "spec_hash": spec_hash,
-                                                     "escrow": escrow, "max_price": ceiling, "machine": addr,
-                                                     "client_pub": w.pub, "max_tokens": max_tokens}, wait=False)
+                data = {"kind": "ai", "model": model, "spec_hash": spec_hash, "escrow": escrow,
+                        "max_price": ceiling, "machine": addr, "client_pub": w.pub, "max_tokens": max_tokens}
+                racers = self._race(order, addr, request)
+                if racers:
+                    data["racers"] = racers
+                job_id = self.send_tx("create_job", data, wait=False)
             except (SigmaError, ValueError) as e:     # recusado (ex.: a máquina saiu do ar no meio do caminho) ou
                 last_error = e                        # chave pública inválida: nada foi reservado, vai a próxima
                 if not _queue_full(e):                # fila cheia: a máquina está viva, só ocupada; não gasta tentativa
@@ -808,7 +864,10 @@ class Client:
             status, res = job.get("status"), None
             if status == "canceled":
                 raise SigmaError(CANCELED)
-            if status == "done":                      # já pago: a resposta tem de abrir com a chave desta carteira
+            if status in DELIVERED:                   # entregue: a resposta tem de abrir com a chave desta carteira
+                addr = job.get("winner") or (job.get("review") or {}).get("machine") or addr
+                if status == "review":
+                    self.watch_request(job, request)  # a vigia precisa do pedido para conferir a entrega
                 res = self._open_result(job, addr, deadline=deadline)   # baixa até o prazo: o valor já foi cobrado
                 if not res or not isinstance(res.get("text"), str):
                     raise SigmaError(UNREADABLE)
@@ -829,6 +888,30 @@ class Client:
         if not created and last_error is not None:
             raise SigmaError(str(last_error))
         raise SigmaError(NO_ANSWER)
+
+    def _race(self, order, target, request):
+        """Corrida (regras v7): até MAX_RACERS máquinas OCIOSAS (fora de qualquer pedido em andamento) que também
+        têm o modelo correm junto com `target`; a primeira que entregar leva. Devolve {endereço: spec_hash} (o
+        pedido cifrado para cada uma) ou {} (rede antiga, ninguém livre, ou falha de rede: segue sem corrida)."""
+        try:
+            rules = self.status().get("rules")
+            if not isinstance(rules, int) or rules < 7:
+                return {}
+            busy = set()
+            for status in ("open", "running"):
+                for j in self.jobs(status) or []:
+                    if isinstance(j, dict):
+                        busy.update(x for x in [j.get("machine"), *(j.get("racers") or {})] if x)
+            out = {}
+            for addr, rec in order:
+                if len(out) >= getattr(chain, "MAX_RACERS", 0):
+                    break
+                if addr == target or addr in busy:
+                    continue
+                out[addr] = self.put_blob(seal(rec["pub"], request))
+            return out
+        except (SigmaError, ValueError, TypeError, AttributeError, KeyError):
+            return {}
 
     def _gone(self, job, machine):
         """A máquina que pegou o pedido sumiu da rede (não sinalizou nesta janela nem na anterior)? Regras v6:

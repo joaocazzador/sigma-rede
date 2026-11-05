@@ -2344,6 +2344,7 @@ class App:
             v = job.get(k)
             return v if isinstance(v, int) and not isinstance(v, bool) else None
         return {"task": task, "media": media_out, "cost": num("cost") or 0, "machine": job.get("machine"),
+                "review": job.get("status") == "review",
                 "attempts": num("attempts"), "job": job.get("id"), "max_cost": num("escrow"),
                 "price": num("max_price")}
 
@@ -2579,6 +2580,7 @@ class App:
             v = job.get(k)
             return v if isinstance(v, int) and not isinstance(v, bool) else None
         return {"text": text, "cost": num("cost") or 0, "machine": job.get("machine"), "trimmed": num("trimmed") or 0,
+                "review": job.get("status") == "review",
                 "attempts": num("attempts"), "job": job.get("id"),
                 "max_cost": num("escrow"), "price": num("max_price")}   # o que ficou reservado e o teto por mil tokens
 
@@ -2594,6 +2596,14 @@ class App:
         keep = ("stage", "pct", "step", "steps", "text", "chars", "preview", "age", "machine", "status", "claimed",
                 "job")
         return {"progress": {k: p[k] for k in keep if k in p}, "waiting": True}
+
+    def api_ai_dispute(self, d):
+        """POST /api/ai/dispute {"job"}: contesta uma entrega em revisão (regras v7). Outra vigia confere."""
+        jid = d.get("job")
+        if not (isinstance(jid, str) and re.fullmatch(r"[0-9a-f]{64}", jid)):
+            raise AppError("pedido inválido")
+        job = self._spender().dispute(jid)
+        return {"ok": True, "watcher": (job.get("review") or {}).get("watcher")}
 
     def api_ai_cancel(self, d):
         """Botão Cancelar do chat: se nenhum computador pegou o pedido, ele é cancelado e o valor volta.
@@ -2810,6 +2820,7 @@ ROUTES = {
     ("POST", "/api/ai/chat"): App.api_chat,
     ("POST", "/api/ai/cancel"): App.api_ai_cancel,
     ("GET", "/api/ai/progress"): App.api_ai_progress,
+    ("POST", "/api/ai/dispute"): App.api_ai_dispute,
     ("POST", "/api/ai/image"): App.api_image,
     ("POST", "/api/ai/video"): App.api_video,
     ("GET", "/api/chats"): App.api_chats,

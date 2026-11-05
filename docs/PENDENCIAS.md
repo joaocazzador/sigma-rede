@@ -89,3 +89,19 @@ reputação. Falta escrever e revisar o desenho completo, com estas partes:
 - **Votação explicada no site** (1 SIG = 1 voto para todo mundo, sem voto especial) e **link do GitHub** no site.
 - Falta: o grupo no painel (hoje só pela linha de comando), os programas do grupo de vídeo para Linux e macOS, e
   testar o grupo de vídeo entre PCs de verdade pela internet.
+
+## Feito na 2.11.1 e na 2.12 (05/11/2026)
+
+- **Mais rápido:** o sd-cli sem `--offload-to-cpu` (com placa de vídeo ele copiava o modelo a cada passo) e o vídeo
+  com `easycache`; imagem e vídeo vão primeiro para máquinas com placa; vídeo só em placa de 6 GB ou num grupo.
+- **Sem interrupções:** o PC não dorme enquanto hospeda ou responde (sigma/awake.py); a atualização automática
+  espera a fila esvaziar; modelos de texto ficam 30 min na memória.
+- **Regras v7, corrida:** o cliente chama até 2 máquinas ociosas a mais com o mesmo modelo; a primeira que entrega
+  vence; as outras param ao perceber.
+- **Regras v7, vigia:** a entrega fica "review"; a rede sorteia, no bloco da entrega, uma vigia que hospeda o modelo e
+  não correu (nem é do mesmo dono). Cliente e vencedora mandam as cópias cifradas para ela pelo nó (`/watch`). Ela
+  confere a validade e, em 1 de cada 10 pedidos, refaz o trabalho. Aprovou: 95% para a vencedora e 5% para a vigia.
+  Reprovou: o valor volta e a vencedora perde 2 de reputação. O cliente contesta uma vez (outra vigia, mais 30 min);
+  vale a vigia. Sem veredito em 30 min, paga sozinho.
+- **Falta:** comparar de verdade o conteúdo refeito (hoje: formato, tamanho e proporção do texto); uma vigia
+  desonesta ainda não é punida (a contestação ajuda; a caução e o `_slash` seriam o próximo passo).

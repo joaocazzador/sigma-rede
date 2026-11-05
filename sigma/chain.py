@@ -44,7 +44,7 @@ from .pow import report_points, share_ok
 
 UNIT = 1_000_000            # 1 SIG = 1.000.000 µSIG
 # ---- atualizações das regras (docs/ATUALIZACOES.md)
-RULES = 6                   # a versão mais nova das regras que este código sabe executar
+RULES = 7                   # a versão mais nova das regras que este código sabe executar
 # v1: a rede da v2.4. v2 (v2.5): modelos de imagem e vídeo, preço por imagem e por segundo de vídeo.
 # v3 (v2.6): caução dos coordenadores (bond/unbond, corte e reputação).
 # v4 (v2.8): modelo de texto em várias partes (GGUF dividido), até 600 GB, para rodar dividido entre computadores
@@ -53,6 +53,14 @@ RULES = 6                   # a versão mais nova das regras que este código sa
 # (o disco continua contando todos)
 # v6 (v2.11): o cliente libera (release_job) um pedido direcionado cuja máquina sumiu da rede (não sinalizou nesta
 # janela nem na anterior): o valor volta na hora, a máquina leva a falta e o app manda o pedido para a próxima
+# v7 (v2.12): corrida. Um pedido direcionado pode chamar até MAX_RACERS máquinas ociosas a mais com o mesmo modelo
+# (`racers`: endereço -> pedido cifrado para ela). Todas podem pegar; a primeira que entrega leva o pagamento e a
+# reputação, e o pedido fecha. A falha ou o sumiço de uma só tira ela da corrida.
+# v7 também traz a VIGIA: a entrega de IA (com ou sem corrida) não paga na hora; o pedido fica "review" e a rede
+# sorteia, no bloco da entrega, uma máquina com o mesmo modelo para conferir (review_job). Aprovou: a vencedora
+# recebe 95%, a vigia 5% (WATCH_BPS) e ambas ganham reputação. Reprovou: o valor volta e a vencedora perde
+# reputação. O cliente pode contestar uma vez (dispute_job): sorteia outra vigia e dá mais REVIEW_SECONDS; havendo
+# discordância, vale a vigia. Sem veredito no prazo, paga sozinho (ninguém fica sem receber por falta de vigia).
 # atualizações marcadas: hash do genesis da rede -> {versão: altura do primeiro bloco com ela}. Uma rede nova
 # já nasce na versão RULES; as entradas daqui só valem para a rede cujo genesis tem aquele hash.
 # rede principal (genesis a8eabe25…1029, recriada na 2.4): a v2 (imagem e vídeo, reserva dos fundadores, votações
@@ -180,6 +188,8 @@ TX_FIELDS = {
     "submit_result": {"job_id", "result_hash", "usage", "failed"},
     "cancel_job": {"job_id"},
     "release_job": {"job_id"},           # regras v6 (TYPES_SINCE): pedido de uma máquina que sumiu
+    "review_job": {"job_id", "verdict"},  # regras v7: o veredito da vigia ("ok" ou "bad")
+    "dispute_job": {"job_id"},           # regras v7: o cliente contesta a entrega (sorteia outra vigia)
     "deploy_site": {"name", "manifest", "budget", "replicas"},
     "pin_site": {"name", "version"},
     "register_model": {"name", "url", "sha256", "size", "royalty_bps", "reinvest_bps", "replicas", "license",
@@ -197,15 +207,21 @@ TX_FIELDS = {
     "evm": {"raw"},
 }
 JOB_FIELDS = {"ai": {"kind", "model", "spec_hash", "escrow", "max_price", "max_tokens", "machine", "client_pub",
-                     "units"},
+                     "units", "racers"},
               "compute": {"kind", "task", "replicas", "escrow", "max_price"}}
 SIGNED_TYPES = frozenset(TX_FIELDS) - {"work", "evm"} | {"create_job"}
 # tipos que só existem a partir de uma versão das regras: antes dela, são recusados como tipo desconhecido, como
 # sempre foram (SIGNED_TYPES sai de TX_FIELDS; sem isto, um tipo novo valeria em qualquer versão)
-TYPES_SINCE = {"bond": 3, "unbond": 3, "release_job": 6}
+TYPES_SINCE = {"bond": 3, "unbond": 3, "release_job": 6, "review_job": 7, "dispute_job": 7}
 HW_KEYS = frozenset(HW_FIELDS + ("gpu",))
 USAGE_KEYS = ("tokens_in", "tokens_out")
-LIVE = ("open", "running")  # jobs que ainda seguram escrow
+LIVE = ("open", "running", "review")  # jobs que ainda seguram escrow ("review" só existe a partir da v7)
+WORKING = ("open", "running")          # jobs que ainda aceitam claim e entrega
+REVIEW_SECONDS = 1800       # v7: prazo da vigia; sem veredito, a entrega é paga sozinha
+WATCH_BPS = 500             # v7: 5% do valor vai para a vigia que aprovou
+REDO_ONE_IN = 10            # v7: 1 em cada 10 entregas a vigia refaz o trabalho para comparar
+BAD_REPUTATION = 2          # v7: reputação que a vencedora perde quando a vigia reprova
+MAX_RACERS = 2              # v7: máquinas a mais que podem correr um pedido direcionado (além da escolhida)
 
 
 def canon(obj) -> bytes:
@@ -452,7 +468,8 @@ def _only(d, allowed, where):
 
 
 # campos que só existem a partir de uma versão das regras: antes dela, são recusados como sempre foram
-FIELDS_SINCE = {"register_machine": {"tasks": 2}, "register_model": {"task": 2, "files": 2}, "create_job": {"units": 2}}
+FIELDS_SINCE = {"register_machine": {"tasks": 2}, "register_model": {"task": 2, "files": 2},
+                "create_job": {"units": 2, "racers": 7}}
 
 
 def _fields(type_, d, rules):
@@ -478,6 +495,12 @@ def governable(rules):
 def model_task(m):
     """Classe do modelo: texto (o padrão, e todo modelo de antes da v2), imagem ou vídeo."""
     return m.get("task", "text")
+
+
+def _runners(job):
+    """Quem pode responder um pedido direcionado: a máquina escolhida e, numa corrida (v7), as extras."""
+    m = job.get("machine")
+    return ([m] if m else []) + sorted(job.get("racers") or {})
 
 
 def claim_timeout(job):
@@ -862,6 +885,13 @@ class State:
             job = self.jobs[jid]
             if job["status"] not in LIVE:
                 continue
+            if job["status"] == "review":
+                if now > job["review"]["until"]:
+                    self._settle_review(job, None)    # sem veredito: paga sozinho
+                continue
+            if job.get("racers"):
+                self._race_deadline(job)
+                continue
             if job.get("machine"):
                 self._target_deadline(job)
                 continue
@@ -889,14 +919,14 @@ class State:
             self._refund(job, "expired")
             self._miss(job)
 
-    def _miss(self, job):
+    def _miss(self, job, addr=None):
         """Falta da máquina num pedido direcionado. Uma nova falta só conta se a máquina sinalizou depois da
         anterior (`last_seen > miss_window`): o PC que dormiu leva uma falta só até acordar, e quem sinaliza
         toda janela sem responder perde o modelo na MAX_MISSES-ésima, ficando COOLDOWN_WINDOWS sem recebê-lo.
         Também não conta se a máquina entregou ou falhou algum pedido direcionado nesta janela (`answered_window`):
         ela está viva, só ocupada — um cliente não evita isso inundando a fila (ver MAX_TARGET_OPEN)."""
         m = self.models.get(job["model"])
-        addr, w = job["machine"], self.mining["window"]
+        addr, w = addr or job["machine"], self.mining["window"]
         pin = m["pinners"].get(addr) if m else None
         mc = self.machines.get(addr)
         if pin is None or mc is None or mc["last_seen"] <= pin["miss_window"]:
@@ -1188,6 +1218,18 @@ class State:
                 job["machine"] = self._target(d, sender, max_price)
                 _need(client_pub is not None, "um pedido direcionado precisa de client_pub (a chave que recebe a "
                                               "resposta cifrada)")
+            if d.get("racers") is not None:   # v7: corrida
+                _need(job.get("machine") is not None, "racers só num pedido direcionado (com machine)")
+                racers = d["racers"]
+                _need(isinstance(racers, dict) and 1 <= len(racers) <= MAX_RACERS,
+                      f"racers: de 1 a {MAX_RACERS} máquinas a mais")
+                out = {}
+                for addr, h in sorted(racers.items()):
+                    a = self._target({"machine": addr, "model": d["model"]}, sender, max_price)
+                    _need(a != job["machine"] and a not in out, "máquina repetida na corrida")
+                    _need(_hex64(h), "spec_hash de racers inválido")
+                    out[a] = h
+                job["racers"] = out
         else:
             task = d.get("task")
             _need(isinstance(task, dict), "tarefa malformada")
@@ -1226,7 +1268,7 @@ class State:
         # fila limitada: assim a máquina sempre consegue reivindicar e responder dentro do prazo, e um cliente não
         # a derruba por faltas inundando-a de pedidos (achado targeted-flood-evicts-honest-host). O job novo ainda
         # não entrou em self.jobs, então conta só os que já estão vivos.
-        live = [j for j in self.jobs.values() if j["status"] in LIVE and j.get("machine") == addr]
+        live = [j for j in self.jobs.values() if j["status"] in WORKING and addr in _runners(j)]
         _need(len(live) < MAX_TARGET_OPEN, "a máquina escolhida está com a fila cheia agora; escolha outra")
         _need(sum(1 for j in live if j["client"] == sender) < MAX_TARGET_PER_CLIENT,
               "você já tem pedidos demais nessa máquina; espere ela responder")
@@ -1243,9 +1285,10 @@ class State:
         mc = self.machines.get(sender)
         _need(job is not None, "job não existe")
         _need(mc is not None, "máquina não registrada")
-        _need(job.get("machine") in (None, sender), "este job é para outra máquina")
+        _need(job.get("machine") is None or sender in _runners(job), "este job é para outra máquina")
         _need(mc["online"], "máquina offline: ela precisa sinalizar (ping) antes")
-        _need(job["status"] == "open", f"job não está aberto ({job['status']})")
+        _need(job["status"] == "open" or (job.get("racers") and job["status"] == "running"),
+              f"job não está aberto ({job['status']})")
         _need(sender not in job["claims"], "você já reivindicou este job")
         _need(sender != job["client"], "o cliente não pode executar o próprio job")
         if job["kind"] == "ai":
@@ -1262,7 +1305,7 @@ class State:
     def _tx_submit_result(self, sender, d, txid):
         job = _get(self.jobs, d.get("job_id"))
         _need(job is not None, "job não existe")
-        _need(job["status"] in LIVE, "job já encerrado")
+        _need(job["status"] in WORKING, "job já encerrado")
         _need(sender in job["claims"], "você não reivindicou este job")
         _need(sender not in job["results"], "resultado já enviado")
         _need(_hex64(d.get("result_hash")), "result_hash inválido")
@@ -1287,10 +1330,14 @@ class State:
         if job.get("machine"):   # respondeu (entrega ou falha) um direcionado: está viva nesta janela, só ocupada
             self.machines[sender]["answered_window"] = self.mining["window"]
         if job["kind"] == "ai":
-            if failed:
+            if failed and job.get("racers") and self._race_alive(job):
+                self._race_drop(job, sender)          # v7: só ela sai da corrida; as outras seguem
+            elif failed:
                 self._fail_ai(job, sender)
+            elif self.rule(7):
+                self._start_review(job, sender)
             else:
-                self._settle_ai(job)
+                self._settle_ai(job, sender)
         elif len(job["results"]) >= job["replicas"]:
             self._settle_compute(job)
 
@@ -1312,17 +1359,21 @@ class State:
         _need(job is not None, "job não existe")
         _need(job["client"] == sender, "só quem pediu pode liberar")
         _need(job["status"] in LIVE, f"este pedido já foi encerrado ({job['status']})")
+        _need(job["status"] in WORKING, "a máquina já entregou: o pedido está com a vigia")
         mach = job.get("machine")
         _need(mach is not None, "só pedidos direcionados a uma máquina podem ser liberados")
-        _need(mach in job["claims"], "a máquina ainda não pegou o pedido: cancele em vez de liberar")
-        _need(mach not in job["results"], "a máquina já respondeu")
-        mc = self.machines.get(mach)
         w = self.mining["window"]
-        _need(mc is None or mc["last_seen"] < w - 1,
-              "o computador ainda está sinalizando na rede: espere ele entregar ou o prazo acabar")
+        working = [r for r in _runners(job) if r in job["claims"] and r not in job["results"]
+                   and r not in (job.get("out") or [])]
+        _need(working, "a máquina ainda não pegou o pedido: cancele em vez de liberar")
+        for r in working:
+            mc = self.machines.get(r)
+            _need(mc is None or mc["last_seen"] < w - 1,
+                  "o computador ainda está sinalizando na rede: espere ele entregar ou o prazo acabar")
         job["missed"] = True
         self._refund(job, "expired")
-        self._miss(job)
+        for r in working:
+            self._miss(job, r)
 
     def _pay(self, job, mach, amount, cut=0):
         """Paga 100% do preço ao payout da máquina (menos o royalty do padrinho): sem taxa, sem queima.
@@ -1342,8 +1393,132 @@ class State:
         self._give(job["client"], job["escrow"], "refund", job["id"])
         self._close(job, status)
 
-    def _settle_ai(self, job):
-        (mach, res), = job["results"].items()
+    def _race_alive(self, job):
+        """Corrida (v7): ainda há quem possa entregar? Quem pegou e está no prazo, ou quem nem pegou ainda e
+        está dentro de TARGET_TIMEOUT (sem resultado e sem ter saído)."""
+        out = job.get("out") or []
+        for r in _runners(job):
+            if r in job["results"] or r in out:
+                continue
+            claim = job["claims"].get(r)
+            if claim is not None and self.now - claim["time"] <= claim_timeout(job):
+                return True
+            if claim is None and self.now - job["created"] <= TARGET_TIMEOUT:
+                return True
+        return False
+
+    def _race_drop(self, job, mach):
+        """Uma corredora falhou: conta a falha (e, em imagem e vídeo, 1 de reputação, v5) e sai da corrida."""
+        self.machines[mach]["jobs_failed"] += 1
+        if self.rule(5) and job.get("media"):
+            self.machines[mach]["reputation"] -= 1
+        job["out"] = sorted(set(job.get("out") or []) | {mach})
+
+    def _race_deadline(self, job):
+        """Prazos de uma corrida (v7): quem pegou e passou do prazo leva falta e sai; a escolhida que nem pegou em
+        TARGET_TIMEOUT também (as extras, não: elas só correm se estiverem livres). Sem ninguém que ainda possa
+        entregar, o pedido expira e o valor volta."""
+        out = set(job.get("out") or [])
+        for r in _runners(job):
+            if r in job["results"] or r in out:
+                continue
+            claim = job["claims"].get(r)
+            if claim is not None and self.now - claim["time"] > claim_timeout(job):
+                out.add(r)
+                self._miss(job, r)
+            elif claim is None and self.now - job["created"] > TARGET_TIMEOUT:
+                out.add(r)
+                if r == job["machine"]:
+                    self._miss(job, r)
+        job["out"] = sorted(out)
+        if not self._race_alive(job):
+            job["missed"] = True
+            self._refund(job, "expired")
+
+    # ------------------------------------------------------------ vigia (v7)
+    def _pick_watcher(self, job, exclude=()):
+        """Sorteio da vigia no bloco da entrega: uma máquina online que hospeda o modelo, fora de quem correu, do
+        cliente e de quem já vigiou. Ninguém sabe antes da entrega quem vai ser. None se não houver."""
+        m = self.models.get(job["model"])
+        if not m:
+            return None
+        seed = self.mining["seeds"].get(str(self.mining["window"]), "")
+        skip = set(_runners(job)) | set(job["claims"]) | {job["client"]} | set(exclude)
+        # o mesmo dono não vigia a si mesmo: nem o payout do cliente nem o de quem correu
+        owners = {job["client"]} | {self.machines[r]["payout"] for r in job["claims"] if r in self.machines}
+        cands = [a for a in sorted(m["pinners"]) if a not in skip and a in self.machines
+                 and self.machines[a]["online"] and self.machines[a]["pub"]
+                 and self.machines[a]["payout"] not in owners]
+        if not cands:
+            return None
+        return min(cands, key=lambda a: sha((seed + job["id"] + a + str(len(exclude))).encode()))
+
+    def _start_review(self, job, winner):
+        """A entrega chegou: o pedido fica com a vigia (o cliente já pode abrir o resultado; o valor segue
+        reservado). 1 em REDO_ONE_IN entregas, sorteadas, a vigia refaz o trabalho para comparar."""
+        seed = self.mining["seeds"].get(str(self.mining["window"]), "")
+        watcher = self._pick_watcher(job)
+        job["status"] = "review"
+        job["result_hash"] = job["results"][winner]["hash"]
+        job["review"] = {"machine": winner, "until": self.now + REVIEW_SECONDS, "watcher": watcher,
+                         "watchers": [watcher] if watcher else [],
+                         "redo": int(sha((seed + job["id"]).encode()), 16) % REDO_ONE_IN == 0}
+        if job.get("racers"):
+            job["winner"] = winner
+
+    def _settle_review(self, job, verdict):
+        """Fecha a revisão: "ok" (ou nenhum veredito no prazo) paga; "bad" devolve e pune a vencedora."""
+        rv = job["review"]
+        mach, watcher = rv["machine"], rv.get("watcher")
+        if verdict == "bad":
+            mc = self.machines.get(mach)
+            if mc:
+                mc["reputation"] -= BAD_REPUTATION
+                mc["jobs_failed"] += 1
+            self._rep_up(watcher)
+            job.update({"cost": 0, "royalty": 0, "verdict": "bad"})
+            self._refund(job, "rejected")
+            return
+        job["verdict"] = verdict or "auto"
+        self._settle_ai(job, mach, watcher=watcher if verdict == "ok" else None)
+
+    def _rep_up(self, addr):
+        """+1 de reputação, no máximo uma vez por janela (como o pagamento de um pedido)."""
+        mc = self.machines.get(addr) if addr else None
+        w = self.mining["window"]
+        if mc and mc["rep_window"] != w:
+            mc["reputation"] += 1
+            mc["rep_window"] = w
+
+    def _tx_review_job(self, sender, d, txid):
+        job = _get(self.jobs, d.get("job_id"))
+        _need(job is not None, "job não existe")
+        _need(job["status"] == "review", f"este pedido não está em revisão ({job['status']})")
+        _need(sender == job["review"].get("watcher"), "você não é a vigia deste pedido")
+        verdict = d.get("verdict")
+        _need(verdict in ("ok", "bad"), "verdict deve ser 'ok' ou 'bad'")
+        self._settle_review(job, verdict)
+
+    def _tx_dispute_job(self, sender, d, txid):
+        """O cliente contesta a entrega, uma vez: sorteia outra vigia e dá mais REVIEW_SECONDS. Quem decide é a
+        vigia; se ninguém decidir no prazo, paga (a contestação sozinha não devolve o valor)."""
+        job = _get(self.jobs, d.get("job_id"))
+        _need(job is not None, "job não existe")
+        _need(job["client"] == sender, "só quem pediu pode contestar")
+        _need(job["status"] == "review", f"este pedido não está em revisão ({job['status']})")
+        rv = job["review"]
+        _need(not rv.get("disputed"), "este pedido já foi contestado")
+        rv["disputed"] = True
+        rv["watcher"] = self._pick_watcher(job, exclude=rv["watchers"]) or rv.get("watcher")
+        if rv["watcher"] and rv["watcher"] not in rv["watchers"]:
+            rv["watchers"].append(rv["watcher"])
+        rv["until"] = self.now + REVIEW_SECONDS
+
+    def _settle_ai(self, job, winner=None, watcher=None):
+        mach = winner if winner is not None else next(iter(job["results"]))
+        res = job["results"][mach]
+        if job.get("racers"):
+            job["winner"] = mach
         price = job["claims"][mach]["price"]
         if job.get("media"):   # imagem/vídeo: o preço da máquina por unidade entregue
             units = res["usage"]["units"]
@@ -1353,7 +1528,13 @@ class State:
             cost = min(job["escrow"], _ceil_div(tokens * price, 1000))
         model = self.models.get(job["model"])
         royalty = cost * model["royalty_bps"] // 10000 if model else 0
-        self._pay(job, mach, cost, cut=royalty)
+        fee = cost * WATCH_BPS // 10000 if watcher and watcher in self.machines else 0
+        self._pay(job, mach, cost, cut=royalty + fee)
+        if fee:   # v7: a vigia que aprovou recebe 5% (sai do que a vencedora receberia) e ganha reputação
+            self._give(self.machines[watcher]["payout"], fee, "watch", job["id"])
+            self.machines[watcher]["earned"] += fee
+            self._rep_up(watcher)
+            job["watch_fee"] = fee
         if model:  # parte de cada token gasto vai para o padrinho (e, se ele quiser, volta para a hospedagem)
             reinvest = royalty * model["reinvest_bps"] // 10000
             model["budget"] += reinvest
@@ -1365,7 +1546,7 @@ class State:
                 model["tokens"] += tokens
             model["jobs"] += 1
             pin = model["pinners"].get(mach)
-            if job.get("machine") == mach and pin:   # pedido direcionado entregue: as faltas zeram
+            if mach in _runners(job) and pin:   # pedido direcionado (ou corrida) entregue: as faltas zeram
                 pin["misses"] = 0
         self._give(job["client"], job["escrow"] - cost, "change", job["id"])
         job.update({"result_hash": res["hash"], "cost": cost, "royalty": royalty})

@@ -2332,12 +2332,16 @@ function mediaGC() {
 // ------------------------------------------------------------- mensagens
 function msgHTML(m, i, last) {
   if (m.role === "user") return `<div class="m-user"><div class="bubble">${esc(m.content)}</div></div>`;
-  const head = [m.model || chat.convModel || chat.model, m.machine ? "máquina " + short(m.machine) : "", m.cost != null ? sig(m.cost) + " SIG" : ""]
+  const head = [m.model || chat.convModel || chat.model, m.machine ? "máquina " + short(m.machine) : "",
+                m.review ? "pagamento com a vigia" : m.cost != null ? sig(m.cost) + " SIG" : ""]
     .filter(Boolean).map(esc).join(" · ");
   const body = m.error ? `<p class="m-err">${esc(cap(m.error))}</p>` : Array.isArray(m.media) ? mediaHTML(m.media) : `<div class="md">${richText(m.content)}</div>`;
   const acts = [];
   if (!m.media && !m.error && m.content) acts.push(`<button type="button" class="m-act" data-msg-copy="${i}">Copiar</button>`);
   if (last && !chat.busy) acts.push(`<button type="button" class="m-act" data-msg-retry>Tentar de novo</button>`);
+  // v7: a vigia confere a entrega antes de pagar; quem pediu pode contestar uma vez, até 30 min depois
+  if (m.review && m.job && !m.disputed && nowSec() - N(m.time) < 1800)
+    acts.push(`<button type="button" class="m-act" data-msg-dispute="${i}" title="Outra máquina confere a entrega antes de qualquer pagamento">Contestar entrega</button>`);
   return `<div class="m-ai"><div class="m-head">${head}</div>${body}${acts.length ? `<div class="m-acts">${acts.join("")}</div>` : ""}</div>`;
 }
 function emptyHTML() {
@@ -2614,7 +2618,8 @@ async function chatSend(e, retry = null) {
     if (shown) body.max_price = shown;   // o teto que o painel mostrou: o pedido nunca reserva mais do que isso
     const r = await api(t === "text" ? "/api/ai/chat" : t === "image" ? "/api/ai/image" : "/api/ai/video", body);
     const msg = {role: "assistant", content: t === "text" ? String(r.text ?? "") : "", cost: N(r.cost),
-                 machine: r.machine ? String(r.machine) : "", model, time: nowSec()};
+                 machine: r.machine ? String(r.machine) : "", model, time: nowSec(),
+                 review: !!r.review, job: typeof r.job === "string" ? r.job : ""};
     if (t !== "text") msg.media = (Array.isArray(r.media) ? r.media : []).filter(validMedia).map((x) => ({hash: String(x.hash), mime: String(x.mime),
       width: N(x.width), height: N(x.height), ...(x.seconds != null ? {seconds: N(x.seconds)} : {})}));
     if (seq === chat.seq) {
@@ -2638,6 +2643,16 @@ async function chatSend(e, retry = null) {
     renderIA();
     $("chat-text").focus();
   }
+}
+// "Contestar entrega" (v7): uma segunda vigia confere antes de pagar; havendo discordância, vale a vigia
+async function chatDispute(i) {
+  const m = chat.messages[i];
+  if (!m || !m.job || m.disputed) return;
+  try {
+    await api("/api/ai/dispute", {job: m.job});
+    m.disputed = true; saveChat(); chatRender();
+    toast("Contestação enviada. Outra máquina confere a entrega antes do pagamento.", "ok", 6000);
+  } catch (x) { toast("Não deu para contestar: " + x.message, "err", 8000); }
 }
 // "Tentar de novo": pede outra resposta para a última pergunta (a anterior volta se a nova falhar)
 function chatRetry() {
@@ -3517,6 +3532,7 @@ function bind() {
     if ((t = el("[data-copy-code]"))) return copy(t.closest(".codeblk")?.querySelector("code")?.textContent || "", "Código copiado");
     if ((t = el("[data-msg-copy]"))) return copy(String(chat.messages[Number(t.dataset.msgCopy)]?.content || ""), "Resposta copiada");
     if ((t = el("[data-msg-retry]"))) return chatRetry();
+    if ((t = el("[data-msg-dispute]"))) return chatDispute(Number(t.dataset.msgDispute));
     if ((t = el("[data-chip]"))) { $("chat-text").value = SUGGEST[curTask()][Number(t.dataset.chip)] || ""; grow(); renderMaxCost(); return $("chat-text").focus(); }
     if ((t = el("[data-media]"))) return openMedia(t.dataset.media);
     if ((t = el("[data-chat-open]"))) return openChat(t.dataset.chatOpen);

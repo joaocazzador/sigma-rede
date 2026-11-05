@@ -54,6 +54,7 @@ MAX_TX = 256 * 1024             # corpo de /tx, /rpc e do fórum
 # progresso de um pedido de IA (fora da chain): a máquina manda a última notícia (texto parcial, prévia da imagem,
 # porcentagem, sinal de vida), assinada por ela e cifrada para o cliente; o nó guarda só a mais nova, na memória
 MAX_PROGRESS = 1024 * 1024      # corpo de /progress (a prévia da imagem vai junto, em hexadecimal)
+MAX_WATCH = 64 * 1024 * 1024    # corpo de /watch: a entrega inteira (imagens, vídeo) em hexadecimal
 PROGRESS_KEEP = 2 * 3600        # segundos que a notícia fica depois da última atualização
 PROGRESS_JOBS = 4000            # pedidos acompanhados ao mesmo tempo (os mais velhos saem)
 MAX_SIGNED_DATA = 32 * 1024     # canon(data) de uma tx assinada: o resto é griefing de disco/cache (vai no /blob)
@@ -468,6 +469,7 @@ class Node:
         self.offsets = array.array("q", [-1])        # altura -> posição no chain.jsonl (0 = genesis, fora dele)
         self.state = State(genesis)
         self.progress, self._progress_trim = {}, 0.0   # job_id -> última notícia da máquina (put_progress)
+        self.watch = {}                                # (job_id, papel, vigia) -> cópia cifrada para a vigia (v7)
         self.tx_pos = {}       # id -> (altura, posição no bloco): MetaMask para sempre, as demais por ~2 h
         self._recent_txs = collections.deque()       # (horário, altura, [ids comuns]) para podar o tx_pos
         self._recent_count = 0
@@ -1215,6 +1217,46 @@ class Node:
                     del box[min(box, key=lambda k: box[k]["time"])]
         return {"ok": True, "seq": seq}
 
+    def put_watch(self, msg):
+        """POST /watch (regras v7): as cópias para a vigia. {"job_id", "role": "request" (assinada pelo cliente) ou
+        "result" (pela máquina que entregou), "sender", "data" (hex, cifrado para a vigia), "sig"}. Só enquanto o
+        pedido está em revisão; guarda uma por papel e vigia (a contestação troca a vigia)."""
+        if not isinstance(msg, dict):
+            raise ValueError("cópia malformada")
+        jid, role, sender, data, sig = (msg.get(k) for k in ("job_id", "role", "sender", "data", "sig"))
+        if not (isinstance(jid, str) and re.fullmatch(r"[0-9a-f]{64}", jid)) or role not in ("request", "result"):
+            raise ValueError("job_id ou role inválido")
+        if not (isinstance(data, str) and re.fullmatch(r"(?:[0-9a-f]{2})*", data)) or not isinstance(sig, str):
+            raise ValueError("data ou sig inválido")
+        try:
+            sender = norm_address(sender)
+        except (ValueError, TypeError):
+            raise ValueError("sender inválido") from None
+        job = self.state.jobs.get(jid)
+        if job is None or job.get("status") != "review":
+            raise ValueError("pedido não está em revisão")
+        rv = job.get("review") or {}
+        owner = job.get("client") if role == "request" else rv.get("machine")
+        if sender != owner:
+            raise ValueError("só quem pediu manda o pedido, e só quem entregou manda a entrega")
+        watcher = rv.get("watcher")
+        if not watcher:
+            raise ValueError("este pedido não tem vigia")
+        pub = job.get("client_pub") if role == "request" else (self.state.machines.get(sender) or {}).get("pub")
+        if not pub or not verify(pub, progress_message(jid + ":" + role + ":" + watcher, 0, data), sig):
+            raise ValueError("assinatura não confere")
+        with self.lock:
+            self.watch[(jid, role, watcher)] = {"data": data, "time": time.time()}
+            now = time.time()
+            for k in [k for k, v in self.watch.items() if now - v["time"] > PROGRESS_KEEP]:
+                del self.watch[k]
+        return {"ok": True}
+
+    def get_watch(self, jid, role, watcher):
+        with self.lock:
+            v = self.watch.get((jid, role, watcher))
+            return dict(v) if v else None
+
     def get_progress(self, jid):
         with self.lock:
             v = self.progress.get(jid)
@@ -1667,6 +1709,9 @@ def make_handler(node):
                     # as máquinas consultam os abertos a cada poucos segundos: uma conta por bloco
                     return self._send(200, node.cached(st, ("jobs", status), jobs)
                                       if status in (None, "open") else jobs())
+                if parts[0] == "watch" and len(parts) == 4:
+                    w = node.get_watch(parts[1], parts[2], parts[3])
+                    return self._send(200 if w else 404, w or {"error": "sem cópia"})
                 if parts[0] == "progress" and len(parts) == 2:
                     p = node.get_progress(parts[1])
                     return self._send(200 if p else 404, p or {"error": "sem notícia deste pedido"})
@@ -1730,6 +1775,8 @@ def make_handler(node):
                     return self._send(200, {"hash": node.put_blob(self.rfile.read(n), ip=self._ip())})
                 if u.path == "/progress":
                     return self._send(200, node.put_progress(self._json(self._body(MAX_PROGRESS))))
+                if u.path == "/watch":
+                    return self._send(200, node.put_watch(self._json(self._body(MAX_WATCH))))
                 body = self._body(MAX_TX)
                 if u.path.startswith("/forum/api/"):
                     if "application/json" not in (self.headers.get("Content-Type") or ""):
