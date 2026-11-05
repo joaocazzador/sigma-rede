@@ -1,0 +1,60 @@
+{
+  "allowed_cmds": [
+    "ALLOC_BUFFER",
+    "BUFFER_CLEAR",
+    "BUFFER_GET_BASE",
+    "COPY_TENSOR",
+    "DEVICE_COUNT",
+    "FREE_BUFFER",
+    "GET_ALIGNMENT",
+    "GET_ALLOC_SIZE",
+    "GET_DEVICE_MEMORY",
+    "GET_MAX_SIZE",
+    "GET_TENSOR",
+    "GET_TENSOR_2D",
+    "GRAPH_COMPUTE",
+    "GRAPH_RECOMPUTE",
+    "HELLO",
+    "INIT_TENSOR",
+    "MEMSET_TENSOR",
+    "SET_TENSOR",
+    "SET_TENSOR_2D",
+    "SET_TENSOR_HASH"
+  ],
+  "allowed_types": [
+    0,
+    1,
+    6,
+    8,
+    12,
+    14,
+    26,
+    27
+  ],
+  "allowed_ops": [
+    0,
+    1,
+    2,
+    7,
+    25,
+    29,
+    36,
+    37,
+    38,
+    40,
+    42,
+    48,
+    74,
+    100
+  ],
+  "graph_level": 1,
+  "struct_keys": [
+    "060e5f36438ef03c5cfa768dd2adcde9093662ad",
+    "86aee5605e3b344c42f5d9bdfcad268f5cd95b45"
+  ],
+  "max_ne1": 303872,
+  "max_nodes": 1024,
+  "max_tensors": 2048,
+  "max_msg": 201326592,
+  "max_alloc": 4294967296
+}

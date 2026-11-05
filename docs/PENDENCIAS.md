@@ -1,4 +1,4 @@
-# Pendências (anotado em 04/11/2026)
+# Pendências (anotado em 04/11/2026; estado geral em PASSAGEM.md)
 
 A 2.6 subiu só com a caução dos coordenadores (docs/SPEC-v2.6.md), para caber no limite de uso da semana. Tudo
 abaixo ficou para a próxima, na ordem em que eu faria.
@@ -23,9 +23,9 @@ abaixo ficou para a próxima, na ordem em que eu faria.
 - **Custo da conferência.** Comparar gerar com conferir a resposta pronta numa passada só (teacher forcing), com
   RTT de 0, 50 e 100 ms, e ver se a conferência pega um token trocado.
 - Já medidos e guardados:
-  - **Porteiro** (`C:\sgtmp\af-porteiro.md`; protótipo em `C:\sgtmp\shard2\porteiro\`): barrou 13 de 13 ataques
+  - **Porteiro** (`pesquisa/relatorios/medir-porteiro.md`; protótipo em `pesquisa/porteiro/`): barrou 13 de 13 ataques
     com o texto idêntico, a −6% de velocidade.
-  - **Coordenador leve** (`C:\sgtmp\af-leve.md`; protótipo em `C:\sgtmp\shard2\leve\`): GGUF esparso com o texto
+  - **Coordenador leve** (`pesquisa/relatorios/medir-coordenador-leve.md`; protótipo em `pesquisa/coordenador-leve/`): GGUF esparso com o texto
     idêntico. O coordenador de um 70B fica só com embedding e output (~2 GB), e o manifesto por tensor tem SHA-256 e
     FNV.
 
@@ -47,7 +47,7 @@ reputação. Falta escrever e revisar o desenho completo, com estas partes:
 - Modelo em partes, com manifesto por tensor.
 - Papéis de coordenador e de trabalhador.
 - Prazo maior por pedido.
-- Correções de `_prune` e `pin_model` levantadas em `C:\sgtmp\shard-sintese.md`.
+- Correções de `_prune` e `pin_model` levantadas em `pesquisa/relatorios/shard-sintese.md`.
 
 ## 5. Máquina
 
