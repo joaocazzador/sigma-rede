@@ -255,6 +255,7 @@ def mining_info(st):
             "media_default_prices": dict(chain.MEDIA_PRICES), "media": st.rule(2),
             # v3: se a rede já aceita caução, o SIG travado nelas, quantas máquinas podem coordenar agora, a caução
             # mínima para isso (None antes da v3) e a espera de uma retirada
+            "parts": st.rule(4),   # v4: modelo de texto em partes (gigantes, rodam divididos num grupo)
             "bonding": st.rule(3), "bonded": st.bonded(), "coordinators": coordinators(st),
             "min_bond": st.params.get("min_bond"), "unbond_seconds": chain.UNBOND_SECONDS,
             "now": time.time()}

@@ -550,9 +550,16 @@ class Host:
     def _parts(self, m):
         """Arquivos do modelo: o GGUF (texto) ou, para imagem/vídeo (v2), o principal mais os extras (VAE,
         codificadores de texto), cada um com o papel, o endereço, o SHA-256, o tamanho e onde fica no disco."""
-        if m["task"] == "text":
-            return [{"role": "main", "url": m["url"], "sha256": m["sha256"], "size": m["size"],
-                     "path": self._model_path(m["sha256"])}]
+        if m["task"] == "text":   # v4: o GGUF pode vir em partes (role "part"), na ordem do llama-gguf-split
+            parts = [{"role": "main", "url": m["url"], "sha256": m["sha256"],
+                      "size": m["main_size"] if m.get("files") else m["size"], "path": self._model_path(m["sha256"])}]
+            for f in m.get("files") or []:
+                sha = str(f.get("sha256")).lower()
+                if f.get("role") != "part" or not HASH_RE.match(sha) or not isinstance(f.get("size"), int):
+                    raise RefusedFile("parte de modelo de texto inválida", "gguf")
+                parts.append({"role": "part", "url": f.get("url"), "sha256": sha, "size": f["size"],
+                              "path": self._model_path(sha)})
+            return parts
         parts = [{"role": "main", "url": m["url"], "sha256": m["sha256"], "size": m["main_size"]}]
         parts += [{"role": f.get("role"), "url": f.get("url"), "sha256": str(f.get("sha256")).lower(),
                    "size": f.get("size")} for f in m["files"]]
@@ -563,6 +570,23 @@ class Host:
                 raise RefusedFile("arquivo de modelo de imagem/vídeo que não é .safetensors nem .gguf", "weights")
             x["path"] = self._model_path(x["sha256"], ext)
         return parts
+
+    def _split_names(self, sha, paths):
+        """Partes de um GGUF dividido com os nomes que o llama.cpp procura (links, sem copiar os GB): devolve a
+        primeira, que é o que se passa ao llama-server."""
+        folder = os.path.join(self.models_dir, "partes-" + sha[:16])
+        os.makedirs(folder, exist_ok=True)
+        names = [os.path.join(folder, f"m-{i:05d}-of-{len(paths):05d}.gguf") for i in range(1, len(paths) + 1)]
+        for src, dst in zip(paths, names):
+            if os.path.exists(dst) and os.path.getsize(dst) == os.path.getsize(src):
+                continue
+            if os.path.exists(dst):
+                os.remove(dst)
+            try:
+                os.link(src, dst)
+            except OSError:
+                os.symlink(src, dst)
+        return names[0]
 
     def _all_paths(self, m):
         try:
@@ -720,20 +744,32 @@ class Host:
             return
         if time.time() < m["retry_at"]:
             return
-        main = self._parts(m)[0]
-        refused = self._refused_reason(main, "gguf")
+        try:
+            parts = self._parts(m)
+        except RefusedFile as e:
+            return self._hold_refused(m, a, e.reason)
+        main = parts[0]
+        refused = next((r for r in (self._refused_reason(x, "gguf") for x in parts) if r), None)
         if refused:   # arquivo recusado há menos de 24 h: nem baixa de novo
             return self._hold_refused(m, a, refused)
         path = main["path"]
         try:
             if not loaded:
-                if not self._verified(path, m["size"]):
+                missing = [x for x in parts if not self._verified(x["path"], x["size"])]
+                if missing:
                     if self._underfunded(a):   # arquivo já no disco carrega; baixar GB para quem não paga, não
                         m["retry_at"] = time.time() + UNDERFUNDED_RETRY
                         self._set(m, "recusado", 0.0, UNDERFUNDED_TEXT)
                         self._decline(name)   # avisa a rede: tira a atribuição e põe cooldown, sem punição
                         return
-                    self._download(m, a["url"], path)
+                    if len(parts) == 1:
+                        self._download(m, a["url"], path)
+                    else:
+                        for x in missing:
+                            self._download(m, x["url"], x["path"], sha=x["sha256"], size=x["size"], kind="gguf",
+                                           label=x["role"])
+                if len(parts) > 1:   # o llama.cpp acha as partes pelo nome: <prefixo>-0000N-of-0000M.gguf
+                    path = self._split_names(main["sha256"], [x["path"] for x in parts])
                 self._set(m, "carregando", 1.0)
                 self.engine.load(name, path, m["sha256"])
                 m["loaded"] = True

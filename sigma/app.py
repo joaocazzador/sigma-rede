@@ -1960,6 +1960,11 @@ class App:
         models = self._read("/models") if models is None else models
         return {n: chain.model_task(m) for n, m in (models or {}).items() if isinstance(m, dict)}
 
+    def _net_parts(self):
+        """v4: a rede aceita modelo de texto em partes (os gigantes, que rodam divididos num grupo)?"""
+        mi = self.cache.get("mining") or self._read("/mining") or {}
+        return bool(mi.get("parts"))
+
     def _net_media(self):
         mi = self.cache.get("mining") or self._read("/mining") or {}
         return bool(mi.get("media"))
@@ -2047,7 +2052,7 @@ class App:
         return {"network": network, "waiting": waiting,
                 "catalog": [dict(i) for i in catalog.CATALOG + catalog.SPLIT_CATALOG],
                 "ai": {"prices": self._ai_prices(), "context": AI_CONTEXT, "tasks": tasks, "units": dict(UNITS),
-                       "limits": MEDIA_LIMITS, "media": media, "media_note": None if media else self._no_media_yet()}}
+                       "limits": MEDIA_LIMITS, "media": media, "parts": self._net_parts(), "media_note": None if media else self._no_media_yet()}}
 
     @staticmethod
     def _model_name(v):
@@ -2064,6 +2069,8 @@ class App:
             name, desc = d.get("name") or info["id"], info["description"]
             if info.get("task", "text") != "text" and not self._net_media():
                 raise AppError(self._no_media_yet())
+            if info.get("split") and not self._net_parts():
+                raise AppError("a rede ainda não aceita modelos em partes: eles entram na atualização das regras v4")
         elif d.get("url"):
             info = catalog.resolve_hf_url(d["url"])
             name, desc = d.get("name") or catalog.suggest_name(info["file"]), f"{info['repo']} · {info['file']}"

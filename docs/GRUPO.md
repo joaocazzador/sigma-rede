@@ -47,3 +47,23 @@ Funciona com o llama.cpp de sempre, pelo RPC dele.
 - Os trabalhadores são escolhidos pelo dono do coordenador. Ainda não há sorteio pela chain, conferência entre
   coordenadores nem porteiro: use com PCs de confiança.
 - O túnel precisa do Python 3.13 ou mais novo (o `.exe` já vem com o 3.14).
+
+## Modelos gigantes em partes (2.8, regras v4)
+
+- A partir do bloco 4032, um modelo de texto pode vir em várias partes: o GGUF dividido do Hugging Face.
+  - Cada parte tem até 100 GB, e o modelo inteiro até 600 GB.
+  - Os 5 gigantes do catálogo passam a ter o botão "Apadrinhar".
+- O coordenador baixa todas as partes, confere o SHA-256 de cada uma, dá a elas os nomes que o llama.cpp procura
+  (com links, sem copiar) e espalha as camadas pelos trabalhadores. Testado com o modelo de teste em 3 partes pelo
+  túnel: texto idêntico.
+- A rede só coloca um gigante num coordenador cuja memória somada (a dele mais a emprestada) cabe no modelo, e que
+  tem disco para o modelo inteiro.
+
+| Modelo | Memória somada | Disco no coordenador |
+|---|---|---|
+| gpt-oss 120B | ~77 GB, uns 8 trabalhadores emprestando 10 GB | 63 GB |
+| Qwen3 235B | ~171 GB | 142 GB |
+
+**Vídeo e imagem não se dividem.** O motor deles (stable-diffusion.cpp) não tem conexão entre máquinas, como o RPC do
+llama.cpp. Eles rodam inteiros num computador com memória suficiente: o Wan 2.1 14B pede ~21 GB, então cabe num PC
+de 32 GB.

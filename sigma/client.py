@@ -437,6 +437,9 @@ class Client:
         data = {"name": name, "url": str(url).strip(), "sha256": str(sha256).strip().lower(), "size": size,
                 "budget": to_usig(budget_sig), "royalty_bps": _bps(royalty_pct), "reinvest_bps": _bps(reinvest_pct),
                 "replicas": replicas, "description": description, "license": license}
+        if files and task in (None, "text"):   # v4: as partes de um GGUF dividido
+            data["files"] = [{"role": "part", "url": str(f["url"]).strip(), "sha256": str(f["sha256"]).lower(),
+                              "size": int(f["size"])} for f in files]
         if task and task != "text":
             data["task"] = task
             data["files"] = [{"role": f["role"], "url": str(f["url"]).strip(), "sha256": str(f["sha256"]).lower(),

@@ -44,16 +44,18 @@ from .pow import report_points, share_ok
 
 UNIT = 1_000_000            # 1 SIG = 1.000.000 µSIG
 # ---- atualizações das regras (docs/ATUALIZACOES.md)
-RULES = 3                   # a versão mais nova das regras que este código sabe executar
+RULES = 4                   # a versão mais nova das regras que este código sabe executar
 # v1: a rede da v2.4. v2 (v2.5): modelos de imagem e vídeo, preço por imagem e por segundo de vídeo.
-# v3 (v2.6): caução dos coordenadores (bond/unbond, corte e reputação)
+# v3 (v2.6): caução dos coordenadores (bond/unbond, corte e reputação).
+# v4 (v2.8): modelo de texto em várias partes (GGUF dividido), até 600 GB, para rodar dividido entre computadores
 # atualizações marcadas: hash do genesis da rede -> {versão: altura do primeiro bloco com ela}. Uma rede nova
 # já nasce na versão RULES; as entradas daqui só valem para a rede cujo genesis tem aquele hash.
 # rede principal (genesis a8eabe25…1029, recriada na 2.4): a v2 (imagem e vídeo, reserva dos fundadores, votações
 # decididas antes) entra no bloco 1950, marcado na publicação da 2.5 em 04/11/2026 (~1 h de aviso); a v3 (caução dos
 # coordenadores) no bloco 2780, marcado no mesmo dia no bloco 2679 (~40 min de aviso, 24 s por bloco; a primeira
 # marcação da 2.6 era o bloco 8000 e foi antecipada antes de qualquer bloco nas regras v3)
-SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780}}
+# a v4 (modelos de texto em partes, os gigantes) no bloco 4032, marcado no bloco 3882 (~1 h de aviso, 2.8)
+SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032}}
 UPGRADE_HISTORY_KEEP = 50
 # saldos que uma atualização cria na altura dela, uma vez só: hash do genesis -> {versão: [(endereço, µSIG)]}.
 # A v2 da rede principal cria a carteira dos fundadores: 1 milhão de SIG (1% do teto) para as primeiras despesas do
@@ -98,6 +100,12 @@ MEDIA_CLAIM_TIMEOUT = {"image": 1800, "video": 7200}   # gerar leva mais que res
 MEDIA_RAM_MB = {"image": 1536, "video": 4096}      # memória de trabalho além dos pesos (a do texto é 512)
 MODEL_ROLES = ("vae", "clip_l", "clip_g", "t5xxl", "llm")   # arquivos extras de um modelo de imagem/vídeo
 MAX_MODEL_FILES = 4
+# ---- modelos gigantes (regras v4): o GGUF dividido em partes (llama-gguf-split), baixado inteiro pelo coordenador
+# do grupo (sigma/grupo.py), que espalha as camadas pela memória dos trabalhadores
+PART_ROLE = "part"
+MAX_PARTS = 15               # partes além da primeira (o DeepSeek R1 671B tem 9 ao todo)
+MAX_PART_SIZE = 100_000_000_000
+MAX_SPLIT_SIZE = 600_000_000_000
 # ---- caução dos coordenadores (regras v3): quem coordena a divisão de modelos gigantes trava SIG na rede
 UNBOND_SECONDS = 14 * 86400  # a retirada espera 14 dias e até lá ainda pode ser cortada (o trapaceiro não saca antes)
 MAX_UNBONDING = 20           # retiradas em espera por caução: o estado e a conta de cada bloco não crescem sem limite
@@ -1455,26 +1463,37 @@ class State:
         digest = d.get("sha256")
         _need(isinstance(digest, str) and _hex64(digest.lower()), "sha256 deve ter 64 caracteres hexadecimais")
         size = d.get("size")
-        _need(_is_int(size) and 0 < size <= MAX_MODEL_SIZE, "size deve estar entre 1 byte e 60 GB")
         task = d.get("task", "text")              # v2: só aparece a partir da v2 (_fields recusa antes)
+        split = task == "text" and self.rule(4)   # v4: texto em partes, cada uma até 100 GB
+        if split:
+            _need(_is_int(size) and 0 < size <= MAX_PART_SIZE, "size deve estar entre 1 byte e 100 GB")
+        else:
+            _need(_is_int(size) and 0 < size <= MAX_MODEL_SIZE, "size deve estar entre 1 byte e 60 GB")
         _need(task in TASKS, "task deve ser 'text', 'image' ou 'video'")
         files = d.get("files", [])
-        _need(isinstance(files, list) and len(files) <= MAX_MODEL_FILES,
-              f"files deve ser uma lista de até {MAX_MODEL_FILES} arquivos")
-        _need(task != "text" or not files, "modelo de texto é um arquivo só (GGUF): sem files")
+        most = MAX_PARTS if split else MAX_MODEL_FILES
+        _need(isinstance(files, list) and len(files) <= most, f"files deve ser uma lista de até {most} arquivos")
+        _need(task != "text" or not files or split, "modelo de texto é um arquivo só (GGUF): sem files")
         clean_files, roles = [], set()
         for f in files:   # VAE, codificadores de texto: baixados e conferidos como o arquivo principal
             _need(isinstance(f, dict), "cada arquivo de files deve ser um objeto")
             _only(f, ("role", "url", "sha256", "size"), "em files")
             role, furl, fsha, fsize = f.get("role"), f.get("url"), f.get("sha256"), f.get("size")
-            _need(role in MODEL_ROLES and role not in roles, f"role deve ser um de {', '.join(MODEL_ROLES)}, sem repetir")
+            if split:   # v4: as partes 2..n do GGUF, na ordem
+                _need(role == PART_ROLE, "modelo de texto só leva files com role 'part' (as partes do GGUF)")
+            else:
+                _need(role in MODEL_ROLES and role not in roles,
+                      f"role deve ser um de {', '.join(MODEL_ROLES)}, sem repetir")
             _need(isinstance(furl, str) and len(furl) <= 500 and URL_RE.match(furl), "url de files inválida")
             _need(isinstance(fsha, str) and _hex64(fsha.lower()), "sha256 de files inválido")
-            _need(_is_int(fsize) and 0 < fsize <= MAX_MODEL_SIZE, "size de files inválido")
+            _need(_is_int(fsize) and 0 < fsize <= (MAX_PART_SIZE if split else MAX_MODEL_SIZE), "size de files inválido")
             roles.add(role)
             clean_files.append({"role": role, "url": furl, "sha256": fsha.lower(), "size": fsize})
         size_all = size + sum(f["size"] for f in clean_files)
-        _need(size_all <= MAX_MODEL_SIZE, "o modelo inteiro (com files) passa de 60 GB")
+        if split:
+            _need(size_all <= MAX_SPLIT_SIZE, "o modelo inteiro (com as partes) passa de 600 GB")
+        else:
+            _need(size_all <= MAX_MODEL_SIZE, "o modelo inteiro (com files) passa de 60 GB")
         royalty = self._bps(d, "royalty_bps", MAX_ROYALTY_BPS, 1000)
         reinvest = self._bps(d, "reinvest_bps", 10000, 0)
         replicas = d.get("replicas", 2)
@@ -1504,6 +1523,8 @@ class State:
                              "pinned_window": self.mining["window"], "created": self.now}
         if task != "text":   # v2: classe, arquivos extras e o tamanho só do arquivo principal
             self.models[name].update({"task": task, "files": clean_files, "main_size": size, "units": 0})
+        elif clean_files:    # v4: as partes do GGUF e o tamanho só da primeira
+            self.models[name].update({"files": clean_files, "main_size": size})
 
     def _tx_fund_model(self, sender, d, txid):
         m = self._model_of(sender, d)

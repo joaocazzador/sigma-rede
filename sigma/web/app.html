@@ -2951,17 +2951,19 @@ function modelTile(m, mine) {
 const catalogSize = (it) => N(it.total_size ?? it.size ?? it.bytes);
 // media = ai.media do app: false enquanto a rede não aceita imagem e vídeo (antes das regras v2)
 // gigantes (split): só rodam divididos entre várias máquinas; um PC de 16 GB empresta uns 9 GB
-function giantTile(it) {
+function giantTile(it, parts) {
   const size = catalogSize(it), ram = N(it.ram_mb) || Math.ceil(size / 1e6 * 1.2) + 512, pcs = Math.ceil(ram / 9000);
   return `<div class="tile"><div class="row between"><h4>${esc(it.title || it.name || it.id)}</h4><span><span class="tag">várias máquinas</span><span class="tag">${TASK_NAME.text}</span></span></div>`
     + (it.description ? `<p class="desc">${esc(it.description)}</p>` : "")
     + `<dl class="kv"><dt>Tamanho</dt><dd>${esc(fmtBytes(size))}${N(it.parts) > 1 ? ` em ${num(it.parts)} partes` : ""}</dd>`
     + `<dt>Memória</dt><dd>${esc(fmtMB(ram))} somando as máquinas (uns ${num(pcs)} computadores de 16 GB)</dd>`
     + `<dt>Licença</dt><dd>${esc(it.license || "—")}</dd></dl>`
-    + `<p class="hint">Não cabe em nenhum computador comum: roda dividido entre vários da rede. Ainda não dá para apadrinhar; a divisão entre máquinas entra numa próxima atualização da rede.</p></div>`;
+    + (parts
+      ? `<p class="hint">Não cabe em nenhum computador comum: a rede o coloca num grupo (um coordenador com disco para o modelo inteiro e trabalhadores emprestando memória até somar a que ele pede).</p><div class="row"><button type="button" class="small primary" data-sponsor="${esc(it.id)}">Apadrinhar</button></div>`
+      : `<p class="hint">Não cabe em nenhum computador comum: roda dividido entre vários da rede. Ainda não dá para apadrinhar; os modelos em partes entram na atualização das regras v4.</p>`) + `</div>`;
 }
 function catalogTile(it, onNet, media) {
-  if (it.split) return giantTile(it);
+  if (it.split) return giantTile(it, lazy.models.data?.ai?.parts);
   const size = catalogSize(it), ram = N(it.ram_mb) || Math.ceil(size / 1e6 * 1.2) + 512, net = onNet.get(it.sha256);
   const task = TASK_LIST.includes(it.task) ? it.task : "text";
   return `<div class="tile"><div class="row between"><h4>${esc(it.title || it.name || it.id)}</h4><span>${net ? `<span class="tag ok" title="na rede como ${esc(net)}">já na rede</span>` : ""}<span class="tag">${TASK_NAME[task]}</span></span></div>`

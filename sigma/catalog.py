@@ -151,31 +151,92 @@ CATALOG = [
           recipe={"steps": 20, "cfg": 6.0, "sampler": "euler", "size": "832x480", "flow_shift": 3.0}),
 ]
 
-# Gigantes: não cabem em nenhum computador comum e só rodam divididos entre várias máquinas (a divisão aberta,
-# docs/PENDENCIAS.md). Aparecem no catálogo para mostrar aonde a rede vai, mas ainda não se apadrinham: a chain só
-# aceita um arquivo de até 60 GB por modelo. `size` é a soma das partes; `parts`, quantos arquivos o GGUF tem.
-def _giant(id_, name, repo, size, parts, license, description):
-    return {"id": id_, "name": name, "repo": repo, "url": f"{HF}/{repo}", "size": size, "parts": parts,
-            "license": license, "description": description, "ram_mb": ram_mb(size), "task": "text", "split": True}
+# Gigantes (regras v4): não cabem em nenhum computador comum e rodam divididos num grupo (sigma/grupo.py). O
+# coordenador baixa todas as partes do GGUF (precisa de disco para o modelo inteiro) e espalha as camadas pela memória
+# dos trabalhadores; a rede só coloca o modelo num coordenador cuja memória somada (a dele + a emprestada) cabe.
+def _giant(id_, name, repo, license, description, parts):
+    (f0, s0, h0), rest = parts[0], parts[1:]
+    item = _item(id_, name, repo, f0, s0, h0, license, description)
+    extra = [{"role": "part", "url": f"{HF}/{repo}/resolve/main/{f}", "sha256": h, "size": n} for f, n, h in rest]
+    total = s0 + sum(x["size"] for x in extra)
+    item.update(files=extra, total_size=total, ram_mb=ram_mb(total), split=True, parts=1 + len(extra))
+    return item
 
 
 SPLIT_CATALOG = [
-    _giant("gpt-oss-120b", "gpt-oss 120B", "ggml-org/gpt-oss-120b-GGUF", 63387346208, 1, "Apache-2.0",
-           "O maior modelo aberto da OpenAI, perto dos modelos fechados em raciocínio."),
-    _giant("qwen3-235b-a22b", "Qwen3 235B-A22B", "Qwen/Qwen3-235B-A22B-GGUF", 142154074176, 5, "Apache-2.0",
-           "O topo da família Qwen3: conversa, raciocina e programa no nível dos melhores."),
-    _giant("glm-4.5", "GLM-4.5 355B", "unsloth/GLM-4.5-GGUF", 216455572672, 5, "MIT",
-           "Da Zhipu: forte em agentes, ferramentas e programação."),
-    _giant("qwen3-coder-480b", "Qwen3 Coder 480B-A35B", "unsloth/Qwen3-Coder-480B-A35B-Instruct-GGUF",
-           290058826208, 6, "Apache-2.0", "O maior modelo aberto de programação: projetos inteiros, não só trechos."),
-    _giant("deepseek-r1-0528", "DeepSeek R1 671B", "unsloth/DeepSeek-R1-0528-GGUF", 404941900832, 9, "MIT",
-           "O DeepSeek R1 completo, 671 bilhões de parâmetros: pensa longamente antes de responder."),
+    _giant("gpt-oss-120b", "gpt-oss 120B", "ggml-org/gpt-oss-120b-GGUF", "Apache-2.0",
+           "O maior modelo aberto da OpenAI, perto dos modelos fechados em raciocínio.",
+           [
+            ("gpt-oss-120b-MXFP4.gguf", 63387346208,
+             "582bd40f6886200101f4c4ed9f25f3fe80cc14c86e9e2b37746cd8904a0c622d")]),
+    _giant("qwen3-235b-a22b", "Qwen3 235B-A22B", "Qwen/Qwen3-235B-A22B-GGUF", "Apache-2.0",
+           "O topo da família Qwen3: conversa, raciocina e programa no nível dos melhores.",
+           [
+            ("Q4_K_M/Qwen3-235B-A22B-Q4_K_M-00001-of-00005.gguf", 29742283872,
+             "ce666f562eb8eefda48eec0aa93680ba40ca5727d0ba9918f3fb1771141375e6"),
+            ("Q4_K_M/Qwen3-235B-A22B-Q4_K_M-00002-of-00005.gguf", 29974106496,
+             "ac73c457aac5993d02444063c976062c70be609c03ca6584d0c3be0632e79ce6"),
+            ("Q4_K_M/Qwen3-235B-A22B-Q4_K_M-00003-of-00005.gguf", 29933980640,
+             "6357074e14a748446c2b0dcc64a1a7c64b1c124fbfb9cb48114147645d3310fe"),
+            ("Q4_K_M/Qwen3-235B-A22B-Q4_K_M-00004-of-00005.gguf", 29936094304,
+             "2eb47718eaeeebee3726cd2ca4ac11b5768faded5d7adddec5b754aeb7c387dd"),
+            ("Q4_K_M/Qwen3-235B-A22B-Q4_K_M-00005-of-00005.gguf", 22567608864,
+             "dbe2c7547c0d397d2ef16e08218a586383771dc12e9678cfd6fa8cc23e94e8f8")]),
+    _giant("glm-4.5", "GLM-4.5 355B", "unsloth/GLM-4.5-GGUF", "MIT",
+           "Da Zhipu: forte em agentes, ferramentas e programação.",
+           [
+            ("Q4_K_M/GLM-4.5-Q4_K_M-00001-of-00005.gguf", 50006655328,
+             "af56d111e3e639af15e1e0740f994cf1179c8836d5b840da8d935206cfa33b1f"),
+            ("Q4_K_M/GLM-4.5-Q4_K_M-00002-of-00005.gguf", 49705685664,
+             "5a9ad08799ef59ef1e3e32857299f39f22b90c56c489462353e842915c872146"),
+            ("Q4_K_M/GLM-4.5-Q4_K_M-00003-of-00005.gguf", 49631164960,
+             "8892999a5fd118084e5353ea9889506c4f5da35ee05524d8dd576957726d9272"),
+            ("Q4_K_M/GLM-4.5-Q4_K_M-00004-of-00005.gguf", 49501239424,
+             "aee51d4a55f8edfb4bfe0b8316500b92c49a4c2d678930fa4ee70b98ac3b9aaa"),
+            ("Q4_K_M/GLM-4.5-Q4_K_M-00005-of-00005.gguf", 17610827296,
+             "94bc61f761c84e681acf11c431abd0cf09fa43bc86ffb8a0fa063d8630b4815a")]),
+    _giant("qwen3-coder-480b", "Qwen3 Coder 480B-A35B", "unsloth/Qwen3-Coder-480B-A35B-Instruct-GGUF", "Apache-2.0",
+           "O maior modelo aberto de programação: projetos inteiros, não só trechos.",
+           [
+            ("Q4_K_M/Qwen3-Coder-480B-A35B-Instruct-Q4_K_M-00001-of-00006.gguf", 49973553312,
+             "47c7a389014e2b355d8a7d22cb9a1e7a3e8d320d2c41478f9f22b57e385c24c2"),
+            ("Q4_K_M/Qwen3-Coder-480B-A35B-Instruct-Q4_K_M-00002-of-00006.gguf", 49768927168,
+             "2ed1501a15c36be304e7599f9e02e6bd16ecd67a1e59c35144a63d5f77cf924a"),
+            ("Q4_K_M/Qwen3-Coder-480B-A35B-Instruct-Q4_K_M-00003-of-00006.gguf", 48862488352,
+             "3cae399c40bdc4873e326a0c4f2e6d48f6fccb11eedddaf894436526984cebfe"),
+            ("Q4_K_M/Qwen3-Coder-480B-A35B-Instruct-Q4_K_M-00004-of-00006.gguf", 48952192064,
+             "966ff0058ea3f5e849cb2161b5ce90d9cbee478ccb8f142ac54f14c1fd58bb12"),
+            ("Q4_K_M/Qwen3-Coder-480B-A35B-Instruct-Q4_K_M-00005-of-00006.gguf", 49721298176,
+             "e896375ba530a21fd526ad0b8ede091501ea3361cd02d134aea32428c75614bf"),
+            ("Q4_K_M/Qwen3-Coder-480B-A35B-Instruct-Q4_K_M-00006-of-00006.gguf", 42780367136,
+             "6722d06717918499719e125206b3b5d4ff886dd532acf5a1a0749d59803d3ddb")]),
+    _giant("deepseek-r1-0528", "DeepSeek R1 671B", "unsloth/DeepSeek-R1-0528-GGUF", "MIT",
+           "O DeepSeek R1 completo, 671 bilhões de parâmetros: pensa longamente antes de responder.",
+           [
+            ("Q4_K_M/DeepSeek-R1-0528-Q4_K_M-00001-of-00009.gguf", 48423670176,
+             "81034e575733f3be6051805afa475fafa36074ea9c52030232c5d70d2fd7b1d0"),
+            ("Q4_K_M/DeepSeek-R1-0528-Q4_K_M-00002-of-00009.gguf", 49488117120,
+             "9900cbe6e956fe83ca4e47b27493d3ee434e536d4287ff7122808ccb6bdcc790"),
+            ("Q4_K_M/DeepSeek-R1-0528-Q4_K_M-00003-of-00009.gguf", 49594422144,
+             "46462bef75ad3c7326b74dfbd22328575b28a964af193f1ebd53a6b7d7d9b703"),
+            ("Q4_K_M/DeepSeek-R1-0528-Q4_K_M-00004-of-00009.gguf", 48331230336,
+             "e8a6b4964375c39bfb54f5f29d106497013f00f0bddf49925e6091277b6f2937"),
+            ("Q4_K_M/DeepSeek-R1-0528-Q4_K_M-00005-of-00009.gguf", 49480748288,
+             "708d5ac916934f6f38aa53eb0d60e02716641f724987b83659546fa54f0c2e96"),
+            ("Q4_K_M/DeepSeek-R1-0528-Q4_K_M-00006-of-00009.gguf", 48331230336,
+             "8d7b85f938349dc6108c868ec5616fd60fc2be23916157390cfa44fe376cb4c7"),
+            ("Q4_K_M/DeepSeek-R1-0528-Q4_K_M-00007-of-00009.gguf", 49488117120,
+             "368ee7cea044c3e7a771a7e406d032fd69757a44b1bb2a3f8001f0f4e0b2e5bc"),
+            ("Q4_K_M/DeepSeek-R1-0528-Q4_K_M-00008-of-00009.gguf", 46997494496,
+             "d32fc34c50e06fadb545c4168c7c8b6ccac28f4b75a768b35734a09a1bca1841"),
+            ("Q4_K_M/DeepSeek-R1-0528-Q4_K_M-00009-of-00009.gguf", 14806870816,
+             "dc6efd592eb003895582c9ed7e197d49af511d6f11f7ee11320eae3785f22f84")]),
 ]
 
 
 def find(catalog_id):
-    """Item do catálogo pelo id (cópia, para ninguém alterar o catálogo sem querer)."""
-    return next((dict(i) for i in CATALOG if i["id"] == catalog_id), None)
+    """Item do catálogo pelo id (cópia, para ninguém alterar o catálogo sem querer); os gigantes também."""
+    return next((dict(i) for i in CATALOG + SPLIT_CATALOG if i["id"] == catalog_id), None)
 
 
 def suggest_name(filename):

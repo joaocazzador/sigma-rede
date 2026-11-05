@@ -219,7 +219,7 @@ def show_catalog(items):
         print(f"{x['id']:<24} {TASK_NAMES.get(x.get('task'), 'texto'):<6} {fmt_size(size):>8}  "
               f"{x.get('license', ''):<11} {x.get('description', '')}")
     print("\napadrinhe com: python -m sigma.cli model-register --catalog <id> --budget <SIG>")
-    print("\ngigantes (só rodam divididos entre várias máquinas; ainda não dá para apadrinhar):")
+    print("\ngigantes (rodam divididos num grupo de computadores, docs/GRUPO.md; a partir das regras v4):")
     for x in load_catalog().SPLIT_CATALOG:
         print(f"  {x['id']:<22} {fmt_size(x['size']):>8}  {x['license']:<11} {x['description']}")
 
@@ -232,7 +232,8 @@ def model_source(a):
     info = {"name": a.name, "url": a.url, "sha256": a.sha256, "size": a.size,
             "license": a.license, "description": a.description, "task": "text", "files": None}
     if a.catalog:
-        items = load_catalog().CATALOG
+        cat = load_catalog()
+        items = cat.CATALOG + cat.SPLIT_CATALOG   # v4: os gigantes também (em partes)
         item = next((x for x in items if x["id"] == a.catalog), None)
         if not item:
             raise SigmaError(f"'{a.catalog}' não está no catálogo; opções: " + ", ".join(x["id"] for x in items))
