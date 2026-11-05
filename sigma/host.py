@@ -27,7 +27,7 @@ import urllib.parse
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import awake, grupo, hardware, media, netsafe, tasks
+from . import awake, grupo, hardware, media, netsafe, relay, tasks
 from .chain import FUNDED_ABOVE, MEDIA_CLAIM_TIMEOUT, MEDIA_PRICES, MIN_FUNDED_SECONDS, TASK_PRICE, canon
 from .client import Client, SigmaError
 from .crypto import is_sealed, norm_address, seal
@@ -39,7 +39,8 @@ MAX_PRICE = 1_000_000       # teto da chain para os dois preços
 MAX_MEDIA_PRICE = 100_000_000   # teto da chain por imagem e por segundo de vídeo (v2)
 DEFAULTS = {"ai_enabled": True, "compute_enabled": True, "disk_gb": 20, "ai_ram_gb": 4, "public_url": "",
             "engine": "auto", "ai_threads": None, "name": "", "port": None, "cheat": False,
-            "ai_image": True, "ai_video": True}   # v2: aceitar modelos de imagem e de vídeo (os dois por padrão)
+            "ai_image": True, "ai_video": True,   # v2: aceitar modelos de imagem e de vídeo (os dois por padrão)
+            "lend": True}                         # v8: emprestar memória para os grupos que a rede monta sozinha
 MIN_AI_RAM_MB = 1500        # abaixo disso a rede não coloca modelo aqui
 MAX_AI_RAM_MB = 1_048_576   # teto da chain para hw.ai_ram_mb
 MAX_TOKENS = 10 ** 9        # teto da chain para tokens_in e tokens_out
@@ -143,6 +144,11 @@ class _Unreadable(Exception):
 # o que um pedido malformado levanta ao ser lido: além de JSON e campos inválidos, número infinito (Infinity e
 # 1e999 passam no json do Python) virando inteiro (OverflowError) e JSON aninhado demais (RecursionError)
 RACE_LOST = "outra máquina entregou primeiro"
+
+
+def engines_free_port():
+    from .engines import free_port
+    return free_port()
 VIDEO_MIN_VRAM_MB = 6000     # placa de vídeo mínima para aceitar vídeo sozinho (o Wan 1.3B cabe em ~6 GB)
 MAX_PROGRESS_TEXT = 60_000   # caracteres do texto parcial mandados no progresso (o fim, se passar)
 
@@ -204,9 +210,11 @@ class Host:
         self.miner = miner
         self.log = log
         # grupo (sigma/grupo.py): coordenador usa a memória de outros PCs; trabalhador empresta a sua e não serve IA
+        self._auto = None                     # v8: o grupo que a rede montou com esta máquina (papel e objetos)
         self.group = grupo.from_settings(self.settings.get("group"), machine_wallet, self.client, data_dir,
                                          self.settings["ai_threads"], log)
         video_group = bool(self.group and getattr(self.group, "kind", "text") == "video")
+        self.group_manual = bool(self.group)   # grupo da linha de comando: a rede não monta outro aqui
         if self.group and self.group.role == "coordinator" and not video_group:
             self.settings["engine"] = "llamacpp"      # o Ollama não divide camadas entre máquinas
         if video_group and self.group.role == "coordinator":
@@ -282,6 +290,7 @@ class Host:
 
     def stop(self):
         self._awake.set(False)
+        self._stop_auto()
         self._stop.set()
         self._wake.set()
         self._jobs_wake.set()
@@ -404,9 +413,9 @@ class Host:
         return info if isinstance(info, dict) else {}
 
     def _group_rpc(self, kind):
-        """Função -> pontes do grupo para o motor deste tipo (texto ou vídeo), ou None sem grupo."""
-        group = self.group
-        return (lambda: group.rpc(kind)) if group else None
+        """Função -> pontes do grupo para o motor deste tipo (texto ou vídeo). Lê o grupo da hora: o da linha de
+        comando ou o que a rede montou (v8), que muda com o tempo."""
+        return lambda: self.group.rpc(kind) if self.group else []
 
     def _net_media(self):
         """A rede já está nas regras v2 (aceita modelos de imagem e vídeo)? Antes disso, registrar "tasks" ou
@@ -458,8 +467,8 @@ class Host:
         ai_ram = hardware.gb_to_mb(s["ai_ram_gb"])   # GB como o Windows mostra (2^30 bytes) -> MB da chain
         # nunca mais do que existe (nem que o teto da chain)
         ai_ram = max(0, min(ai_ram, max(hw["ram_mb"] - 1000, hw["vram_mb"]), MAX_AI_RAM_MB))
-        if self.group:   # coordenador: soma a memória que os trabalhadores conectados emprestam
-            ai_ram = min(ai_ram + self.group.lent_mb(), MAX_AI_RAM_MB)
+        if self.group and self.group_manual:   # grupo à mão: soma a memória que os trabalhadores emprestam (no
+            ai_ram = min(ai_ram + self.group.lent_mb(), MAX_AI_RAM_MB)   # automático, quem soma é a rede)
         used = self._disk_used_mb()
         disk = max(0, min(hardware.gb_to_mb(s["disk_gb"]), used + max(0, hw["disk_free_mb"] - 2000)))
         want_ai = bool(s["ai_enabled"]) and ai_ram >= MIN_AI_RAM_MB
@@ -480,13 +489,15 @@ class Host:
                 "pub": self.wallet.pub}
         if net_media:   # v2: quais classes de IA esta máquina hospeda
             data["tasks"] = (["text"] if text else []) + extra
+        if self._mining_info().get("groups"):   # v8: empresta memória para os grupos da rede
+            data["lend"] = bool(s.get("lend", True)) and text and not self.group_manual
         return data
 
     def _fingerprint(self, data):
         s = self.settings
         return (data["payout"], data["name"], data["ai"], data["compute"], data["endpoint"],
                 json.dumps(data["prices"], sort_keys=True), s["disk_gb"], s["ai_ram_gb"],
-                tuple(data.get("tasks") or ()), data["hw"]["ai_ram_mb"])
+                tuple(data.get("tasks") or ()), data["hw"]["ai_ram_mb"], data.get("lend"))
 
     def _register_if_needed(self):
         data = self._registration()
@@ -753,7 +764,83 @@ class Host:
             self._wake.wait(10)
             self._wake.clear()
 
+    # ------------------------------------------------------------ grupos automáticos (v8)
+    def _relay_addr(self):
+        """host:porta do relé do nó (o /mining diz a porta; o host é o mesmo do nó)."""
+        port = self._mining_info().get("relay_port")
+        if not isinstance(port, int) or isinstance(port, bool) or not 0 < port < 65536:
+            return None
+        from urllib.parse import urlparse
+        host = urlparse(self.node_url).hostname
+        return f"{host}:{port}" if host else None
+
+    def _sync_groups(self):
+        """Segue o que a rede decidiu (o /machine/<eu> lista os grupos desta máquina): sobe o papel novo e desliga
+        o antigo. Com um grupo da linha de comando, a rede não monta outro aqui."""
+        if self.group_manual:
+            return
+        gs = [g for g in ((self._record or {}).get("groups") or []) if isinstance(g, dict) and g.get("id")]
+        want = gs[0] if gs else None
+        cur = self._auto
+        if cur and (want is None or want["id"] != cur["id"] or want.get("role") != cur["role"]):
+            self._stop_auto()
+        if want and not self._auto:
+            self._start_auto(want)
+
+    def _start_auto(self, g):
+        addr = self._relay_addr()
+        if not addr:
+            self._error("grupo", "grupo: o nó não tem relé; não dá para entrar no grupo que a rede montou")
+            return
+        try:
+            if g["role"] == "worker":
+                join = relay.RelayJoin(addr, g["id"], self.wallet, log=self.log).start()
+                w = grupo.Worker(self.wallet, self.client, g["coordinator"], join.endpoint, self.data_dir,
+                                 self.settings["ai_threads"], self.log)
+                w.start()
+                self.group, objs = w, [join, w]
+                self.log(f"[grupo] a rede me colocou no grupo de '{g['model']}': emprestando "
+                         f"{_gb(g['workers'].get(self.address, 0))} para {g['coordinator'][:10]}")
+            else:
+                listen = f"127.0.0.1:{engines_free_port()}"
+                c = grupo.Coordinator(self.wallet, self.client, listen, g["workers"], self.log)
+                c.start()
+                host = relay.RelayHost(addr, g["id"], self.wallet, listen, log=self.log).start()
+                self.group, objs = c, [host, c]
+                self.log(f"[grupo] a rede me escolheu para coordenar '{g['model']}' com {len(g['workers'])} "
+                         "trabalhador(es)")
+        except Exception as e:
+            self._error("grupo", f"grupo: não consegui entrar no grupo ({type(e).__name__}: {e})")
+            return
+        self._auto = {"id": g["id"], "role": g["role"], "model": g.get("model"), "workers": dict(g["workers"]),
+                      "objs": objs}
+
+    def _stop_auto(self):
+        cur, self._auto = self._auto, None
+        if not cur:
+            return
+        for o in reversed(cur["objs"]):
+            try:
+                o.stop()
+            except Exception:
+                pass
+        self.group = None
+        self.log(f"[grupo] saí do grupo de '{cur.get('model')}'")
+
+    def _group_wait(self, name):
+        """Coordenador de um grupo automático para `name`: (conectados, total) enquanto falta trabalhador, ou None
+        se não precisa esperar (o gigante só carrega com a memória do grupo inteira à mão)."""
+        cur = self._auto
+        if not cur or cur["role"] != "coordinator" or cur.get("model") != name or not self.group:
+            return None
+        done = len(set(self.group.connected()) & set(cur["workers"]))
+        return None if done >= len(cur["workers"]) else (done, len(cur["workers"]))
+
     def _sync_models(self):
+        try:
+            self._sync_groups()
+        except Exception as e:
+            self._error("grupo", f"grupo: {type(e).__name__}: {e}")
         if self._swap:
             self._swap_engine()
         rec = self._record
@@ -848,6 +935,11 @@ class Host:
                                            label=x["role"])
                 if len(parts) > 1:   # o llama.cpp acha as partes pelo nome: <prefixo>-0000N-of-0000M.gguf
                     path = self._split_names(main["sha256"], [x["path"] for x in parts])
+                wait = self._group_wait(name)
+                if wait:   # v8: o gigante só sobe com todos os trabalhadores ligados (senão iria todo para cá)
+                    m["retry_at"] = time.time() + 15
+                    self._set(m, f"esperando o grupo ({wait[0]} de {wait[1]} computadores ligados)", 1.0)
+                    return
                 self._set(m, "carregando", 1.0)
                 self.engine.load(name, path, m["sha256"])
                 m["loaded"] = True

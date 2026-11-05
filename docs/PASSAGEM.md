@@ -29,6 +29,7 @@ A rede usa regras versionadas, que entram numa altura marcada sem recomeçar a c
 | v5 | 4300 | 2.10 | falha em imagem ou vídeo tira 1 de reputação; a memória de IA conta só o maior modelo da máquina (eles se revezam na RAM), até 8 modelos por máquina |
 | v6 | 5800 | 2.11 | o cliente libera o pedido de uma máquina que sumiu da rede (release_job): valor de volta na hora, falta para a máquina |
 | v7 | 6870 | 2.12 | corrida (até 2 máquinas ociosas a mais; a primeira que entrega vence) e vigia (a entrega fica "review"; uma máquina sorteada aprova ou reprova; 5% para ela; o cliente contesta uma vez; sem veredito em 30 min paga sozinho) |
+| v8 | 7150 | 2.14 | grupos automáticos pela reputação (lend), cópias que correm, rateio pela memória, punição severa (reputação e metade da caução), vigia de reserva; relé dos grupos na porta 7790 |
 
 - A v4 foi marcada para ~23h20 de 04/11. Confira em `/mining`, que deve mostrar `"parts": true`.
 - Versões que não mudaram regras:
@@ -49,6 +50,7 @@ A rede usa regras versionadas, que entram numa altura marcada sem recomeçar a c
 | `sigma/grupo.py` | coordenador e trabalhador do grupo |
 | `sigma/tunnel.py` | túnel TLS 1.3 PSK com retomada; ainda sem revisão de segurança nem testes de estresse |
 | `sigma/updater.py` | atualização automática do .exe e do .pyz (baixa do nó, confere o SHA-256, troca e reabre) |
+| `sigma/relay.py` | relé dos grupos: coordenador e trabalhadores atrás de roteador se encontram pelo nó público |
 | `sigma/catalog.py` | catálogo de modelos, com tamanhos e SHA-256 do Hugging Face (`pesquisa/hf_consulta.py`) |
 | `sigma/client.py`, `sigma/cli.py` | cliente HTTP e linha de comando |
 | `tests/` | `python -m unittest discover -s tests` |

@@ -67,3 +67,44 @@ Funciona com o llama.cpp de sempre, pelo RPC dele.
 **Vídeo (2.9, em teste):** o stable-diffusion.cpp também tem RPC, compilado à parte. Com `--group-kind video`, o
 modelo de difusão do Wan se divide entre os trabalhadores: veja [GRUPO-VIDEO.md](GRUPO-VIDEO.md). A imagem continua
 rodando inteira num computador só.
+
+
+## Grupos automáticos (2.14, regras v8)
+
+A rede monta os grupos sozinha. Ninguém precisa configurar nada.
+
+- **Quem entra.** Toda máquina com "Emprestar memória para grupos" ligado (o padrão) declara `lend` no registro e
+  entra no sorteio. Uma máquina fica em um grupo de cada vez.
+- **Como a rede monta.** Na virada da janela, um modelo de texto que não cabe em nenhuma máquina ganha um grupo por
+  réplica. O coordenador é quem tem disco para o modelo inteiro e a maior reputação (a caução desempata). Os
+  trabalhadores são os de maior reputação com pelo menos 2 GB livres, até a memória somada cobrir o modelo (até 64
+  membros). O grupo fica em `ext["groups"]` e cada máquina vê o seu papel em `/machine/<endereço>` (`groups`).
+- **Cópias que correm.** Cada réplica é um grupo completo, então cada parte do modelo tem a sua cópia no outro
+  grupo. Os pedidos correm entre os grupos (regras v7): o mais rápido leva o pagamento e a reputação.
+- **Pagamento e aluguel.** Repartidos pela memória de cada membro (o coordenador conta a parte dele). Todos os
+  membros ganham reputação quando o grupo entrega.
+- **Grupo que se desfaz.** Se algum membro some (sem sinalizar nesta janela nem na anterior) ou o coordenador larga o
+  modelo, o grupo acaba, quem sumiu perde 1 de reputação e a rede monta outro na janela seguinte.
+- **Vigia e punição.** A vigia sempre existe: se ninguém mais hospeda o gigante, vigia qualquer máquina confiável, fora
+  do grupo. Trapaça custa caro: quem entregou perde 10 de reputação e metade da caução (parte vai para a vigia e para o
+  cliente), e cada trabalhador do grupo perde 3.
+
+### O relé (atrás de roteador)
+
+PCs de casa não recebem conexões. Por isso o nó público roda um relé (`--relay-port`, na VPS a porta 7790,
+`sigma/relay.py`). O coordenador e os trabalhadores discam o relé; ele confere pela assinatura de cada máquina que ela é
+mesmo do grupo e só repassa bytes. O túnel do grupo (TLS 1.3 com a chave das máquinas) passa cifrado por dentro: o
+relé não lê nada.
+
+Nas pontas tudo continua igual: o coordenador escuta o túnel em 127.0.0.1 e o trabalhador disca 127.0.0.1; os agentes
+`RelayHost` e `RelayJoin` fazem a ponte.
+
+### O que esperar
+
+- Pela internet, cada palavra passa por todos os computadores do grupo, um depois do outro. Num grupo de 5, a resposta
+  sai em poucas palavras por segundo: bem mais lenta que num computador só, mas roda um modelo que não caberia em
+  nenhum.
+- A primeira carga manda as camadas do modelo do coordenador para cada trabalhador, pelo relé. Depois o `rpc-server` de
+  cada trabalhador guarda as camadas em cache (`-c`) e a próxima carga é rápida.
+- Ainda não testado com PCs de verdade pela internet: os testes cobrem a chain, a máquina e o túnel passando pelo relé
+  (`tests/test_chain_v8.py`, `tests/test_host_groups.py`, `tests/test_relay.py`).

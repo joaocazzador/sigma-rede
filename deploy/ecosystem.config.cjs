@@ -20,7 +20,10 @@ module.exports = {
       script: "python3",
       args: `-m sigma.node run --dir ${DATA}/no --host 127.0.0.1 --port 8700 --producer --public ` +
             `--heartbeat 30 --blob-cap-gb 20 --downloads /opt/sigma/downloads ` +
-            `--work-per-ip 256 --bad-work-per-ip 8 --tx-per-ip 300 --blob-mb-per-ip-hour 500`,
+            `--work-per-ip 256 --bad-work-per-ip 8 --tx-per-ip 300 --blob-mb-per-ip-hour 500 ` +
+            // v8: relé dos grupos (porta pública TCP): coordenador e trabalhadores atrás de roteador se encontram aqui;
+            // o túnel do grupo passa cifrado por dentro, o relé só repassa bytes de membros que provam quem são
+            `--relay-port 7790`,
       interpreter: "none",
       env: { PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" },
       // A memória do nó não cresce com a chain (só os últimos 2.000 blocos ficam na RAM): este teto é rede de

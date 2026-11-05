@@ -44,7 +44,7 @@ from .pow import report_points, share_ok
 
 UNIT = 1_000_000            # 1 SIG = 1.000.000 µSIG
 # ---- atualizações das regras (docs/ATUALIZACOES.md)
-RULES = 7                   # a versão mais nova das regras que este código sabe executar
+RULES = 8                   # a versão mais nova das regras que este código sabe executar
 # v1: a rede da v2.4. v2 (v2.5): modelos de imagem e vídeo, preço por imagem e por segundo de vídeo.
 # v3 (v2.6): caução dos coordenadores (bond/unbond, corte e reputação).
 # v4 (v2.8): modelo de texto em várias partes (GGUF dividido), até 600 GB, para rodar dividido entre computadores
@@ -61,6 +61,13 @@ RULES = 7                   # a versão mais nova das regras que este código sa
 # recebe 95%, a vigia 5% (WATCH_BPS) e ambas ganham reputação. Reprovou: o valor volta e a vencedora perde
 # reputação. O cliente pode contestar uma vez (dispute_job): sorteia outra vigia e dá mais REVIEW_SECONDS; havendo
 # discordância, vale a vigia. Sem veredito no prazo, paga sozinho (ninguém fica sem receber por falta de vigia).
+# v8 (v2.14): GRUPOS AUTOMÁTICOS. A máquina que empresta memória (register_machine "lend") entra no sorteio; um
+# modelo que não cabe em ninguém ganha, por réplica, um grupo montado pela rede pela reputação (um coordenador com
+# disco para o modelo inteiro e trabalhadores até somar a memória). Cada réplica é um grupo completo, então cada parte
+# do modelo tem a sua cópia no outro grupo, e os pedidos correm entre os grupos (v7): o mais rápido leva. O pagamento
+# do grupo é repartido pela memória de cada um e todos ganham reputação. Grupo com membro sumido se desfaz e a rede
+# monta outro. A vigia sempre existe (se ninguém mais hospeda o modelo, vigia qualquer máquina confiável) e a trapaça
+# custa caro: -BAD_REPUTATION_V8 e metade da caução de quem entregou, e reputação dos trabalhadores do grupo.
 # atualizações marcadas: hash do genesis da rede -> {versão: altura do primeiro bloco com ela}. Uma rede nova
 # já nasce na versão RULES; as entradas daqui só valem para a rede cujo genesis tem aquele hash.
 # rede principal (genesis a8eabe25…1029, recriada na 2.4): a v2 (imagem e vídeo, reserva dos fundadores, votações
@@ -72,7 +79,8 @@ RULES = 7                   # a versão mais nova das regras que este código sa
 # (~18 min de aviso, 2.10: o dono pediu o mais rápido possível)
 # a v6 (liberar o pedido de uma máquina que sumiu) no bloco 5800, marcado no bloco 5736 (~20 min de aviso, 2.11)
 # a v7 (corrida e vigia) no bloco 6870, marcado no bloco 6797 (~22 min de aviso, 2.12)
-SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300, 6: 5800, 7: 6870}}
+# a v8 (grupos automáticos, relé, punição severa) no bloco 7150, marcado no bloco 7078 (~24 min de aviso, 2.14)
+SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300, 6: 5800, 7: 6870, 8: 7150}}
 UPGRADE_HISTORY_KEEP = 50
 # saldos que uma atualização cria na altura dela, uma vez só: hash do genesis -> {versão: [(endereço, µSIG)]}.
 # A v2 da rede principal cria a carteira dos fundadores: 1 milhão de SIG (1% do teto) para as primeiras despesas do
@@ -183,7 +191,7 @@ SIGNED_KEYS = frozenset({"type", "data", "nonce", "pub", "sig", "id"})
 UNSIGNED_KEYS = frozenset({"type", "data", "id"})          # work e evm
 TX_FIELDS = {
     "transfer": {"to", "amount"},
-    "register_machine": {"payout", "name", "hw", "endpoint", "prices", "ai", "compute", "pub", "tasks"},
+    "register_machine": {"payout", "name", "hw", "endpoint", "prices", "ai", "compute", "pub", "tasks", "lend"},
     "ping": set(),
     "claim_job": {"job_id"},
     "submit_result": {"job_id", "result_hash", "usage", "failed"},
@@ -222,6 +230,12 @@ REVIEW_SECONDS = 1800       # v7: prazo da vigia; sem veredito, a entrega é pag
 WATCH_BPS = 500             # v7: 5% do valor vai para a vigia que aprovou
 REDO_ONE_IN = 10            # v7: 1 em cada 10 entregas a vigia refaz o trabalho para comparar
 BAD_REPUTATION = 2          # v7: reputação que a vencedora perde quando a vigia reprova
+BAD_REPUTATION_V8 = 10      # v8: punição severa (a vigia reprovou): reputação de quem entregou
+BAD_SLASH_BPS = 5000        # v8: e metade da caução dela (o corte vai em parte para a vigia e para o cliente)
+BAD_WORKER_REPUTATION = 3   # v8: reputação de cada trabalhador do grupo que entregou trapaça
+MIN_LEND_MB = 2000          # v8: memória mínima que um trabalhador precisa ter livre para entrar num grupo
+MAX_GROUP = 64              # v8: membros de um grupo (coordenador + trabalhadores)
+WATCH_MIN_REPUTATION = 0    # v8: vigia de reserva (sem ninguém com o modelo) precisa ter pelo menos esta reputação
 MAX_RACERS = 2              # v7: máquinas a mais que podem correr um pedido direcionado (além da escolhida)
 
 
@@ -469,7 +483,7 @@ def _only(d, allowed, where):
 
 
 # campos que só existem a partir de uma versão das regras: antes dela, são recusados como sempre foram
-FIELDS_SINCE = {"register_machine": {"tasks": 2}, "register_model": {"task": 2, "files": 2},
+FIELDS_SINCE = {"register_machine": {"tasks": 2, "lend": 8}, "register_model": {"task": 2, "files": 2},
                 "create_job": {"units": 2, "racers": 7}}
 
 
@@ -813,6 +827,8 @@ class State:
         self._update_demand()                    # o preço do aluguel desta janela segue a demanda de agora
         self._charge_rent()                      # uma vez por virada de janela
         self._expire_assignments()
+        if self.rule(8):
+            self._check_groups()
         self._assign_models()
 
     def _expire_assignments(self):
@@ -1090,6 +1106,8 @@ class State:
                   and len(set(tasks_)) == len(tasks_), "tasks deve ser uma lista com 'text', 'image' e/ou 'video'")
             _need(tasks_ or not ai, "com a IA ligada, tasks precisa ter pelo menos uma classe")
             offer["tasks"] = [t for t in TASKS if t in tasks_]
+        if self.rule(8):   # empresta memória para os grupos que a rede monta sozinha
+            offer["lend"] = _flag(d, "lend")
         seen = {"last_seen": self.mining["window"], "online": True}
         mc = self.machines.get(sender)
         if mc is None:
@@ -1155,8 +1173,18 @@ class State:
                         key=lambda x: (-x[0], x[1]))
         m["former"] = {a: win for win, a in recent[:2 * m["replicas"]]}
 
-    def _pay_machine(self, addr, amount, ref):
+    def _pay_machine(self, addr, amount, ref, model=False):
         mc = self.machines[addr]
+        _, g = self.group_of(addr, ref) if self.rule(8) and model else (None, None)
+        if g is not None:   # v8: o aluguel de um modelo de grupo também é repartido pela memória de cada membro
+            total = g["own_mb"] + sum(g["workers"].values())
+            for a in sorted(g["workers"]):
+                part = amount * g["workers"][a] // total
+                wm = self.machines.get(a)
+                if wm is not None and part > 0:
+                    self._give(wm["payout"], part, "rent", ref)
+                    wm["earned"] += part
+                    amount -= part
         self._give(mc["payout"], amount, "rent", ref)
         mc["earned"] += amount
 
@@ -1173,6 +1201,9 @@ class State:
         for s in self.sites.values():
             for a in s["pinners"]:
                 disk[a] = disk.get(a, 0) + s["size"]
+        for g in (self.ext.get("groups") or {}).values():   # v8: a memória emprestada a um grupo fica reservada
+            for a, share in g["workers"].items():
+                ram[a] = ram.get(a, 0) + share
         return ram, disk, count
 
     # ------------------------------------------------------------------ jobs
@@ -1378,8 +1409,25 @@ class State:
 
     def _pay(self, job, mach, amount, cut=0):
         """Paga 100% do preço ao payout da máquina (menos o royalty do padrinho): sem taxa, sem queima.
-        Reputação só sobe com pagamento de verdade, de outra pessoa, uma vez por janela: não dá para fabricar."""
+        Reputação só sobe com pagamento de verdade, de outra pessoa, uma vez por janela: não dá para fabricar.
+        v8: se a máquina coordena um grupo para o modelo, o líquido é repartido pela memória de cada membro (o
+        coordenador conta a parte dele) e cada trabalhador também ganha reputação."""
         mc = self.machines[mach]
+        gid, g = self.group_of(mach, job.get("model")) if self.rule(8) and job.get("kind") == "ai" else (None, None)
+        if g is not None:
+            net, weights = amount - cut, {mach: g["own_mb"], **g["workers"]}
+            total, paid = sum(weights.values()), 0
+            for a in sorted(g["workers"]):
+                part = net * g["workers"][a] // total
+                wm = self.machines.get(a)
+                if wm is None or part <= 0:
+                    continue
+                self._give(wm["payout"], part, "group", job["id"])
+                wm["earned"] += part
+                paid += part
+                if amount > 0 and job["client"] not in (a, wm["payout"]):
+                    self._rep_up(a)
+            cut += paid                        # o resto (a parte do coordenador) segue o caminho de sempre
         self._give(mc["payout"], amount - cut, "job", job["id"])
         job["payments"][mach] = amount
         mc["earned"] += amount - cut
@@ -1445,11 +1493,21 @@ class State:
             return None
         seed = self.mining["seeds"].get(str(self.mining["window"]), "")
         skip = set(_runners(job)) | set(job["claims"]) | {job["client"]} | set(exclude)
+        if self.rule(8):   # ninguém do grupo de quem correu vigia (o grupo responde junto pela entrega)
+            for r in list(job["claims"]):
+                _, g = self.group_of(r, job["model"])
+                skip.update((g or {}).get("workers") or {})
         # o mesmo dono não vigia a si mesmo: nem o payout do cliente nem o de quem correu
         owners = {job["client"]} | {self.machines[r]["payout"] for r in job["claims"] if r in self.machines}
         cands = [a for a in sorted(m["pinners"]) if a not in skip and a in self.machines
                  and self.machines[a]["online"] and self.machines[a]["pub"]
                  and self.machines[a]["payout"] not in owners]
+        if not cands and self.rule(8):   # ninguém mais hospeda o modelo: vigia qualquer máquina confiável
+            w = self.mining["window"]
+            cands = [a for a in sorted(self.machines) if a not in skip and self.machines[a]["online"]
+                     and self.machines[a]["ai"] and self.machines[a]["pub"] and self.machines[a]["last_seen"] >= w - 1
+                     and self.machines[a]["reputation"] >= WATCH_MIN_REPUTATION
+                     and self.machines[a]["payout"] not in owners]
         if not cands:
             return None
         return min(cands, key=lambda a: sha((seed + job["id"] + a + str(len(exclude))).encode()))
@@ -1474,8 +1532,18 @@ class State:
         if verdict == "bad":
             mc = self.machines.get(mach)
             if mc:
-                mc["reputation"] -= BAD_REPUTATION
+                mc["reputation"] -= BAD_REPUTATION_V8 if self.rule(8) else BAD_REPUTATION
                 mc["jobs_failed"] += 1
+            if self.rule(8):   # punição severa: metade da caução e os trabalhadores do grupo também respondem
+                b = (self.ext.get("bonds") or {}).get(mach)
+                if b:
+                    stake = b["amount"] + sum(u["amount"] for u in b["unbonding"])
+                    self._slash(mach, stake * BAD_SLASH_BPS // 10_000, f"vigia reprovou o job {job['id']}",
+                                reporter=watcher, victim=job["client"], victim_cap=job["escrow"])
+                _, g = self.group_of(mach, job.get("model"))
+                for a in sorted((g or {}).get("workers") or {}):
+                    if a in self.machines:
+                        self.machines[a]["reputation"] -= BAD_WORKER_REPUTATION
             self._rep_up(watcher)
             job.update({"cost": 0, "royalty": 0, "verdict": "bad"})
             self._refund(job, "rejected")
@@ -1786,6 +1854,11 @@ class State:
         """Apaga o modelo da rede: devolve o troco ao padrinho e cancela os jobs pendentes dele."""
         m = self.models.pop(name)
         self.retired_models[name] = self.now
+        groups = self.ext.get("groups") or {}
+        for gid in [gid for gid, g in groups.items() if g["model"] == name]:
+            del groups[gid]
+        if "groups" in self.ext and not groups:
+            self.ext.pop("groups")
         self._give(m["sponsor"], m["budget"], "budget", name)
         for jid in sorted(self.jobs):
             job = self.jobs[jid]
@@ -1824,6 +1897,102 @@ class State:
                 ram[a] = max(ram.get(a, 0), m["ram_mb"]) if self.rule(5) else ram.get(a, 0) + m["ram_mb"]
                 disk[a] = disk.get(a, 0) + m["size"]
                 count[a] = count.get(a, 0) + 1
+                need -= 1
+            if need > 0 and self.rule(8) and task == "text" and not fits:   # não cabe em ninguém: grupos
+                for _ in range(need):
+                    if not self._form_group(name, m, eligible, ram, disk, count, seed):
+                        break
+
+    # ---------------------------------------------------------- grupos (v8)
+    def _grouped(self):
+        """Máquinas que já estão em algum grupo (como coordenador ou trabalhador)."""
+        out = set()
+        for g in (self.ext.get("groups") or {}).values():
+            out.add(g["coordinator"])
+            out.update(g["workers"])
+        return out
+
+    def _form_group(self, name, m, eligible, ram, disk, count, seed):
+        """Monta um grupo para o modelo `name`, pela reputação: o coordenador é quem tem disco para o modelo
+        inteiro e a maior reputação (a caução desempata); os trabalhadores, os de maior reputação com pelo menos
+        MIN_LEND_MB livres, até a memória somada cobrir o modelo. Só entra quem empresta ("lend"), sem outro grupo."""
+        w = self.mining["window"]
+        busy = self._grouped()
+        bonds = self.ext.get("bonds") or {}
+
+        def free(a):
+            return self.machines[a]["hw"]["ai_ram_mb"] - ram.get(a, 0)
+
+        def rank(a):
+            mc = self.machines[a]
+            return (-mc["reputation"], -(bonds.get(a) or {}).get("amount", 0), sha((seed + name + a).encode()))
+        pool = [a for a in eligible if self.machines[a].get("lend") and a not in busy
+                and "text" in machine_tasks(self.machines[a]) and a not in m["pinners"] and a not in m["assigned"]
+                and m["cooldown"].get(a, w) <= w and free(a) >= MIN_LEND_MB]
+        coords = [a for a in pool if self.machines[a]["hw"]["disk_mb"] * 1_000_000 - disk.get(a, 0) >= m["size"]
+                  and count.get(a, 0) < MAX_MODELS_PER_MACHINE_V5]
+        if not coords:
+            return False
+        coord = min(coords, key=rank)
+        total, workers = free(coord), {}
+        for a in sorted((a for a in pool if a != coord), key=rank):
+            if total >= m["ram_mb"] or len(workers) + 1 >= MAX_GROUP:
+                break
+            share = min(free(a), m["ram_mb"] - total)
+            if share < MIN_LEND_MB and total + free(a) >= m["ram_mb"]:
+                share = MIN_LEND_MB           # o último completa a conta com o mínimo
+            workers[a] = share
+            total += share
+        if total < m["ram_mb"]:
+            return False                      # a rede ainda não tem memória livre que chegue
+        gid = sha((name + coord + str(w)).encode())[:16]
+        self.ext.setdefault("groups", {})[gid] = {"model": name, "coordinator": coord, "workers": workers,
+                                                   "formed": w, "own_mb": max(1, m["ram_mb"] - sum(workers.values()))}
+        m["assigned"][coord] = w
+        disk[coord] = disk.get(coord, 0) + m["size"]
+        count[coord] = count.get(coord, 0) + 1
+        ram[coord] = ram.get(coord, 0) + free(coord)
+        for a, share in workers.items():
+            ram[a] = ram.get(a, 0) + share
+        return True
+
+    def group_of(self, coordinator, model):
+        """O grupo (id, dados) que `coordinator` coordena para `model`, ou (None, None)."""
+        for gid, g in sorted((self.ext.get("groups") or {}).items()):
+            if g["coordinator"] == coordinator and g["model"] == model:
+                return gid, g
+        return None, None
+
+    def _check_groups(self):
+        """Virada de janela (v8): grupo cujo modelo saiu, cujo coordenador largou o modelo ou com algum membro
+        sumido (sem sinalizar nesta janela nem na anterior) se desfaz. O coordenador larga o modelo (a rede monta
+        outro grupo) e quem sumiu perde 1 de reputação."""
+        w = self.mining["window"]
+        groups = self.ext.get("groups") or {}
+        for gid in sorted(groups):
+            g = groups[gid]
+            m = self.models.get(g["model"])
+            coord = g["coordinator"]
+            members = [coord, *sorted(g["workers"])]
+            gone = [a for a in members if a not in self.machines or self.machines[a]["last_seen"] < w - 1
+                    or not self.machines[a]["online"]]
+            hosting = m is not None and (coord in m["pinners"] or coord in m["assigned"])
+            if not gone and hosting:
+                continue
+            for a in gone:
+                if a in self.machines:
+                    self.machines[a]["reputation"] -= 1
+            if m is not None:
+                m["assigned"].pop(coord, None)
+                if m["pinners"].pop(coord, None) is not None:
+                    m["former"][coord] = w
+                    self._trim_former(m)
+                mc = self.machines.get(coord)
+                if mc and g["model"] in mc["models"]:
+                    mc["models"].remove(g["model"])
+            del groups[gid]
+        if not groups:
+            self.ext.pop("groups", None)
 
     # --------------------------------------------------------------- aluguel
     def _charge_rent(self):
@@ -1852,7 +2021,7 @@ class State:
             for a, fee in fees.items():
                 m["budget"] -= fee
                 m["rent_paid"] += fee
-                self._pay_machine(a, fee, name)
+                self._pay_machine(a, fee, name, model=True)
 
     def _rent_fees(self, item):
         fee = self.copy_fee(item)

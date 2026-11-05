@@ -1047,6 +1047,8 @@ details.more p { margin: 6px 0 0; }
           <div id="cfg-media-box" hidden>
             <label class="check"><input type="checkbox" id="cfg-ai-image"> Hospedar IA de imagem</label>
             <label class="check"><input type="checkbox" id="cfg-ai-video"> Hospedar IA de vídeo</label>
+            <label class="check"><input type="checkbox" id="cfg-lend"> Emprestar memória para grupos</label>
+            <p class="hint">Os modelos gigantes rodam divididos entre vários computadores. Com isto ligado, a rede pode colocar este computador num grupo (pela reputação dele): ele empresta a memória que não está usando, e o pagamento de cada pedido é repartido pela memória de cada um.</p>
             <p class="hint">Modelos que geram imagens e vídeos usam mais memória e, de preferência, uma placa de vídeo. O vídeo só é aceito com uma placa de vídeo de 6 GB ou mais (ou num grupo de vídeo): só no processador ele leva horas, passa do prazo e tira reputação deste computador.</p>
           </div>
           <label for="cfg-ai-ram">Memória para IA (GB)</label>
@@ -3473,7 +3475,7 @@ function fillConfig() {
   setText("cfg-cpu-val", `${num($("cfg-cpu").value)}%`);
   $("cfg-ai").checked = !!c.ai_enabled;
   $("cfg-media-box").hidden = !("ai_image" in c);   // só no app que já hospeda imagem e vídeo
-  $("cfg-ai-image").checked = !!c.ai_image; $("cfg-ai-video").checked = !!c.ai_video;
+  $("cfg-ai-image").checked = !!c.ai_image; $("cfg-ai-video").checked = !!c.ai_video; $("cfg-lend").checked = c.lend !== false;
   setVal($("cfg-ai-ram"), c.ai_ram_gb == null ? "" : gbInput(c.ai_ram_gb));
   $("cfg-compute").checked = !!c.compute_enabled;
   setVal($("cfg-disk"), c.disk_gb == null ? "" : gbInput(c.disk_gb));
@@ -3497,6 +3499,7 @@ function cfgPatch() {
   put("ai_enabled", $("cfg-ai").checked);
   put("compute_enabled", $("cfg-compute").checked);
   if ("ai_image" in c) { put("ai_image", $("cfg-ai-image").checked); put("ai_video", $("cfg-ai-video").checked); }
+  put("lend", $("cfg-lend").checked);
   const ram = parseGB($("cfg-ai-ram").value, "Memória para IA"), disk = parseGB($("cfg-disk").value, "Disco para a rede");
   const top = ramTop(S?.machine?.hw);
   if (ram > top) throw new Error(`Memória para IA: escolha de 0 a ${num(top)} GB (a memória deste computador).`);

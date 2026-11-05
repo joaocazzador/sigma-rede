@@ -234,6 +234,9 @@ def _tx_id(tx):
 
 
 # ------------------------------------------------------------------ leitura do estado
+RELAY_PORT = 0   # porta pública do relé dos grupos neste nó (cmd_run --relay-port)
+
+
 def mining_info(st):
     """Painel da mineração: janela e seed atuais, época, emissão e poder computacional da rede."""
     m, p = st.mining, st.params
@@ -262,6 +265,8 @@ def mining_info(st):
             # v3: se a rede já aceita caução, o SIG travado nelas, quantas máquinas podem coordenar agora, a caução
             # mínima para isso (None antes da v3) e a espera de uma retirada
             "parts": st.rule(4),   # v4: modelo de texto em partes (gigantes, rodam divididos num grupo)
+            # v8: a rede monta os grupos sozinha; o relé (porta pública deste nó) liga quem está atrás de roteador
+            "groups": st.rule(8), "relay_port": RELAY_PORT or None,
             "bonding": st.rule(3), "bonded": st.bonded(), "coordinators": coordinators(st),
             "min_bond": st.params.get("min_bond"), "unbond_seconds": chain.UNBOND_SECONDS,
             "now": time.time()}
@@ -379,6 +384,14 @@ def machine_info(st, addr, index=None):
     out = dict(MACHINE_DEFAULTS, **rec, address=addr)
     out["assignments"] = assign.get(addr, [])
     out["sites"] = sites.get(addr, [])
+    out["groups"] = []   # v8: os grupos em que a máquina está, com o papel dela e as chaves dos outros membros
+    for gid, g in sorted((st.ext.get("groups") or {}).items()):
+        if addr != g["coordinator"] and addr not in g["workers"]:
+            continue
+        pubs = {a: (st.machines.get(a) or {}).get("pub") for a in [g["coordinator"], *g["workers"]]}
+        out["groups"].append({"id": gid, "model": g["model"], "coordinator": g["coordinator"],
+                              "role": "coordinator" if addr == g["coordinator"] else "worker",
+                              "workers": dict(g["workers"]), "own_mb": g["own_mb"], "pubs": pubs})
     return out
 
 
@@ -1257,6 +1270,16 @@ class Node:
             v = self.watch.get((jid, role, watcher))
             return dict(v) if v else None
 
+    def group_members(self, gid):
+        """Relé (v8): {"coordinator": (endereço, pub), "workers": {endereço: pub}} do grupo, ou None."""
+        st = self.state
+        g = (st.ext.get("groups") or {}).get(gid)
+        if g is None:
+            return None
+        pub = lambda a: (st.machines.get(a) or {}).get("pub")   # noqa: E731
+        return {"coordinator": (g["coordinator"], pub(g["coordinator"])),
+                "workers": {a: pub(a) for a in g["workers"]}}
+
     def get_progress(self, jid):
         with self.lock:
             v = self.progress.get(jid)
@@ -1895,6 +1918,12 @@ def cmd_run(args):
                          "em outra pasta (python -m sigma.node init --dir PASTA_NOVA) ou, na VPS, rode o deploy com "
                          "RESET=1.") from None
     threading.Thread(target=node.loop, daemon=True).start()
+    if args.relay_port:   # v8: relé dos grupos (coordenador e trabalhadores atrás de roteador se encontram aqui)
+        global RELAY_PORT
+        RELAY_PORT = args.relay_port
+        from .relay import RelayServer
+        RelayServer("0.0.0.0", args.relay_port, node.group_members,
+                    log=lambda m: print(f"[sigma] {m}", flush=True)).start()
     srv = ThreadingHTTPServer((args.host, args.port), make_handler(node))
     role = "produtor" if producer else "seguidor"
     print(f"[sigma] nó {role} em http://{args.host}:{args.port}  altura={node.height}  peers={args.peer}\n"
@@ -1926,6 +1955,8 @@ def main():
     r.add_argument("--producer", action="store_true", help="este nó assina blocos (validador)")
     r.add_argument("--peer", action="append", default=[])
     r.add_argument("--heartbeat", type=float, default=1.0, help="segundos entre blocos vazios")
+    r.add_argument("--relay-port", type=int, default=0,
+                   help="porta pública do relé dos grupos (regras v8; 0 = sem relé)")
     r.add_argument("--blob-cap-gb", type=float, default=0, help="limite de armazenamento de blobs (0 = sem limite)")
     r.add_argument("--downloads", help="pasta com os instaladores do app, servidos em /downloads/<arquivo>")
     r.add_argument("--public", action="store_true",

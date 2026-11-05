@@ -76,9 +76,9 @@ CHAT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 HASH_RE = re.compile(r"^[0-9a-f]{64}\Z")    # id de votação (= id da transação que a abriu)
 ENGINES = ("auto", "ollama", "llamacpp", "mock")
 HOST_KEYS = ("ai_enabled", "compute_enabled", "disk_gb", "ai_ram_gb", "public_url", "engine", "ai_threads", "name",
-             "ai_image", "ai_video")
+             "ai_image", "ai_video", "lend")
 BOOL_SETTINGS = ("mining_enabled", "ai_enabled", "compute_enabled", "start_with_system", "mine_on_battery",
-                 "ai_image", "ai_video")
+                 "ai_image", "ai_video", "lend")
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 LABELS = {"cpu_percent": "Uso do processador", "mining_enabled": "Minerar SIG", "ai_enabled": "IA para a rede",
           "compute_enabled": "Computação para a rede", "disk_gb": "Disco para a rede",
@@ -86,7 +86,8 @@ LABELS = {"cpu_percent": "Uso do processador", "mining_enabled": "Minerar SIG", 
           "start_with_system": "Iniciar o Sigma junto com o computador",
           "mine_on_battery": "Minerar também na bateria", "name": "Nome na rede",
           "public_url": "Endereço público desta máquina", "engine": "Motor de IA", "ai_threads": "Núcleos para a IA",
-          "ai_image": "Hospedar IA de imagem", "ai_video": "Hospedar IA de vídeo"}
+          "ai_image": "Hospedar IA de imagem", "ai_video": "Hospedar IA de vídeo",
+          "lend": "Emprestar memória para grupos"}
 ADDR_TYPO = "Esse endereço tem um caractere errado. Copie e cole de novo direto da MetaMask, sem digitar."
 ADDR_BAD = ("endereço inválido: ele começa com 0x (ou sig) e tem mais 40 letras e números. Copie e cole de novo "
             "direto da MetaMask.")
@@ -1237,7 +1238,8 @@ class App:
         return {"cpu_percent": 100, "mining_enabled": True, "ai_enabled": True, "compute_enabled": True,
                 "disk_gb": 20, "ai_ram_gb": self._ram_top() if ram else 4,
                 "node": DEFAULT_NODE, "start_with_system": autostart_supported(), "mine_on_battery": True, "name": name,
-                "public_url": "", "engine": "auto", "ai_threads": 0, "ai_image": True, "ai_video": True}
+                "public_url": "", "engine": "auto", "ai_threads": 0, "ai_image": True, "ai_video": True,
+                "lend": True}
 
     def _clean(self, k, v):
         """Valida uma configuração (vinda do painel, da linha de comando ou do config.json)."""
@@ -1500,7 +1502,8 @@ class App:
         return {"ai_enabled": s["ai_enabled"], "compute_enabled": s["compute_enabled"], "disk_gb": s["disk_gb"],
                 "ai_ram_gb": s["ai_ram_gb"], "public_url": s["public_url"], "engine": s["engine"],
                 "ai_threads": s["ai_threads"] or None, "name": s["name"], "ai_image": s["ai_image"],
-                "ai_video": s["ai_video"], **self.hidden, "group": getattr(self, "group", None) or None}
+                "ai_video": s["ai_video"], "lend": s.get("lend", True), **self.hidden,
+                "group": getattr(self, "group", None) or None}
 
     def start_services(self):
         """Liga o que falta (Host e minerador). Pode ser chamado de novo: só completa o que não subiu."""
@@ -2061,8 +2064,9 @@ class App:
                                f"livre cede {max(best, 0) / 1000:.1f} GB.")
                 if need > 15000:   # não cabe num PC comum: só num grupo (docs/GRUPO.md)
                     reasons.append(f"Ele só roda dividido num grupo de computadores (uns {math.ceil(need / 9000)} de "
-                                   "16 GB), e ainda não há na rede um grupo com essa memória somada. Hoje um grupo se "
-                                   "monta à mão: um coordenador com porta aberta e trabalhadores emprestando memória.")
+                                   "16 GB). A rede monta o grupo sozinha, pela reputação, assim que houver computadores "
+                                   "online emprestando memória que some isso (Configurações → \"Emprestar memória "
+                                   "para grupos\") e um deles com disco para o modelo inteiro.")
             elif not ok_all:
                 reasons.append(f"Os computadores com memória suficiente não têm disco livre (ou já hospedam {top} modelos).")
             else:
