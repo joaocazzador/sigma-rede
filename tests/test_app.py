@@ -636,6 +636,8 @@ class AppTest(unittest.TestCase):
             self.poll()
 
     def test_iniciar_com_o_computador_so_onde_existe(self):
+        with mock.patch.object(app, "set_autostart", lambda *a: None):
+            self.ok("POST", "/api/settings", {"start_with_system": False})   # no Windows o padrão é ligado
         with mock.patch.object(app, "autostart_supported", lambda: False):
             msg = self.err("POST", "/api/settings", {"start_with_system": True})
             self.assertEqual(msg, "Iniciar o Sigma junto com o computador: por enquanto só funciona no Windows.")
@@ -719,6 +721,7 @@ class AppTest(unittest.TestCase):
     # ---------------------------------------------------------------- bateria
     def test_bateria_pausa_e_volta_sozinha(self):
         self.create_wallet()
+        self.ok("POST", "/api/settings", {"mine_on_battery": False})   # o padrão é minerar também na bateria
         self.app.node_state = {"ok": True, "error": None, "fix": None}
         BATTERY["on"] = True
         self.app._check_battery(force=True)

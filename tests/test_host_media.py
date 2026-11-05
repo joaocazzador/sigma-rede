@@ -504,7 +504,7 @@ class TestTextEngineDown(unittest.TestCase):
                              {"engine": "mock", "ai_image": True, "ai_ram_gb": 4, "disk_gb": 5}, log=lambda m: None)
             h.client = ChainClient(net, wallet)
             h._register_if_needed()
-            self.assertEqual(net.state.machines[me]["tasks"], ["text", "image"])
+            self.assertEqual(net.state.machines[me]["tasks"], ["text", "image", "video"])
             s = net.step(wallet)
             for name in ("texto", "z-image"):
                 self.assertIn(me, s.models[name]["assigned"])
@@ -517,14 +517,14 @@ class TestTextEngineDown(unittest.TestCase):
             h._engine_down_since = time.time() - hostmod.ENGINE_GRACE - 1
             h._register_if_needed()
             mc = net.state.machines[me]
-            self.assertEqual((mc["ai"], mc["tasks"], mc["models"]), (True, ["image"], ["z-image"]))
+            self.assertEqual((mc["ai"], mc["tasks"], mc["models"]), (True, ["image", "video"], ["z-image"]))
             self.assertIn(me, net.state.models["z-image"]["pinners"])
             self.assertNotIn(me, net.state.models["texto"]["pinners"])
             self.assertIsNone(h._why_not("z-image"))   # e continua gerando imagem
 
             del h.engine.available               # o Ollama voltou
             h._register_if_needed()
-            self.assertEqual(net.state.machines[me]["tasks"], ["text", "image"])
+            self.assertEqual(net.state.machines[me]["tasks"], ["text", "image", "video"])
             s = net.step(wallet)
             self.assertIn(me, s.models["texto"]["assigned"])   # o texto volta para ela
             self.assertIn(me, s.models["z-image"]["pinners"])
@@ -542,8 +542,8 @@ class TestTextEngineDown(unittest.TestCase):
             h.engine.available = lambda: False
             h._register_if_needed()
             mc = net.state.machines[wallet.address]
-            self.assertEqual((mc["ai"], mc["tasks"]), (True, ["image"]))
-            h.update_settings({"ai_image": False})   # sem imagem e sem texto: sem IA
+            self.assertEqual((mc["ai"], mc["tasks"]), (True, ["image", "video"]))
+            h.update_settings({"ai_image": False, "ai_video": False})   # sem imagem, vídeo e texto: sem IA
             h._register_if_needed()
             mc = net.state.machines[wallet.address]
             self.assertEqual((mc["ai"], mc["tasks"]), (False, []))

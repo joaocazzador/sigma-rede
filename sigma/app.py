@@ -1226,10 +1226,11 @@ class App:
         ram = int(self.hw.get("ram_mb") or 0)
         # o nome fica público na chain: o padrão não revela o nome do PC (a pessoa pode trocar no painel)
         name = f"maquina-{self.machine.address[3:9]}" if self.machine else "maquina"
-        return {"cpu_percent": 50, "mining_enabled": True, "ai_enabled": True, "compute_enabled": True,
-                "disk_gb": 20, "ai_ram_gb": max(1, round(gib(ram) * 0.4)) if ram else 4,
-                "node": DEFAULT_NODE, "start_with_system": False, "mine_on_battery": False, "name": name,
-                "public_url": "", "engine": "auto", "ai_threads": 0, "ai_image": True, "ai_video": False}
+        # tudo no máximo por padrão, menos o disco: o computador dá à rede o que tem (a pessoa diminui no painel)
+        return {"cpu_percent": 100, "mining_enabled": True, "ai_enabled": True, "compute_enabled": True,
+                "disk_gb": 20, "ai_ram_gb": self._ram_top() if ram else 4,
+                "node": DEFAULT_NODE, "start_with_system": autostart_supported(), "mine_on_battery": True, "name": name,
+                "public_url": "", "engine": "auto", "ai_threads": 0, "ai_image": True, "ai_video": True}
 
     def _clean(self, k, v):
         """Valida uma configuração (vinda do painel, da linha de comando ou do config.json)."""

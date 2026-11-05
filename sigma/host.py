@@ -38,7 +38,7 @@ MAX_PRICE = 1_000_000       # teto da chain para os dois preços
 MAX_MEDIA_PRICE = 100_000_000   # teto da chain por imagem e por segundo de vídeo (v2)
 DEFAULTS = {"ai_enabled": True, "compute_enabled": True, "disk_gb": 20, "ai_ram_gb": 4, "public_url": "",
             "engine": "auto", "ai_threads": None, "name": "", "port": None, "cheat": False,
-            "ai_image": True, "ai_video": False}   # v2: aceitar modelos de imagem (padrão) e de vídeo (pesado)
+            "ai_image": True, "ai_video": True}   # v2: aceitar modelos de imagem e de vídeo (os dois por padrão)
 MIN_AI_RAM_MB = 1500        # abaixo disso a rede não coloca modelo aqui
 MAX_AI_RAM_MB = 1_048_576   # teto da chain para hw.ai_ram_mb
 MAX_TOKENS = 10 ** 9        # teto da chain para tokens_in e tokens_out
