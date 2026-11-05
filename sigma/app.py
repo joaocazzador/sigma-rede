@@ -2059,6 +2059,10 @@ class App:
                 best = max(free(a, x)[0] for a, x in ok_task.items())
                 reasons.append(f"O modelo pede {need / 1000:.1f} GB de memória para IA e o computador que mais tem "
                                f"livre cede {max(best, 0) / 1000:.1f} GB.")
+                if need > 15000:   # não cabe num PC comum: só num grupo (docs/GRUPO.md)
+                    reasons.append(f"Ele só roda dividido num grupo de computadores (uns {math.ceil(need / 9000)} de "
+                                   "16 GB), e ainda não há na rede um grupo com essa memória somada. Hoje um grupo se "
+                                   "monta à mão: um coordenador com porta aberta e trabalhadores emprestando memória.")
             elif not ok_all:
                 reasons.append(f"Os computadores com memória suficiente não têm disco livre (ou já hospedam {top} modelos).")
             else:
