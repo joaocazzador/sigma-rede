@@ -9,9 +9,16 @@ trabalhadores conectados emprestam, recebe os pedidos e os pagamentos. Os trabal
 (a memória deles não conta duas vezes). Nesta versão o coordenador escolhe os trabalhadores (o dono do grupo);
 o sorteio pela chain, a conferência entre coordenadores e o rateio do pagamento vêm depois (docs/PENDENCIAS.md).
 
+Vídeo (2.9): com `--group-kind video` o grupo divide o modelo de difusão (Wan) em vez do de texto. O coordenador
+roda o sd-cli com `--rpc-servers` e `--backend diffusion=RPC0&RPC1&…&CPU` (os blocos do transformador espalhados
+pela memória livre de cada um), e cada trabalhador roda o rpc-server compatível com o stable-diffusion.cpp
+(compilado com GGML_MAX_NAME=160, no commit do llama.cpp de ggml/scripts/sync-llama.last). Os dois rpc-servers não
+se misturam: um grupo é de texto ou de vídeo.
+
 Configuração (linha de comando do app):
     coordenador: --coordinate 0.0.0.0:7710 --group-worker <endereço da máquina>=<GB emprestados> (um por trabalhador)
     trabalhador: --worker-of <endereço do coordenador>@<host>:<porta>
+    vídeo: as duas pontas com --group-kind video
 """
 import os
 import re
@@ -24,6 +31,8 @@ from . import engines, tunnel
 from .crypto import norm_address
 
 RPC_NAME = "ggml-rpc-server.exe" if os.name == "nt" else "ggml-rpc-server"
+SD_RPC_NAME = "rpc-server.exe" if os.name == "nt" else "rpc-server"
+KINDS = ("text", "video")
 OUTPUT_ON_COORDINATOR = r"^output\.weight$=CPU"   # medido: sem isto, 607 KB de logits por token cruzam a rede
 ADDR = re.compile(r"^(sig|0x)[0-9a-fA-F]{40}$")
 
@@ -44,6 +53,22 @@ def parse_worker(value):
     if not 1024 <= mb <= 1_048_576:
         raise GroupError(f"memória do trabalhador {addr}: de 1 a 1024 GB")
     return norm_address(addr.strip()), mb
+
+
+def parse_kind(value):
+    """O que o grupo divide: 'text' (padrão) ou 'video'."""
+    kind = str(value or "text").strip().lower()
+    if kind not in KINDS:
+        raise GroupError(f"tipo de grupo inválido: {value!r} (use text ou video)")
+    return kind
+
+
+def sd_rpc_exe(data_dir):
+    """rpc-server compatível com o stable-diffusion.cpp: SIGMA_SD_RPC ou engine/sd-rpc/ na pasta de dados."""
+    exe = os.environ.get("SIGMA_SD_RPC") or os.path.join(data_dir, "engine", "sd-rpc", SD_RPC_NAME)
+    if not os.path.isfile(exe):
+        raise GroupError(f"o rpc-server do vídeo não está em {exe} (veja docs/GRUPO-VIDEO.md)")
+    return exe
 
 
 def parse_coordinator(value):
@@ -67,10 +92,11 @@ class Coordinator:
     """Escuta os trabalhadores (Hub do túnel) e diz ao motor onde estão os rpc-servers deles."""
     role = "coordinator"
 
-    def __init__(self, wallet, client, listen, workers, log=print):
+    def __init__(self, wallet, client, listen, workers, log=print, kind="text"):
         if not tunnel.AVAILABLE:
             raise GroupError(tunnel.UNAVAILABLE)
         self.wallet, self.client, self.listen, self.log = wallet, client, listen, log
+        self.kind = parse_kind(kind)
         self.workers = dict(workers)          # endereço -> MB emprestados
         self.pubs = {}                        # endereço -> chave pública (da chain)
         self.hub = None
@@ -89,7 +115,8 @@ class Coordinator:
                 self.log(f"[grupo] trabalhador {addr}: {e}")
         self.hub = tunnel.Hub(self.wallet.priv, self.listen, self._peer, log=self.log)
         self.hub.start()
-        self.log(f"[grupo] coordenador escutando em {self.listen} para {len(self.workers)} trabalhador(es)")
+        what = "vídeo" if self.kind == "video" else "texto"
+        self.log(f"[grupo] coordenador ({what}) escutando em {self.listen} para {len(self.workers)} trabalhador(es)")
 
     def stop(self):
         if self.hub:
@@ -99,15 +126,18 @@ class Coordinator:
     def connected(self):
         return [a for a in self.workers if self.hub and self.hub.bridge_port(a)]
 
-    def rpc(self):
-        """Endereços --rpc dos trabalhadores conectados agora (as pontes locais do túnel)."""
+    def rpc(self, kind=None):
+        """Endereços --rpc dos trabalhadores conectados agora (as pontes locais do túnel). Com `kind`, só se o
+        grupo for desse tipo (o motor de texto não usa os rpc-servers de um grupo de vídeo, nem o contrário)."""
+        if kind and kind != self.kind:
+            return []
         return [f"127.0.0.1:{self.hub.bridge_port(a)}" for a in self.connected()]
 
     def lent_mb(self):
         return sum(self.workers[a] for a in self.connected())
 
     def status(self):
-        return {"role": self.role, "listen": self.listen, "workers": [
+        return {"role": self.role, "kind": self.kind, "listen": self.listen, "workers": [
             {"address": a, "lent_mb": mb, "connected": bool(self.hub and self.hub.bridge_port(a))}
             for a, mb in sorted(self.workers.items())]}
 
@@ -116,10 +146,11 @@ class Worker:
     """Empresta memória: roda um ggml-rpc-server em 127.0.0.1 e o liga ao coordenador pelo túnel."""
     role = "worker"
 
-    def __init__(self, wallet, client, coordinator, endpoint, data_dir, threads=None, log=print):
+    def __init__(self, wallet, client, coordinator, endpoint, data_dir, threads=None, log=print, kind="text"):
         if not tunnel.AVAILABLE:
             raise GroupError(tunnel.UNAVAILABLE)
         self.wallet, self.client, self.log = wallet, client, log
+        self.kind = parse_kind(kind)
         self.coordinator, self.endpoint, self.data_dir = coordinator, endpoint, data_dir
         self.threads = int(threads) if threads else max(1, engines.hardware.cpu_cores() // 2)
         self.proc = self.link = self.port = None
@@ -127,6 +158,8 @@ class Worker:
         self._thread = None
 
     def _rpc_exe(self):
+        if self.kind == "video":
+            return sd_rpc_exe(self.data_dir)
         llama = engines._LlamaCpp(self.data_dir, self.log, self.threads)
         for variant in llama._candidates():
             exe = os.path.join(os.path.dirname(llama._install(variant)), RPC_NAME)
@@ -187,12 +220,12 @@ class Worker:
     def lent_mb(self):
         return 0
 
-    def rpc(self):
+    def rpc(self, kind=None):
         return []
 
     def status(self):
         link = self.link.status() if self.link else {}
-        return {"role": self.role, "coordinator": self.coordinator, "endpoint": self.endpoint,
+        return {"role": self.role, "kind": self.kind, "coordinator": self.coordinator, "endpoint": self.endpoint,
                 "rpc_running": bool(self.proc and self.proc.poll() is None), "connected": bool(link.get("connected"))}
 
 
@@ -201,7 +234,7 @@ def from_settings(cfg, wallet, client, data_dir, threads=None, log=print):
     if not cfg:
         return None
     if cfg.get("listen"):
-        return Coordinator(wallet, client, cfg["listen"], cfg.get("workers") or {}, log)
+        return Coordinator(wallet, client, cfg["listen"], cfg.get("workers") or {}, log, cfg.get("kind"))
     if cfg.get("coordinator"):
-        return Worker(wallet, client, cfg["coordinator"], cfg["endpoint"], data_dir, threads, log)
+        return Worker(wallet, client, cfg["coordinator"], cfg["endpoint"], data_dir, threads, log, cfg.get("kind"))
     return None

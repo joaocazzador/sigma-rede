@@ -42,7 +42,7 @@ A rede usa regras versionadas, que entram numa altura marcada sem recomeçar a c
 | `sigma/app.py` | app do usuário: painel local em `sigma/web/app.html`, linha de comando, `--headless` |
 | `sigma/host.py` | a máquina: registro, modelos, pedidos de IA |
 | `sigma/engines.py` | motor de texto: llama.cpp b11721 ou Ollama |
-| `sigma/media.py` | motor de imagem e vídeo: stable-diffusion.cpp, que não se divide entre máquinas |
+| `sigma/media.py` | motor de imagem e vídeo: stable-diffusion.cpp; o vídeo se divide num grupo de vídeo (docs/GRUPO-VIDEO.md) |
 | `sigma/grupo.py` | coordenador e trabalhador do grupo |
 | `sigma/tunnel.py` | túnel TLS 1.3 PSK com retomada; ainda sem revisão de segurança nem testes de estresse |
 | `sigma/catalog.py` | catálogo de modelos, com tamanhos e SHA-256 do Hugging Face (`pesquisa/hf_consulta.py`) |

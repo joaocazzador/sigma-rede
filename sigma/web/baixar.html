@@ -75,6 +75,24 @@
 .verify h3 { font-size: 20px; margin: 0 0 4px; }
 .verify p { font-size: 14px; color: var(--muted); margin: 0; }
 .verify .cmd code, .os-card .cmd code { white-space: normal; overflow-wrap: anywhere; }
+.cmd pre { flex: 1; min-width: 0; margin: 0; padding: 11px 14px; overflow-x: auto; font: 13px/1.5 var(--mono); background: none; border: 0; }
+.vps-steps { counter-reset: passo; list-style: none; padding: 0; margin: 22px 0 0; display: grid; gap: 22px; max-width: 860px; }
+#dlg-ssh .cmd { min-width: 0; }
+#dlg-ssh .cmd code { white-space: normal; overflow-wrap: anywhere; }
+#vps .cmd code { white-space: normal; overflow-wrap: anywhere; }
+.vps-steps > li { min-width: 0; counter-increment: passo; padding-left: 52px; position: relative; }
+.vps-steps > li::before { content: counter(passo); position: absolute; left: 0; top: -2px; width: 36px; height: 36px;
+  display: grid; place-items: center; border: 2px solid var(--text); font: 700 16px var(--mono); }
+.vps-steps h3 { margin: 0 0 6px; }
+.vps-steps p { margin: 0 0 8px; color: var(--muted); max-width: 72ch; }
+.vps-steps p b { color: var(--text); }
+.vps-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+#dlg-ssh { max-width: 760px; width: calc(100% - 24px); padding: clamp(14px, 4vw, 22px); max-height: calc(100vh - 40px); overflow-y: auto; }
+#dlg-ssh h4 { margin: 18px 0 6px; font-size: 16px; }
+#dlg-ssh p, #dlg-ssh li { color: var(--muted); }
+#dlg-ssh p b, #dlg-ssh li b { color: var(--text); }
+#dlg-ssh ol { margin: 0 0 10px; padding-left: 22px; }
+#dlg-ssh .close-row { display: flex; justify-content: flex-end; margin-top: 16px; }
 
 .warnbox { border: 3px solid var(--warn); padding: clamp(18px, 3vw, 30px); position: relative; }
 .warnbox h2 { margin-top: 0; }
@@ -153,7 +171,7 @@
             <a class="btn" href="/downloads/sigma.pyz" data-dl="sigma.pyz" download>Linux · sigma.pyz</a>
             <a class="btn" href="/downloads/sigma.pyz" data-dl="sigma.pyz" download>macOS · sigma.pyz</a>
           </div>
-          <p style="margin:14px 0 0"><a href="#conferir">Conferir o SHA-256</a> · <a href="#aviso">Por que o antivírus pode reclamar</a> · <a href="#requisitos">Requisitos</a></p>
+          <p style="margin:14px 0 0"><a href="#conferir">Conferir o SHA-256</a> · <a href="#aviso">Por que o antivírus pode reclamar</a> · <a href="#requisitos">Requisitos</a> · <a href="#vps">Minerar numa VPS</a></p>
         </div>
       </div>
     </div>
@@ -220,6 +238,124 @@
     <p class="muted" style="margin-top:14px">O <code>sigma.pyz</code> também roda no Windows, se você tiver o Python: <code>python sigma.pyz</code>.</p>
   </div>
 </section>
+
+<section class="sec" id="vps" style="border-top:1px solid var(--line)">
+  <div class="inner">
+    <div class="eyebrow">Servidor alugado</div>
+    <h2>Tem uma VPS? Ponha ela para trabalhar.</h2>
+    <p class="muted" style="max-width:72ch">Uma VPS fica ligada o dia todo. Com o Sigma, ela minera SIG com todo o processador e se
+      aluga ao máximo para as IAs da rede: toda a memória livre, com texto, imagem e vídeo ligados. Não precisa abrir porta
+      nenhuma: a máquina busca os pedidos na rede sozinha.</p>
+    <div class="vps-actions">
+      <button type="button" class="btn primary" data-dialog-open="dlg-ssh">Como controlar uma VPS a distância</button>
+      <a class="btn" href="#vps-passos">Ir para o passo a passo ↓</a>
+    </div>
+
+    <ol class="vps-steps" id="vps-passos">
+      <li><h3>Escolha a VPS</h3>
+        <p>Qualquer VPS com <b>Linux</b> serve. O mais simples é o Ubuntu 24.04. <b>Quanto mais memória, mais modelos de IA ela
+          hospeda e mais ela ganha de aluguel.</b> Com 8 GB já entram modelos de texto e imagem. O vídeo pede 16 GB ou mais.
+          Ter placa de vídeo ajuda, mas não é preciso.</p></li>
+      <li><h3>Entre na VPS</h3>
+        <p>Você controla a VPS digitando comandos a partir do seu computador. Se nunca fez isso, o botão
+          <b>“Como controlar uma VPS a distância”</b> explica tudo, do zero.</p>
+        <div class="cmd"><code>ssh root@IP_DA_SUA_VPS</code><button type="button" data-copy>copiar</button></div></li>
+      <li><h3>Instale o Python e baixe o Sigma</h3>
+        <p>Copie e cole este comando na VPS:</p>
+        <div class="cmd"><code>apt update &amp;&amp; apt install -y python3 curl &amp;&amp; cd /root &amp;&amp; curl -LO https://sigma.195-35-29-232.sslip.io/downloads/sigma.pyz</code><button type="button" data-copy>copiar</button></div>
+        <p>Antes de rodar, confira o arquivo: o resultado do comando abaixo tem que ser igual ao da lista em
+          <a href="#conferir">Confira o arquivo</a>.</p>
+        <div class="cmd"><code>sha256sum /root/sigma.pyz</code><button type="button" data-copy>copiar</button></div></li>
+      <li><h3>Deixe ligado para sempre, no máximo</h3>
+        <p>Este comando cria um serviço que <b>liga sozinho quando a VPS reinicia</b> e volta se cair. Antes de colar,
+          troque <code>0xSEU_ENDERECO</code> pelo endereço da sua carteira e, se quiser, <code>minha-vps</code> pelo nome
+          que vai aparecer na rede.</p>
+        <div class="cmd"><pre>cat &gt; /etc/systemd/system/sigma.service &lt;&lt;'EOF'
+[Unit]
+Description=Sigma
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/root
+ExecStart=/usr/bin/python3 /root/sigma.pyz --headless --wallet 0xSEU_ENDERECO --cpu 100 --disk-gb 100 --name minha-vps
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload &amp;&amp; systemctl enable --now sigma</pre><button type="button" data-copy>copiar</button></div>
+        <p><b>O que cada opção faz:</b> <code>--cpu 100</code> minera com todo o processador; <code>--disk-gb 100</code>
+          cede 100 GB do disco para modelos e arquivos da rede (ajuste ao disco da sua VPS). Toda a memória livre já vai para
+          as IAs, com texto, imagem e vídeo ligados.</p>
+        <p><b>A VPS também roda outros sites seus?</b> Troque <code>ExecStart=/usr/bin/python3</code> por
+          <code>ExecStart=/usr/bin/chrt --idle 0 /usr/bin/python3</code>. Assim o Sigma só usa o processador que sobra, e os
+          seus sites nunca esperam.</p></li>
+      <li><h3>Confira que está rodando</h3>
+        <p>Veja o que a máquina está fazendo agora. Para sair dessa tela, aperte <b>Ctrl+C</b>: o Sigma continua rodando.</p>
+        <div class="cmd"><code>journalctl -u sigma -f</code><button type="button" data-copy>copiar</button></div>
+        <p>Depois de uns minutos, ela aparece na rede com o nome que você escolheu. Os ganhos vão direto para a sua carteira.</p></li>
+    </ol>
+  </div>
+</section>
+
+<dialog id="dlg-ssh" aria-labelledby="dlg-ssh-title">
+  <h3 id="dlg-ssh-title">Como controlar uma VPS a distância</h3>
+  <p>Controlar uma VPS é abrir uma janela de comandos no seu computador e ligar ela ao servidor, pela internet. O
+    programa que faz isso se chama <b>SSH</b> e já vem no Windows, no macOS e no Linux.</p>
+
+  <h4>1. Separe os dados de acesso</h4>
+  <p>A empresa da VPS manda, por e-mail ou no painel dela, três coisas: o <b>IP</b> (algo como <code>203.0.113.10</code>),
+    o <b>usuário</b> (quase sempre <code>root</code>) e a <b>senha</b>, ou uma chave SSH.</p>
+
+  <h4>2. Abra a janela de comandos</h4>
+  <ol>
+    <li><b>Windows:</b> aperte <b>Windows + X</b> e escolha <b>Terminal</b> (ou PowerShell).</li>
+    <li><b>macOS:</b> abra o <b>Terminal</b> (Cmd + Espaço, digite “Terminal”).</li>
+    <li><b>Linux:</b> abra o Terminal (Ctrl + Alt + T na maioria dos sistemas).</li>
+  </ol>
+
+  <h4>3. Entre na VPS</h4>
+  <p>Digite este comando, trocando pelo IP da sua VPS, e aperte Enter:</p>
+  <div class="cmd"><code>ssh root@IP_DA_SUA_VPS</code><button type="button" data-copy>copiar</button></div>
+  <ol>
+    <li>Na primeira vez, ele pergunta se você confia no servidor: digite <b>yes</b> e aperte Enter.</li>
+    <li>Digite a senha e aperte Enter. <b>A senha não aparece enquanto você digita</b>, nem com asteriscos. É normal.</li>
+    <li>Quando aparecer algo como <code>root@servidor:~#</code>, você está dentro: tudo o que digitar roda na VPS.</li>
+  </ol>
+  <p><b>Colar comandos:</b> no Windows, clique com o botão direito na janela; no macOS, Cmd + V; no Linux, Ctrl + Shift + V.</p>
+
+  <h4>4. Comandos do dia a dia</h4>
+  <p>Ver se está rodando:</p>
+  <div class="cmd"><code>systemctl status sigma</code><button type="button" data-copy>copiar</button></div>
+  <p>Ver o que a máquina está fazendo agora (Ctrl+C sai da tela; o Sigma continua):</p>
+  <div class="cmd"><code>journalctl -u sigma -f</code><button type="button" data-copy>copiar</button></div>
+  <p>Reiniciar, desligar e ligar de novo:</p>
+  <div class="cmd"><code>systemctl restart sigma</code><button type="button" data-copy>copiar</button></div>
+  <div class="cmd"><code>systemctl stop sigma</code><button type="button" data-copy>copiar</button></div>
+  <div class="cmd"><code>systemctl start sigma</code><button type="button" data-copy>copiar</button></div>
+  <p>Atualizar para a versão nova:</p>
+  <div class="cmd"><code>cd /root &amp;&amp; curl -LO https://sigma.195-35-29-232.sslip.io/downloads/sigma.pyz &amp;&amp; systemctl restart sigma</code><button type="button" data-copy>copiar</button></div>
+  <p>Sair da VPS (ela continua trabalhando):</p>
+  <div class="cmd"><code>exit</code><button type="button" data-copy>copiar</button></div>
+
+  <h4>5. Ver o painel da VPS no seu navegador</h4>
+  <p>O painel do Sigma na VPS só abre de dentro dela, de propósito. Para ver o painel no seu computador, entre na VPS por
+    este comando, que cria um túnel seguro:</p>
+  <div class="cmd"><code>ssh -L 47811:127.0.0.1:47811 root@IP_DA_SUA_VPS</code><button type="button" data-copy>copiar</button></div>
+  <p>Já dentro da VPS, este comando mostra o link do painel. Copie o link e abra no navegador do <b>seu</b> computador
+    enquanto a janela do SSH estiver aberta:</p>
+  <div class="cmd"><code>python3 -c "import json;d=json.load(open('/root/.sigma/session.json'));print('http://127.0.0.1:%s/#t=%s'%(d['port'],d['token']))"</code><button type="button" data-copy>copiar</button></div>
+
+  <h4>Segurança</h4>
+  <ol>
+    <li><b>Nunca passe a senha da VPS para ninguém.</b> Ninguém do Sigma vai pedir.</li>
+    <li>Prefira entrar com chave SSH em vez de senha. A empresa da VPS costuma ter um tutorial.</li>
+    <li>Não abra a porta 47811 no firewall: use sempre o túnel acima.</li>
+  </ol>
+  <div class="close-row"><button type="button" class="primary" data-close>Entendi</button></div>
+</dialog>
 
 <section class="sec" id="conferir" style="border-top:1px solid var(--line)">
   <div class="inner">
@@ -450,6 +586,10 @@ async function copy(text) {
   return ok;
 }
 document.addEventListener("click", async (e) => {
+  const o = e.target.closest("[data-dialog-open]");
+  if (o) { $(o.dataset.dialogOpen).showModal(); return; }
+  const c = e.target.closest("dialog [data-close]");
+  if (c) { c.closest("dialog").close(); return; }
   const b = e.target.closest("[data-copy]");
   if (!b) return;
   const text = b.dataset.copy || b.previousElementSibling.textContent;

@@ -1303,10 +1303,12 @@ class App:
         try:
             if getattr(a, "coordinate", None):
                 self.group = {"listen": a.coordinate,
-                              "workers": dict(grupo.parse_worker(w) for w in a.group_worker)}
+                              "workers": dict(grupo.parse_worker(w) for w in a.group_worker),
+                              "kind": grupo.parse_kind(getattr(a, "group_kind", None))}
             elif getattr(a, "worker_of", None):
                 coord, endpoint = grupo.parse_coordinator(a.worker_of)
-                self.group = {"coordinator": coord, "endpoint": endpoint}
+                self.group = {"coordinator": coord, "endpoint": endpoint,
+                              "kind": grupo.parse_kind(getattr(a, "group_kind", None))}
         except grupo.GroupError as e:
             raise AppError(str(e)) from None
         self.overrides = {k: self._clean(k, v) for k, v in o.items()}
@@ -3068,6 +3070,8 @@ def parse_args(argv=None):
                     help="trabalhador do grupo (máquina da rede) e quantos GB ele empresta; um por trabalhador")
     ap.add_argument("--worker-of", metavar="ENDEREÇO@HOST:PORTA",
                     help="emprestar memória para o coordenador (endereço da máquina dele e onde ele escuta)")
+    ap.add_argument("--group-kind", choices=("text", "video"),
+                    help="o que o grupo divide: text (llama.cpp, padrão) ou video (stable-diffusion.cpp)")
     args = ap.parse_args(argv)
     if args.port is not None and not 0 < args.port < 65536:
         ap.error("--port deve estar entre 1 e 65535")

@@ -64,6 +64,6 @@ Funciona com o llama.cpp de sempre, pelo RPC dele.
 | gpt-oss 120B | ~77 GB, uns 8 trabalhadores emprestando 10 GB | 63 GB |
 | Qwen3 235B | ~171 GB | 142 GB |
 
-**Vídeo e imagem não se dividem.** O motor deles (stable-diffusion.cpp) não tem conexão entre máquinas, como o RPC do
-llama.cpp. Eles rodam inteiros num computador com memória suficiente: o Wan 2.1 14B pede ~21 GB, então cabe num PC
-de 32 GB.
+**Vídeo (2.9, em teste):** o stable-diffusion.cpp também tem RPC, compilado à parte. Com `--group-kind video`, o
+modelo de difusão do Wan se divide entre os trabalhadores: veja [GRUPO-VIDEO.md](GRUPO-VIDEO.md). A imagem continua
+rodando inteira num computador só.

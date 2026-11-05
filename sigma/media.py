@@ -224,6 +224,46 @@ class _SdCpp:
         self.installing = None
         self.running = None          # nome do modelo gerando agora
         self.killer = engines._KillOnClose()
+        self.rpc_provider = None     # grupo de vídeo: pontes do túnel para os rpc-servers dos trabalhadores
+        self.data_dir = data_dir
+
+    def _rpc(self):
+        try:
+            return list(self.rpc_provider()) if self.rpc_provider else []
+        except Exception:
+            return []
+
+    def _group_cli(self):
+        """sd-cli com RPC (SD_RPC=ON), que o pacote oficial não traz: SIGMA_SD_CLI_RPC ou engine/sd-rpc/."""
+        exe = os.environ.get("SIGMA_SD_CLI_RPC") or os.path.join(
+            self.data_dir, "engine", "sd-rpc", "sd-cli.exe" if os.name == "nt" else "sd-cli")
+        if not os.path.isfile(exe):
+            raise EngineError(f"o sd-cli com RPC não está em {exe} (veja docs/GRUPO-VIDEO.md)")
+        return exe
+
+    @staticmethod
+    def rpc_devices(exe, rpc, timeout=60):
+        """Nomes dos dispositivos RPC que o sd-cli enxerga (RPC0, RPC1, …): um rpc-server pode dar mais de um."""
+        try:
+            out = subprocess.run([exe, "--rpc-servers", ",".join(rpc), "--list-devices"], capture_output=True,
+                                 timeout=timeout, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW).stdout
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise EngineError(f"o sd-cli não listou os trabalhadores do grupo: {e}") from None
+        names = []
+        for line in out.decode(errors="replace").splitlines():
+            first = line.strip().split(maxsplit=1)
+            if first and re.fullmatch(r"RPC\d+", first[0]):
+                names.append(first[0])
+        if not names:
+            raise EngineError("nenhum trabalhador do grupo respondeu ao sd-cli")
+        return names
+
+    def group_args(self, exe, rpc):
+        """Divide o modelo de difusão: blocos nos trabalhadores e no coordenador (CPU, por último); o
+        codificador de texto e o VAE ficam aqui. Sem --offload-to-cpu, que guardaria todos os pesos na CPU."""
+        devices = self.rpc_devices(exe, rpc)
+        return ["--rpc-servers", ",".join(rpc), "--backend", "diffusion=" + "&".join(devices + ["CPU"]) +
+                ",te=CPU,vae=CPU"]
 
     def _candidates(self):
         return ["próprio"] if self.override else [v for v in self.variants if v not in self.failed]
@@ -324,7 +364,7 @@ class _SdCpp:
         with self.lock:
             return sorted(self.models)
 
-    def _command(self, exe, m, spec, out):
+    def _command(self, exe, m, spec, out, group=None):
         files = m["files"]
         main = ["--diffusion-model", files["main"]] if len(files) > 1 else ["-m", files["main"]]
         cmd = [exe, *main]
@@ -336,8 +376,9 @@ class _SdCpp:
                     "--flow-shift", str(spec["flow_shift"]), "--vae-tiling"]
         cmd += ["-p", spec["prompt"], "-W", str(spec["width"]), "-H", str(spec["height"]),
                 "--steps", str(spec["steps"]), "--cfg-scale", str(spec["cfg"]),
-                "--sampling-method", spec["sampler"], "-s", str(spec["seed"]), "-t", str(self.threads),
-                "--offload-to-cpu", "-o", out]
+                "--sampling-method", spec["sampler"], "-s", str(spec["seed"]), "-t", str(self.threads)]
+        cmd += group if group else ["--offload-to-cpu"]
+        cmd += ["-o", out]
         if spec["negative"]:
             cmd += ["-n", spec["negative"]]
         if spec["task"] == "image" and spec["count"] > 1:
@@ -353,6 +394,10 @@ class _SdCpp:
         if m is None:
             raise EngineError(f"o modelo '{name}' não está pronto nesta máquina")
         deadline = time.time() + (timeout or 3600)   # um prazo só: a tentativa na CPU usa o que sobrou
+        rpc = self._rpc() if spec["task"] == "video" else []
+        if rpc:   # grupo de vídeo: o modelo dividido entre os trabalhadores conectados (sem tentativa local)
+            exe = self._group_cli()
+            return self._run(name, exe, m, spec, deadline, should_stop, self.group_args(exe, rpc))
         gpu, error = None, EngineError("o stable-diffusion.cpp não está instalado")
         for variant in self._candidates():
             try:
@@ -368,12 +413,12 @@ class _SdCpp:
             return results
         raise error
 
-    def _run(self, name, exe, m, spec, deadline, should_stop):
+    def _run(self, name, exe, m, spec, deadline, should_stop, group=None):
         """Um sd-cli com prioridade baixa numa pasta temporária, que sai logo depois: nada do pedido fica no
         disco."""
         job_dir = os.path.join(self.work, hashlib.sha256(os.urandom(16)).hexdigest()[:16])
         out = os.path.join(job_dir, "video.webm" if spec["task"] == "video" else "imagem.png")
-        cmd = self._command(exe, m, spec, out)
+        cmd = self._command(exe, m, spec, out, group) if group else self._command(exe, m, spec, out)
         nice = shutil.which("nice") if os.name != "nt" else None
         if nice:   # prioridade baixa desde o primeiro instante (no Windows vem pelo creationflags)
             cmd = [nice, "-n", "10", *cmd]
@@ -508,11 +553,19 @@ class MediaManager:
         self.threads = int(threads) if threads else max(1, hardware.cpu_cores() // 2)
         self._impl = None
         self._lock = threading.Lock()
+        self.rpc_provider = None     # grupo de vídeo (sigma/grupo.py): função -> ["127.0.0.1:<ponte>", ...]
+
+    def set_rpc_provider(self, provider):
+        self.rpc_provider = provider
+        with self._lock:
+            if self._impl is not None:
+                self._impl.rpc_provider = provider
 
     def _engine(self):
         with self._lock:
             if self._impl is None:
                 self._impl = _MockMedia() if self.prefer == "mock" else _SdCpp(self.data_dir, self.log, self.threads)
+                self._impl.rpc_provider = self.rpc_provider
             return self._impl
 
     @property

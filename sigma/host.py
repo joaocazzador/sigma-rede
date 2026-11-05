@@ -158,14 +158,18 @@ class Host:
         # grupo (sigma/grupo.py): coordenador usa a memória de outros PCs; trabalhador empresta a sua e não serve IA
         self.group = grupo.from_settings(self.settings.get("group"), machine_wallet, self.client, data_dir,
                                          self.settings["ai_threads"], log)
-        if self.group and self.group.role == "coordinator":
+        video_group = bool(self.group and getattr(self.group, "kind", "text") == "video")
+        if self.group and self.group.role == "coordinator" and not video_group:
             self.settings["engine"] = "llamacpp"      # o Ollama não divide camadas entre máquinas
+        if video_group and self.group.role == "coordinator":
+            self.settings["ai_video"] = True          # o grupo de vídeo existe para hospedar vídeo
         if self.group and self.group.role == "worker":
             self.settings["ai_enabled"] = False
         self.engine = EngineManager(data_dir, self.settings["engine"], log, self.settings["ai_threads"])
-        self.engine.rpc_provider = self.group.rpc if self.group else None
+        self.engine.rpc_provider = self._group_rpc("text")
         # v2: imagem e vídeo (stable-diffusion.cpp); com o motor "mock" dos testes, o gerador de teste
         self.media = media.MediaManager(data_dir, self.settings["engine"], log, self.settings["ai_threads"])
+        self.media.set_rpc_provider(self._group_rpc("video"))
         self.models_dir = os.path.join(data_dir, "models")
         self.blob_dir = os.path.join(data_dir, "blobs")
         self.refused_path = os.path.join(self.models_dir, "recusados.json")
@@ -345,6 +349,11 @@ class Host:
                 return {}
         return info if isinstance(info, dict) else {}
 
+    def _group_rpc(self, kind):
+        """Função -> pontes do grupo para o motor deste tipo (texto ou vídeo), ou None sem grupo."""
+        group = self.group
+        return (lambda: group.rpc(kind)) if group else None
+
     def _net_media(self):
         """A rede já está nas regras v2 (aceita modelos de imagem e vídeo)? Antes disso, registrar "tasks" ou
         preços de imagem seria recusado."""
@@ -389,7 +398,8 @@ class Host:
         want_ai = bool(s["ai_enabled"]) and ai_ram >= MIN_AI_RAM_MB
         if not want_ai:
             self._engine_down_since = None
-        text = want_ai and self._engine_ok()
+        # grupo de vídeo: a memória somada só vale para o vídeo, então o coordenador não declara texto
+        text = want_ai and self._engine_ok() and getattr(self.group, "kind", "text") != "video"
         name = str(s["name"] or f"maquina-{self.address[3:9]}")[:40]   # sem o nome do PC: ele fica público
         net_media = self._net_media()
         # v2: imagem e vídeo têm motor próprio; com o de texto fora do ar a máquina segue com eles, e a rede só tira
@@ -1136,7 +1146,7 @@ class Host:
         self._swap = False
         old, old_media = self.engine, self.media
         self.engine = EngineManager(self.data_dir, self.settings["engine"], self.log, self.settings["ai_threads"])
-        self.engine.rpc_provider = self.group.rpc if self.group else None
+        self.engine.rpc_provider = self._group_rpc("text")
         self.media = media.MediaManager(self.data_dir, self.settings["engine"], self.log, self.settings["ai_threads"])
         self._engine_desc = self._media_desc = (0.0, None)
         old_media.shutdown()
