@@ -613,6 +613,12 @@ class AskTest(unittest.TestCase):
         for name in ("s0", "s1", "s2"):
             self.assertTrue(1000 < second_group[name] < 1700, second_group)
 
+    def test_media_goes_to_gpu_first(self):
+        recs = [("cpu", {"last_seen": 9, "reputation": 9, "hw": {"vram_mb": 0}}),
+                ("placa", {"last_seen": 9, "reputation": 0, "hw": {"vram_mb": 8192}})]
+        self.assertEqual([a for a, _ in client.order_machines(list(recs), 9, gpu_first=True)], ["placa", "cpu"])
+        self.assertEqual([a for a, _ in client.order_machines(list(recs), 9)], ["cpu", "placa"])   # texto: reputação
+
     def test_best_reputation_first(self):
         recs = [("ruim", {"last_seen": 9, "reputation": -3}), ("boa", {"last_seen": 9, "reputation": 5}),
                 ("media", {"last_seen": 9, "reputation": 1}), ("velha", {"last_seen": 8, "reputation": 50})]

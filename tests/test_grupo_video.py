@@ -64,7 +64,8 @@ class TestSplitCommand(unittest.TestCase):
         self.assertNotIn("--offload-to-cpu", cmd)
         self.assertEqual(cmd[-2:], ["-o", "v.webm"])
         self.assertIn("--rpc-servers", cmd)
-        self.assertIn("--offload-to-cpu", self.eng._command("sd-cli", m, VIDEO, "v.webm"))
+        self.assertNotIn("--offload-to-cpu", self.eng._command("sd-cli", m, VIDEO, "v.webm"))
+        self.assertIn("easycache", self.eng._command("sd-cli", m, VIDEO, "v.webm"))
 
     def test_parse_devices(self):
         import subprocess

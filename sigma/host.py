@@ -26,7 +26,7 @@ import urllib.parse
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import grupo, hardware, media, netsafe, tasks
+from . import awake, grupo, hardware, media, netsafe, tasks
 from .chain import FUNDED_ABOVE, MEDIA_CLAIM_TIMEOUT, MEDIA_PRICES, MIN_FUNDED_SECONDS, TASK_PRICE, canon
 from .client import Client, SigmaError
 from .crypto import is_sealed, norm_address, seal
@@ -141,6 +141,7 @@ class _Unreadable(Exception):
 
 # o que um pedido malformado levanta ao ser lido: além de JSON e campos inválidos, número infinito (Infinity e
 # 1e999 passam no json do Python) virando inteiro (OverflowError) e JSON aninhado demais (RecursionError)
+VIDEO_MIN_VRAM_MB = 6000     # placa de vídeo mínima para aceitar vídeo sozinho (o Wan 1.3B cabe em ~6 GB)
 MAX_PROGRESS_TEXT = 60_000   # caracteres do texto parcial mandados no progresso (o fim, se passar)
 
 MALFORMED = (ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError)
@@ -242,6 +243,7 @@ class Host:
         self._swap = False
         self._pausing = 0
         self._we_paused = False
+        self._awake = awake.KeepAwake(log)    # o PC não dorme enquanto hospeda modelos ou responde um pedido
         self._errors = {}                     # origem -> (hora, mensagem)
         self._engine_desc = (0.0, None)
         self._queue = deque()                 # pedidos de IA já reivindicados, na ordem em que chegaram
@@ -273,6 +275,7 @@ class Host:
         self.log(f"[máquina] {self.address} ligada; pagamentos para {self.payout}")
 
     def stop(self):
+        self._awake.set(False)
         self._stop.set()
         self._wake.set()
         self._jobs_wake.set()
@@ -409,7 +412,20 @@ class Host:
         dependem do motor de texto: o stable-diffusion.cpp roda sozinho, com o Ollama fechado ou não."""
         if not self.media.available():
             return []
-        return [t for t, key in (("image", "ai_image"), ("video", "ai_video")) if self.settings.get(key)]
+        out = [t for t, key in (("image", "ai_image"), ("video", "ai_video")) if self.settings.get(key)]
+        if "video" in out and not self._video_capable():
+            out.remove("video")
+        return out
+
+    def _video_capable(self):
+        """Vídeo só em quem termina no prazo: placa de vídeo com VIDEO_MIN_VRAM_MB, ou um grupo de vídeo (a memória
+        de vários PCs). Só no processador, um vídeo do Wan leva horas, estoura o prazo e custa reputação (v5)."""
+        if getattr(self.group, "kind", "text") == "video" and self.group.role == "coordinator":
+            return True
+        if self.media.kind == "mock":   # o gerador de teste não tem placa nem prazo
+            return True
+        hw = getattr(self, "_hw", None) or {}
+        return int(hw.get("vram_mb") or 0) >= VIDEO_MIN_VRAM_MB
 
     def _engine_ok(self):
         """O motor de texto responde? Fora do ar por pouco tempo (até ENGINE_GRACE) ainda conta como ligado: um
@@ -727,6 +743,7 @@ class Host:
                 self._error("modelos", f"modelos: {e}")
             except Exception as e:
                 self._error("modelos", f"modelos: erro inesperado: {type(e).__name__}: {e}")
+            self._awake.set(self._stay_awake())
             self._wake.wait(10)
             self._wake.clear()
 
@@ -1843,8 +1860,20 @@ class Host:
             except SigmaError:
                 return
 
+    def busy(self):
+        """Respondendo um pedido ou com algum já pego na fila: não é hora de reiniciar (atualização automática)."""
+        with self._lock:
+            return bool(self._pausing or self._queue or self._mqueue or self._current or self._mcurrent)
+
+    def _stay_awake(self):
+        """Hospedando algum modelo (a rede manda pedidos a qualquer hora) ou respondendo um agora."""
+        return bool(self._pausing) or (bool(self.settings.get("ai_enabled"))
+                                        and any(m.get("loaded") for m in self._models.values()))
+
     def _busy(self, on):
         """Inferência na CPU: pausa o minerador enquanto durar (e só retoma se foi o host que pausou)."""
+        if on:
+            self._awake.set(True)   # um pedido nunca é largado porque o PC foi dormir
         with self._lock:
             if on:
                 self._pausing += 1

@@ -446,12 +446,15 @@ class _SdCpp:
             if role in files:
                 cmd += [flag, files[role]]
         if spec["task"] == "video":
+            # easycache: o Wan (DiT) reaproveita o cálculo de passos parecidos; bem mais rápido, quase igual
             cmd += ["-M", "vid_gen", "--video-frames", str(spec["frames"]), "--fps", str(VIDEO_FPS),
-                    "--flow-shift", str(spec["flow_shift"]), "--vae-tiling"]
+                    "--flow-shift", str(spec["flow_shift"]), "--vae-tiling", "--cache-mode", "easycache"]
         cmd += ["-p", spec["prompt"], "-W", str(spec["width"]), "-H", str(spec["height"]),
                 "--steps", str(spec["steps"]), "--cfg-scale", str(spec["cfg"]),
                 "--sampling-method", spec["sampler"], "-s", str(spec["seed"]), "-t", str(self.threads)]
-        cmd += group if group else ["--offload-to-cpu"]
+        # sem --offload-to-cpu: ele prendia todos os pesos na RAM e, com placa de vídeo, copiava o modelo para ela a
+        # cada passo (um vídeo passava de 2 h). O --auto-fit (padrão) põe na placa o que cabe e o resto na RAM.
+        cmd += group or []
         cmd += ["-o", out]
         if spec["negative"]:
             cmd += ["-n", spec["negative"]]
@@ -479,6 +482,9 @@ class _SdCpp:
                                     on_progress=on_progress)
             except EngineError as e:
                 if "vulkan" not in variant or (should_stop and should_stop()) or deadline - time.time() < 60:
+                    raise
+                if spec["task"] == "video":   # vídeo no processador não termina no prazo: falha já, o app vai à próxima
+                    self.failed.add(variant)
                     raise
                 self.log(f"[motor] a versão Vulkan do sd-cli não rodou ({e}); usando a de CPU")
                 gpu, error = variant, e

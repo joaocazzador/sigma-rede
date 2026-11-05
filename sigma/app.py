@@ -1199,7 +1199,7 @@ class App:
         updater.cleanup()   # o arquivo da versão anterior (.old) já pode sair
         self.updater = updater.AutoUpdater(
             node=lambda: self.settings["node"], version_available=self.update_available,
-            busy=lambda: bool(getattr(self.host, "_pausing", 0)), log=self.log, on_restart=self._restart_for_update,
+            busy=lambda: bool(self.host and self.host.busy()), log=self.log, on_restart=self._restart_for_update,
             enabled=not getattr(self.args, "no_auto_update", False) and not os.environ.get("SIGMA_NO_AUTO_UPDATE"))
         if self.updater.enabled:
             self.log("atualização automática ligada: quando sair versão nova, o Sigma se atualiza sozinho")

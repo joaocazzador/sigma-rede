@@ -151,7 +151,7 @@ def fit_messages(messages, max_tokens, context=CONTEXT):
     return out, len(msgs) - len(out)
 
 
-def order_machines(machines, window, rng=None):
+def order_machines(machines, window, rng=None, gpu_first=False):
     """Ordem das tentativas para [(endereço, registro)]: primeiro quem sinalizou nesta janela, depois quem
     sinalizou na anterior (pode ter acabado de dormir); dentro de cada grupo, a de MELHOR REPUTAÇÃO primeiro
     (quem entrega sobe, quem falha ou some desce, regras v5). Entre as de reputação igual, sorteio: nenhum
@@ -165,10 +165,14 @@ def order_machines(machines, window, rng=None):
     def rep(rec):
         r = rec.get("reputation")
         return r if isinstance(r, int) and not isinstance(r, bool) else 0
+    def gpu(rec):   # imagem e vídeo: com placa de vídeo leva segundos; só no processador, muitos minutos
+        hw = rec.get("hw") if isinstance(rec.get("hw"), dict) else {}
+        v = hw.get("vram_mb")
+        return 1 if gpu_first and isinstance(v, int) and v >= 2000 else 0
     out = []
     for group in ([x for x in machines if now(x[1])], [x for x in machines if not now(x[1])]):
-        keyed = [(-rep(x[1]), rng.random(), i) for i, x in enumerate(group)]
-        out += [group[i] for _, _, i in sorted(keyed)]
+        keyed = [(-gpu(x[1]), -rep(x[1]), rng.random(), i) for i, x in enumerate(group)]
+        out += [group[k[-1]] for k in sorted(keyed)]
     return out
 
 
@@ -656,7 +660,7 @@ class Client:
             if ceiling < cheapest:
                 raise SigmaError(f"preço máximo abaixo do de todas as máquinas (a mais barata cobra "
                                  f"{cheapest} µSIG {unit})")
-        return order_machines([(a, m) for a, m, p in hosts if p <= ceiling], w), ceiling
+        return order_machines([(a, m) for a, m, p in hosts if p <= ceiling], w, gpu_first=task != "text"), ceiling
 
     def generate(self, model, task, spec, max_price=None, timeout=None, should_stop=None, on_job=None,
                  on_progress=None):

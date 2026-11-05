@@ -57,7 +57,7 @@ BELOW_NORMAL = 0x00004000 if os.name == "nt" else 0   # BELOW_NORMAL_PRIORITY_CL
 LOAD_TIMEOUT = 600              # modelo grande em disco lento demora para subir
 CHAT_TIMEOUT = 900
 # modelos se revezam na memória (regras v5): um modelo parado há tanto tempo sai da RAM e volta no próximo pedido
-IDLE_UNLOAD = 600
+IDLE_UNLOAD = 1800
 # texto em fluxo: sem nenhum pedaço novo por tanto tempo, o motor travou; a máquina devolve falha e o cliente vai
 # para a próxima na hora (em vez de esperar o prazo inteiro do pedido)
 STALL_TIMEOUT = 120
@@ -982,7 +982,7 @@ class _Ollama:
                 pass
 
     def chat(self, name, messages, max_tokens, json_mode=False, timeout=None, on_text=None):
-        body = {"model": self.tag(name), "messages": messages, "stream": bool(on_text),
+        body = {"model": self.tag(name), "messages": messages, "stream": bool(on_text), "keep_alive": "30m",
                 "options": {"num_predict": max_tokens, "num_ctx": CONTEXT}}
         if json_mode:
             body["format"] = "json"
