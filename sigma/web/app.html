@@ -2917,6 +2917,13 @@ function siteFund(name) {
 }
 
 // ------------------------------------------------------------- Modelos
+// modelo sem nenhuma máquina: o porquê (calculado pelo app com a mesma conta da rede) e o que mudar neste PC
+function waitingNote(m) {
+  const w = lazy.models.data?.waiting?.[m.name];
+  if (!w) return "";
+  return `<div class="hint"><b>Por que ainda não está no ar:</b> ${(w.reasons || []).map(esc).join(" ")}`
+    + (w.here ? `<br><b>Neste computador:</b> ${esc(w.here)}` : "") + `</div>`;
+}
 function modelTile(m, mine) {
   const h = hosts(m), a = Object.keys(m.assigned || {}).length;
   const status = h ? '<span class="tag ok">no ar</span>' : a ? '<span class="tag warn">baixando</span>' : '<span class="tag">esperando computadores</span>';
@@ -2936,6 +2943,7 @@ function modelTile(m, mine) {
     + (price ? `<dt>Preço</dt><dd>até ${esc(num(price))} µSIG por ${esc(unitOf(task))}</dd>` : "")
     + `<dt>Orçamento</dt><dd>${esc(sig(m.budget))} SIG · dura ${esc(lifetime(m.budget, rent(m)))}</dd>`
     + (mine ? `<dt>Royalties</dt><dd class="ok">${esc(sig(m.royalties))} SIG recebidos</dd>` : "") + `</dl>`
+    + (!h && !a ? waitingNote(m) : "")
     + `<div class="row">${mine ? act("fund", "Recarregar", "primary") + act("royalty", "Royalty") + act("transfer", "Passar adiante") + act("retire", "Apagar", "danger")
       : h ? `<button type="button" class="small" data-chat="${esc(m.name)}">${talk}</button>` : ""}</div></div>`;
 }

@@ -1975,13 +1975,77 @@ class App:
                 return f"{NO_MEDIA_YET}, marcada para o bloco {h}"
         return f"{NO_MEDIA_YET}, que ainda não tem bloco marcado"
 
+    def _waiting(self, network, machines):
+        """Modelo sem nenhuma máquina: por que a rede ainda não o colocou em ninguém (a mesma conta da chain em
+        _assign_models) e o que mudaria neste computador. {"reasons": [...], "here": "..."} por nome."""
+        from .hardware import gb_to_mb
+        if not isinstance(network, dict) or not isinstance(machines, dict):
+            return {}
+        used = {}                                    # máquina -> [memória, disco, quantos] já comprometidos
+        for m in network.values():
+            for a in {**(m.get("pinners") or {}), **(m.get("assigned") or {})}:
+                u = used.setdefault(a, [0, 0, 0])
+                u[0] += int(m.get("ram_mb") or 0); u[1] += int(m.get("size") or 0); u[2] += 1
+        names = {"text": "texto", "image": "imagem", "video": "vídeo"}
+        switch = {"image": "Gerar imagens", "video": "Gerar vídeos"}
+        me, s, out = getattr(self.machine, "address", None), self.settings, {}
+        for name, m in network.items():
+            if m.get("pinners") or m.get("assigned"):
+                continue
+            task, need, size = m.get("task") or "text", int(m.get("ram_mb") or 0), int(m.get("size") or 0)
+            online = {a: x for a, x in machines.items() if x.get("online") and x.get("ai")
+                      and int(x.get("reputation") or 0) > chain.MIN_REPUTATION}
+            def free(a, x):
+                u, hw = used.get(a, [0, 0, 0]), x.get("hw") or {}
+                return int(hw.get("ai_ram_mb") or 0) - u[0], int(hw.get("disk_mb") or 0) * 1_000_000 - u[1], u[2]
+            ok_task = {a: x for a, x in online.items() if task in (x.get("tasks") or ["text"])}
+            ok_ram = {a: x for a, x in ok_task.items() if free(a, x)[0] >= need}
+            ok_all = [a for a, x in ok_ram.items() if free(a, x)[1] >= size and free(a, x)[2] < chain.MAX_MODELS_PER_MACHINE]
+            reasons = []
+            if not online:
+                reasons.append("Nenhum computador com IA ligada está online agora.")
+            elif not ok_task:
+                reasons.append(f"Nenhum dos {len(online)} computadores online aceita modelos de {names[task]}"
+                               + (f": quem tiver memória pode ligar \"{switch[task]}\" em Configurações." if task in switch else "."))
+            elif not ok_ram:
+                best = max(free(a, x)[0] for a, x in ok_task.items())
+                reasons.append(f"O modelo pede {need / 1000:.1f} GB de memória para IA e o computador que mais tem "
+                               f"livre cede {max(best, 0) / 1000:.1f} GB.")
+            elif not ok_all:
+                reasons.append("Os computadores com memória suficiente não têm disco livre (ou já hospedam 4 modelos).")
+            else:
+                reasons.append(f"{len(ok_all)} computador(es) servem: a rede sorteia quem baixa na próxima virada de "
+                               "janela (até 5 minutos).")
+            here = None
+            mine = machines.get(me) if me else None
+            if task in switch and not s.get("ai_" + task):
+                here = f"Este computador não aceita {names[task]}: ligue \"{switch[task]}\" em Configurações."
+            elif not s.get("ai_enabled", True):
+                here = "Este computador está com a IA desligada nas Configurações."
+            elif need > gb_to_mb(s.get("ai_ram_gb") or 0):
+                total = int(self.hw.get("ram_mb") or 0)
+                here = (f"Este computador cede {s.get('ai_ram_gb')} GB para IA e o modelo pede {need / 1000:.1f} GB"
+                        + (": aumente \"Memória para IA\" em Configurações." if total - 1000 >= need
+                           else f"; este PC tem {total / 1000:.1f} GB no total, então não cabe aqui."))
+            elif size > gb_to_mb(s.get("disk_gb") or 0) * 1_000_000:
+                here = f"O modelo ocupa {size / 1e9:.1f} GB de disco: aumente \"Disco para a rede\" em Configurações."
+            elif mine is None:
+                here = "Este computador ainda não está registrado na rede."
+            out[name] = {"reasons": reasons, "here": here}
+        return out
+
     def api_models(self, q):
         network = self._read("/models")
         tasks = self._model_tasks(network)
         media = self._net_media()
         # media_note: o porquê de imagem e vídeo ainda não valerem (o painel não oferece Apadrinhar para eles)
         # os gigantes (split: só divididos entre máquinas) vêm no fim, sem botão de apadrinhar
-        return {"network": network, "catalog": [dict(i) for i in catalog.CATALOG + catalog.SPLIT_CATALOG],
+        try:
+            waiting = self._waiting(network, self._read("/machines"))
+        except Exception:
+            waiting = {}
+        return {"network": network, "waiting": waiting,
+                "catalog": [dict(i) for i in catalog.CATALOG + catalog.SPLIT_CATALOG],
                 "ai": {"prices": self._ai_prices(), "context": AI_CONTEXT, "tasks": tasks, "units": dict(UNITS),
                        "limits": MEDIA_LIMITS, "media": media, "media_note": None if media else self._no_media_yet()}}
 
