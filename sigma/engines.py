@@ -56,6 +56,8 @@ NO_WINDOW = 0x08000000 if os.name == "nt" else 0   # CREATE_NO_WINDOW
 BELOW_NORMAL = 0x00004000 if os.name == "nt" else 0   # BELOW_NORMAL_PRIORITY_CLASS: a IA dá a vez a quem usa o PC
 LOAD_TIMEOUT = 600              # modelo grande em disco lento demora para subir
 CHAT_TIMEOUT = 900
+# modelos se revezam na memória (regras v5): um modelo parado há tanto tempo sai da RAM e volta no próximo pedido
+IDLE_UNLOAD = 600
 _LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # 127.0.0.1 nunca passa por proxy
 
 
@@ -471,8 +473,12 @@ class _LlamaCpp:
         self.variants = llama_variants()
         self.failed = set()          # variantes que não subiram nesta execução
         self.rpc_provider = None     # grupo (sigma/grupo.py): função -> ["127.0.0.1:<ponte>", ...]
-        self.procs = {}              # nome -> {"proc", "port", "variant", "path", "logf"}
+        self.procs = {}              # nome -> {"proc", "port", "variant", "path", "logf"}: os que estão na RAM
+        self.known = {}              # nome -> caminho: todos os que esta máquina hospeda (na RAM ou não)
+        self.busy = {}               # nome -> pedidos em andamento (um modelo ocupado nunca sai da RAM)
+        self.used = {}               # nome -> último uso (time.time())
         self.lock = threading.RLock()
+        self._reaper = None
         self.install_lock = threading.Lock()
         self.installing = None       # (variante, fração) durante o download do motor
         self.error = None
@@ -627,13 +633,56 @@ class _LlamaCpp:
             return "sem mensagem"
 
     def load(self, name, path, sha256):
+        """Confere que o modelo sobe (carrega uma vez) e o registra. Depois ele sai da RAM quando outro modelo
+        precisar do espaço ou ficar IDLE_UNLOAD parado, e volta sozinho no próximo pedido (chat)."""
         with self.lock:
             p = self.procs.get(name)
             if p and p["proc"].poll() is None and p["path"] == path and p.get("rpc", []) == self._rpc():
+                self.known[name] = path
                 return
         if not os.path.isfile(path):
             raise EngineError(f"arquivo do modelo não encontrado: {path}")
-        self.unload(name)
+        self._stop_proc(name)
+        self._make_room(name)
+        self._spawn(name, path)
+        with self.lock:
+            self.known[name] = path
+            self.used[name] = time.time()
+        self._start_reaper()
+
+    def _make_room(self, keep):
+        """Tira da RAM os outros modelos parados: a rede conta só o maior modelo da máquina (v5), então cabe um
+        de cada vez. Os que estão respondendo agora ficam."""
+        with self.lock:
+            idle = [n for n in self.procs if n != keep and not self.busy.get(n)]
+        for n in idle:
+            self._stop_proc(n)
+            self.log(f"[motor] '{n}' saiu da memória para dar lugar a " + (f"'{keep}'" if keep else "imagem/vídeo"))
+
+    def free_memory(self):
+        """Antes de gerar imagem ou vídeo: tira da RAM os modelos de texto parados."""
+        self._make_room(None)
+
+    def _start_reaper(self):
+        if self._reaper and self._reaper.is_alive():
+            return
+        self._reaper = threading.Thread(target=self._reap, name="sigma-llama-ocioso", daemon=True)
+        self._reaper.start()
+
+    def _reap(self):
+        while True:
+            time.sleep(30)
+            now = time.time()
+            with self.lock:
+                if not self.known and not self.procs:
+                    return
+                idle = [n for n in self.procs if not self.busy.get(n) and now - self.used.get(n, now) > IDLE_UNLOAD]
+            for n in idle:
+                self._stop_proc(n)
+                self.log(f"[motor] '{n}' parado há mais de {IDLE_UNLOAD // 60} min: saiu da memória até o "
+                         "próximo pedido")
+
+    def _spawn(self, name, path):
         errors = []
         for variant in self._candidates():
             try:
@@ -664,28 +713,58 @@ class _LlamaCpp:
                 proc.kill()
                 proc.wait(5)
 
-    def unload(self, name):
+    def _stop_proc(self, name):
         with self.lock:
             p = self.procs.pop(name, None)
         if p:
             self._kill(p["proc"])
             p["logf"].close()
 
+    def unload(self, name):
+        with self.lock:
+            self.known.pop(name, None)
+            self.used.pop(name, None)
+        self._stop_proc(name)
+
     def loaded(self):
+        """Os modelos que esta máquina hospeda (na RAM agora ou esperando o próximo pedido)."""
+        with self.lock:
+            return sorted(self.known)
+
+    def resident(self):
         with self.lock:
             return sorted(self.procs)
 
+    def _ready(self, name):
+        """O llama-server do modelo no ar: sobe de novo se saiu da RAM (ou caiu), abrindo espaço antes."""
+        with self.lock:
+            path = self.known.get(name)
+            p = self.procs.get(name)
+        if path is None:
+            raise EngineError(f"o modelo '{name}' não está carregado")
+        if p is not None and p["proc"].poll() is None:
+            return p
+        if p is not None:
+            self.log(f"[motor] o llama-server de '{name}' tinha parado; reiniciando")
+            self._stop_proc(name)
+        self._make_room(name)
+        self._spawn(name, path)
+        with self.lock:
+            return self.procs[name]
+
     def chat(self, name, messages, max_tokens, json_mode=False, timeout=None):
         with self.lock:
-            p = self.procs.get(name)
-        if p is None:
-            raise EngineError(f"o modelo '{name}' não está carregado")
-        if p["proc"].poll() is not None:   # caiu: sobe de novo uma vez antes de desistir
-            self.log(f"[motor] o llama-server de '{name}' tinha parado; reiniciando")
-            p["logf"].close()
-            p = self._start(name, self.override or self._install(p["variant"]), p["variant"], p["path"])
+            self.busy[name] = self.busy.get(name, 0) + 1
+            self.used[name] = time.time()
+        try:
+            return self._chat(name, messages, max_tokens, json_mode, timeout)
+        finally:
             with self.lock:
-                self.procs[name] = p
+                self.busy[name] -= 1
+                self.used[name] = time.time()
+
+    def _chat(self, name, messages, max_tokens, json_mode=False, timeout=None):
+        p = self._ready(name)
         body = {"messages": messages, "max_tokens": max_tokens, "stream": False}
         if json_mode:
             body["response_format"] = {"type": "json_object"}
@@ -706,6 +785,8 @@ class _LlamaCpp:
     def shutdown(self):
         for name in self.loaded():
             self.unload(name)
+        for name in self.resident():
+            self._stop_proc(name)
 
 
 def _version(v):
@@ -817,6 +898,15 @@ class _Ollama:
 
     def loaded(self):
         return sorted(self.models)
+
+    def free_memory(self):
+        """O Ollama já tira da RAM o modelo parado depois de uns minutos e carrega no pedido seguinte; aqui só
+        pede para tirar agora (antes de imagem ou vídeo). Um modelo respondendo termina antes de sair."""
+        for name in list(self.models):
+            try:
+                self._call("POST", "/api/generate", {"model": self.tag(name), "keep_alive": 0}, timeout=30)
+            except EngineError:
+                pass
 
     def chat(self, name, messages, max_tokens, json_mode=False, timeout=None):
         body = {"model": self.tag(name), "messages": messages, "stream": False,
@@ -956,6 +1046,15 @@ class EngineManager:
 
     def unload(self, name):
         self._engine().unload(name)
+
+    def free_memory(self):
+        """Libera a RAM dos modelos de texto parados (antes de imagem ou vídeo, que precisam dela)."""
+        impl = self._engine()
+        if hasattr(impl, "free_memory"):
+            try:
+                impl.free_memory()
+            except Exception as e:
+                self.log(f"[motor] não consegui liberar a memória: {e}")
 
     def loaded(self) -> list:
         return self._engine().loaded()

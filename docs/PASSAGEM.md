@@ -26,6 +26,7 @@ A rede usa regras versionadas, que entram numa altura marcada sem recomeçar a c
 | v2 | 1950 | 2.5 | imagem e vídeo; 1.000.000 SIG da carteira dos fundadores (`0xfd19…a09e`); votação decidida antes com mais da metade |
 | v3 | 2780 | 2.6 | caução dos coordenadores: `bond` e `unbond`, 14 dias para retirar, `_slash` pronto mas ainda sem quem o chame |
 | v4 | 4032 | 2.8 | modelo de texto em partes, até 600 GB (os gigantes do catálogo) |
+| v5 | 4300 | 2.10 | falha em imagem ou vídeo tira 1 de reputação; a memória de IA conta só o maior modelo da máquina (eles se revezam na RAM), até 8 modelos por máquina |
 
 - A v4 foi marcada para ~23h20 de 04/11. Confira em `/mining`, que deve mostrar `"parts": true`.
 - Versões que não mudaram regras:
@@ -45,6 +46,7 @@ A rede usa regras versionadas, que entram numa altura marcada sem recomeçar a c
 | `sigma/media.py` | motor de imagem e vídeo: stable-diffusion.cpp; o vídeo se divide num grupo de vídeo (docs/GRUPO-VIDEO.md) |
 | `sigma/grupo.py` | coordenador e trabalhador do grupo |
 | `sigma/tunnel.py` | túnel TLS 1.3 PSK com retomada; ainda sem revisão de segurança nem testes de estresse |
+| `sigma/updater.py` | atualização automática do .exe e do .pyz (baixa do nó, confere o SHA-256, troca e reabre) |
 | `sigma/catalog.py` | catálogo de modelos, com tamanhos e SHA-256 do Hugging Face (`pesquisa/hf_consulta.py`) |
 | `sigma/client.py`, `sigma/cli.py` | cliente HTTP e linha de comando |
 | `tests/` | `python -m unittest discover -s tests` |

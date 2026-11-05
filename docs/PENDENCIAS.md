@@ -64,3 +64,15 @@ reputação. Falta escrever e revisar o desenho completo, com estas partes:
 - Caução no painel (travar, retirar, ver quando volta) e nas páginas da carteira e do tutorial.
 - Linha do `min_bond` na tabela de parâmetros do tutorial.
 - README.
+
+## Feito na 2.10 (05/11/2026)
+
+- **Pedido que falha vai para outra máquina.** O app já tentava até 3 máquinas; agora a imagem e o vídeo têm tempo
+  para as 3 tentativas, e as máquinas de melhor reputação vêm primeiro (sorteio só entre as de reputação igual).
+- **Regras v5.** Falhar um pedido de imagem ou vídeo custa 1 de reputação (sumir já custava). Abaixo de −10 a rede
+  não confia mais modelos à máquina.
+- **Modelos se revezam na memória.** A rede conta só o maior modelo de cada máquina (v5) e põe até 8 nela. O
+  llama.cpp carrega o modelo no pedido, tira os parados para dar lugar e desliga quem fica 10 min sem uso; antes
+  de imagem ou vídeo, a máquina libera a RAM dos modelos de texto. O Ollama já fazia isso sozinho.
+- **Atualização automática** do .exe e do .pyz (sigma/updater.py). Quem está na 2.9 ou antes ainda precisa baixar
+  a 2.10 uma vez à mão; dali em diante, atualiza sozinho.

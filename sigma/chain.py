@@ -44,10 +44,13 @@ from .pow import report_points, share_ok
 
 UNIT = 1_000_000            # 1 SIG = 1.000.000 µSIG
 # ---- atualizações das regras (docs/ATUALIZACOES.md)
-RULES = 4                   # a versão mais nova das regras que este código sabe executar
+RULES = 5                   # a versão mais nova das regras que este código sabe executar
 # v1: a rede da v2.4. v2 (v2.5): modelos de imagem e vídeo, preço por imagem e por segundo de vídeo.
 # v3 (v2.6): caução dos coordenadores (bond/unbond, corte e reputação).
 # v4 (v2.8): modelo de texto em várias partes (GGUF dividido), até 600 GB, para rodar dividido entre computadores
+# v5 (v2.10): a máquina que devolve falha num pedido de imagem ou vídeo perde reputação (como a que some); e a
+# memória de IA conta só o MAIOR modelo da máquina, não a soma: ela carrega um por vez e troca quando pedem outro
+# (o disco continua contando todos)
 # atualizações marcadas: hash do genesis da rede -> {versão: altura do primeiro bloco com ela}. Uma rede nova
 # já nasce na versão RULES; as entradas daqui só valem para a rede cujo genesis tem aquele hash.
 # rede principal (genesis a8eabe25…1029, recriada na 2.4): a v2 (imagem e vídeo, reserva dos fundadores, votações
@@ -55,7 +58,9 @@ RULES = 4                   # a versão mais nova das regras que este código sa
 # coordenadores) no bloco 2780, marcado no mesmo dia no bloco 2679 (~40 min de aviso, 24 s por bloco; a primeira
 # marcação da 2.6 era o bloco 8000 e foi antecipada antes de qualquer bloco nas regras v3)
 # a v4 (modelos de texto em partes, os gigantes) no bloco 4032, marcado no bloco 3882 (~1 h de aviso, 2.8)
-SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032}}
+# a v5 (reputação na falha de imagem/vídeo, modelos que se revezam na memória) no bloco 4300, marcado no bloco 4236
+# (~18 min de aviso, 2.10: o dono pediu o mais rápido possível)
+SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300}}
 UPGRADE_HISTORY_KEEP = 50
 # saldos que uma atualização cria na altura dela, uma vez só: hash do genesis -> {versão: [(endereço, µSIG)]}.
 # A v2 da rede principal cria a carteira dos fundadores: 1 milhão de SIG (1% do teto) para as primeiras despesas do
@@ -130,6 +135,7 @@ MAX_MISSES = 3              # faltas em pedidos direcionados (em janelas diferen
 COOLDOWN_WINDOWS = 288      # ~1 dia sem receber de novo o modelo que perdeu por faltas
 FORMER_WINDOWS = 288        # por ~1 dia o modelo volta primeiro para quem já tem o arquivo
 MAX_MODELS_PER_MACHINE = 4  # hospedando + atribuídos
+MAX_MODELS_PER_MACHINE_V5 = 8   # v5: os modelos se revezam na memória, o limite é o disco
 PRUNE_WINDOWS = 2016        # ~1 semana (janelas de 5 min): o que ficou sem uso sai do estado
 RETIRED_KEEP = 7 * 86400    # segundos que um nome apagado fica em retired_models
 EPOCH_HISTORY = 60
@@ -1120,11 +1126,13 @@ class State:
         mc["earned"] += amount
 
     def _usage(self):
-        """RAM de IA, disco e número de modelos já comprometidos por máquina (o que hospeda + o que está baixando)."""
+        """RAM de IA, disco e número de modelos já comprometidos por máquina (o que hospeda + o que está baixando).
+        A partir da v5 a RAM é a do maior modelo (a máquina troca de modelo conforme os pedidos); antes, a soma."""
         ram, disk, count = {}, {}, {}
+        swap = self.rule(5)
         for m in self.models.values():
             for a in [*m["pinners"], *m["assigned"]]:
-                ram[a] = ram.get(a, 0) + m["ram_mb"]
+                ram[a] = max(ram.get(a, 0), m["ram_mb"]) if swap else ram.get(a, 0) + m["ram_mb"]
                 disk[a] = disk.get(a, 0) + m["size"]
                 count[a] = count.get(a, 0) + 1
         for s in self.sites.values():
@@ -1340,8 +1348,11 @@ class State:
 
     def _fail_ai(self, job, mach):
         """A máquina não conseguiu responder (conversa longa demais, motor fora, pedido ilegível, fila cheia):
-        o cliente recebe tudo de volta na hora, ninguém é pago nem punido."""
+        o cliente recebe tudo de volta na hora, ninguém é pago. A partir da v5, falha em imagem ou vídeo custa 1
+        de reputação (como sumir): no texto a falha costuma ser do pedido (conversa longa demais), lá não conta."""
         self.machines[mach]["jobs_failed"] += 1
+        if self.rule(5) and job.get("media"):
+            self.machines[mach]["reputation"] -= 1
         job.update({"result_hash": job["results"][mach]["hash"], "cost": 0, "royalty": 0})
         self._refund(job, "failed")
 
@@ -1597,12 +1608,13 @@ class State:
                     if task in machine_tasks(self.machines[a])
                     and a not in m["pinners"] and a not in m["assigned"]
                     and m["cooldown"].get(a, w) <= w
-                    and count.get(a, 0) < MAX_MODELS_PER_MACHINE
-                    and self.machines[a]["hw"]["ai_ram_mb"] >= ram.get(a, 0) + m["ram_mb"]
+                    and count.get(a, 0) < (MAX_MODELS_PER_MACHINE_V5 if self.rule(5) else MAX_MODELS_PER_MACHINE)
+                    and self.machines[a]["hw"]["ai_ram_mb"] >= (max(ram.get(a, 0), m["ram_mb"]) if self.rule(5)
+                                                                else ram.get(a, 0) + m["ram_mb"])
                     and self.machines[a]["hw"]["disk_mb"] * 1_000_000 - disk.get(a, 0) >= m["size"]]
             for a in sorted(fits, key=lambda a: (a not in m["former"], sha((seed + name + a).encode())))[:need]:
                 m["assigned"][a] = w
-                ram[a] = ram.get(a, 0) + m["ram_mb"]
+                ram[a] = max(ram.get(a, 0), m["ram_mb"]) if self.rule(5) else ram.get(a, 0) + m["ram_mb"]
                 disk[a] = disk.get(a, 0) + m["size"]
                 count[a] = count.get(a, 0) + 1
 

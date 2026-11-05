@@ -40,7 +40,7 @@ from decimal import Decimal, InvalidOperation
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-from . import __version__, catalog, chain, grupo, netsafe, securestore
+from . import __version__, catalog, chain, grupo, netsafe, securestore, updater
 from .chain import UNIT
 from .client import Client, SigmaError
 from .crypto import N, Wallet, checksum_ok, norm_address, to_eth
@@ -1196,6 +1196,13 @@ class App:
         self._serve()
         self.log(f"nó: {self.settings['node']} · painel local: http://127.0.0.1:{self.port} "
                  f"(token em {self.session_path})")
+        updater.cleanup()   # o arquivo da versão anterior (.old) já pode sair
+        self.updater = updater.AutoUpdater(
+            node=lambda: self.settings["node"], version_available=self.update_available,
+            busy=lambda: bool(getattr(self.host, "_pausing", 0)), log=self.log, on_restart=self._restart_for_update,
+            enabled=not getattr(self.args, "no_auto_update", False) and not os.environ.get("SIGMA_NO_AUTO_UPDATE"))
+        if self.updater.enabled:
+            self.log("atualização automática ligada: quando sair versão nova, o Sigma se atualiza sozinho")
         if self._payout():
             self.log(f"tudo o que este computador ganhar vai para {self._payout()}")
         else:
@@ -1620,6 +1627,11 @@ class App:
             except Exception as e:
                 self._report("bateria", e)
             n += 1
+            try:
+                if getattr(self, "updater", None):
+                    self.updater.tick()
+            except Exception as e:
+                self._report("atualização", e)
             if self._payout() and self._missing() and time.time() - self._last_start > RETRY_SECONDS:
                 self.start_services()
             idle = time.time() - self.viewed > PANEL_IDLE   # ninguém olhando: o minerador e a máquina seguem iguais
@@ -1634,6 +1646,14 @@ class App:
         fix = text if text == CERT_FIX else None   # a pessoa precisa agir: nem espera a segunda falha
         if self.node_state.get("ok") is True or self._node_fails >= 2 or fix:
             self.node_state = {"ok": False, "error": text, "fix": fix}
+
+    def _restart_for_update(self, launch):
+        """Arquivo novo já no lugar. Com `launch`, abre a versão nova, que pede para esta fechar (passagem de
+        bastão); sem ele (systemd, pm2), esta desliga e o supervisor abre a nova."""
+        if launch:
+            launch()
+        else:
+            threading.Thread(target=self.shutdown, name="sigma-atualizacao", daemon=True).start()
 
     def _poll(self, full):
         node = self.settings["node"]
@@ -1842,6 +1862,8 @@ class App:
             return (f"A rede muda de regras (v{r['rules']}) no bloco {r['height']}: baixe a versão nova do Sigma "
                     "antes disso. Ela fecha esta e continua de onde parou.")
         v = self.update_available()
+        if v and getattr(self, "updater", None) and self.updater.enabled:
+            return f"Saiu uma versão nova do Sigma ({v}): ele se atualiza sozinho assim que a máquina ficar livre."
         return f"Saiu uma versão nova do Sigma ({v}). Baixe e abra: ela fecha esta e continua de onde parou." \
             if v else ""
 
@@ -1990,10 +2012,15 @@ class App:
         if not isinstance(network, dict) or not isinstance(machines, dict):
             return {}
         used = {}                                    # máquina -> [memória, disco, quantos] já comprometidos
+        rules = (self.cache.get("status") or {}).get("rules")
+        swap = isinstance(rules, int) and rules >= 5    # v5: a memória conta só o maior modelo (eles se revezam)
+        top = chain.MAX_MODELS_PER_MACHINE_V5 if swap else chain.MAX_MODELS_PER_MACHINE
         for m in network.values():
             for a in {**(m.get("pinners") or {}), **(m.get("assigned") or {})}:
                 u = used.setdefault(a, [0, 0, 0])
-                u[0] += int(m.get("ram_mb") or 0); u[1] += int(m.get("size") or 0); u[2] += 1
+                r = int(m.get("ram_mb") or 0)
+                u[0] = max(u[0], r) if swap else u[0] + r
+                u[1] += int(m.get("size") or 0); u[2] += 1
         names = {"text": "texto", "image": "imagem", "video": "vídeo"}
         switch = {"image": "Gerar imagens", "video": "Gerar vídeos"}
         me, s, out = getattr(self.machine, "address", None), self.settings, {}
@@ -2005,10 +2032,11 @@ class App:
                       and int(x.get("reputation") or 0) > chain.MIN_REPUTATION}
             def free(a, x):
                 u, hw = used.get(a, [0, 0, 0]), x.get("hw") or {}
-                return int(hw.get("ai_ram_mb") or 0) - u[0], int(hw.get("disk_mb") or 0) * 1_000_000 - u[1], u[2]
+                ram = int(hw.get("ai_ram_mb") or 0) - (0 if swap else u[0])   # v5: cabe se o modelo cabe sozinho
+                return ram, int(hw.get("disk_mb") or 0) * 1_000_000 - u[1], u[2]
             ok_task = {a: x for a, x in online.items() if task in (x.get("tasks") or ["text"])}
             ok_ram = {a: x for a, x in ok_task.items() if free(a, x)[0] >= need}
-            ok_all = [a for a, x in ok_ram.items() if free(a, x)[1] >= size and free(a, x)[2] < chain.MAX_MODELS_PER_MACHINE]
+            ok_all = [a for a, x in ok_ram.items() if free(a, x)[1] >= size and free(a, x)[2] < top]
             reasons = []
             if not online:
                 reasons.append("Nenhum computador com IA ligada está online agora.")
@@ -2020,7 +2048,7 @@ class App:
                 reasons.append(f"O modelo pede {need / 1000:.1f} GB de memória para IA e o computador que mais tem "
                                f"livre cede {max(best, 0) / 1000:.1f} GB.")
             elif not ok_all:
-                reasons.append("Os computadores com memória suficiente não têm disco livre (ou já hospedam 4 modelos).")
+                reasons.append(f"Os computadores com memória suficiente não têm disco livre (ou já hospedam {top} modelos).")
             else:
                 reasons.append(f"{len(ok_all)} computador(es) servem: a rede sorteia quem baixa na próxima virada de "
                                "janela (até 5 minutos).")
@@ -3070,6 +3098,8 @@ def parse_args(argv=None):
                     help="trabalhador do grupo (máquina da rede) e quantos GB ele empresta; um por trabalhador")
     ap.add_argument("--worker-of", metavar="ENDEREÇO@HOST:PORTA",
                     help="emprestar memória para o coordenador (endereço da máquina dele e onde ele escuta)")
+    ap.add_argument("--no-auto-update", action="store_true",
+                    help="não se atualizar sozinho quando sair versão nova (só vale para o .exe e o .pyz)")
     ap.add_argument("--group-kind", choices=("text", "video"),
                     help="o que o grupo divide: text (llama.cpp, padrão) ou video (stable-diffusion.cpp)")
     args = ap.parse_args(argv)

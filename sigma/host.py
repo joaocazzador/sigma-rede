@@ -1679,6 +1679,7 @@ class Host:
             return self._fail(job, "busy", "esta máquina demorou demais para chegar a este pedido na fila")
         t0 = time.time()
         self._busy(True)
+        self.engine.free_memory()   # os modelos de texto parados saem da RAM: imagem e vídeo precisam dela (v5)
         try:
             results = self.media.generate(model, spec, timeout=left, should_stop=self._stop.is_set)
         except EngineError as e:

@@ -613,6 +613,12 @@ class AskTest(unittest.TestCase):
         for name in ("s0", "s1", "s2"):
             self.assertTrue(1000 < second_group[name] < 1700, second_group)
 
+    def test_best_reputation_first(self):
+        recs = [("ruim", {"last_seen": 9, "reputation": -3}), ("boa", {"last_seen": 9, "reputation": 5}),
+                ("media", {"last_seen": 9, "reputation": 1}), ("velha", {"last_seen": 8, "reputation": 50})]
+        for _ in range(50):   # a de reputação maior que ficou para trás de janela continua depois das atuais
+            self.assertEqual([a for a, _ in client.order_machines(list(recs), 9)], ["boa", "media", "ruim", "velha"])
+
     def test_long_conversation_is_trimmed(self):
         self.net.add("a")
         msgs = [{"role": "system", "content": "regras"}, {"role": "user", "content": "primeira pergunta"}]

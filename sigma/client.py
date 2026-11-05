@@ -152,18 +152,23 @@ def fit_messages(messages, max_tokens, context=CONTEXT):
 
 def order_machines(machines, window, rng=None):
     """Ordem das tentativas para [(endereço, registro)]: primeiro quem sinalizou nesta janela, depois quem
-    sinalizou na anterior (pode ter acabado de dormir); dentro de cada grupo, sorteio uniforme. Assim nenhum
+    sinalizou na anterior (pode ter acabado de dormir); dentro de cada grupo, a de MELHOR REPUTAÇÃO primeiro
+    (quem entrega sobe, quem falha ou some desce, regras v5). Entre as de reputação igual, sorteio: nenhum
     operador recebe todas as perguntas de um modelo por ser o mais barato ou o mais antigo."""
     rng = rng or _RNG
 
     def now(rec):
         seen = rec.get("last_seen")
         return isinstance(seen, int) and seen >= window
-    fresh = [x for x in machines if now(x[1])]
-    rest = [x for x in machines if not now(x[1])]
-    rng.shuffle(fresh)
-    rng.shuffle(rest)
-    return fresh + rest
+
+    def rep(rec):
+        r = rec.get("reputation")
+        return r if isinstance(r, int) and not isinstance(r, bool) else 0
+    out = []
+    for group in ([x for x in machines if now(x[1])], [x for x in machines if not now(x[1])]):
+        keyed = [(-rep(x[1]), rng.random(), i) for i, x in enumerate(group)]
+        out += [group[i] for _, _, i in sorted(keyed)]
+    return out
 
 
 _CONTROL = re.compile("[\x00-\x1f\x7f-\x9f]")
@@ -646,7 +651,8 @@ class Client:
             raise SigmaError("pedido inválido: quantidade ou duração") from None
         if not 1 <= units <= limit:
             raise SigmaError(f"pedido inválido: de 1 a {limit} " + ("imagens" if task == "image" else "segundos"))
-        timeout = timeout or chain.MEDIA_CLAIM_TIMEOUT[task] + 600
+        # tempo para abrir as 3 tentativas: uma máquina lenta pode segurar o pedido até o prazo inteiro dela
+        timeout = timeout or ATTEMPTS * (chain.MEDIA_CLAIM_TIMEOUT[task] + chain.TARGET_TIMEOUT) + 600
         deadline = time.time() + timeout          # até quando abrir uma tentativa nova
         order, ceiling = self._route(model, max_price, task)
         escrow = units * ceiling
