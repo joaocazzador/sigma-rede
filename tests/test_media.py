@@ -199,7 +199,7 @@ class TestSpec(unittest.TestCase):
         self.assertEqual(media.clean_spec("image", {"prompt": "x", "cfg": float("-inf")}, 1)["cfg"], 7.0)
         vid = json.loads('{"prompt": "x", "seconds": Infinity, "flow_shift": -Infinity, "steps": -1e999}')
         v = media.clean_spec("video", vid, units=3)
-        self.assertEqual((v["seconds"], v["frames"], v["flow_shift"], v["steps"]), (3, 49, 3.0, 20))
+        self.assertEqual((v["seconds"], v["frames"], v["flow_shift"], v["steps"]), (3, 49, 3.0, 12))
 
     def test_control_characters_never_reach_the_engine(self):
         """O NUL no argv faz o Popen levantar ValueError (o job ficava sem resposta): ele, os outros caracteres

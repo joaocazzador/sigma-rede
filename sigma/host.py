@@ -248,6 +248,7 @@ class Host:
         self._awake = awake.KeepAwake(log)
         self._race_checks = {}                # job -> (quando consultou, outra máquina já entregou?)
         self._delivered = {}                  # job -> entrega desta máquina, para mandar à vigia (v7)
+        self.draining = False                 # True: não pega pedido novo (vai reiniciar para atualizar)
         self._watched = {}                    # job -> quando esta máquina já vigiou (não vigia duas vezes)    # o PC não dorme enquanto hospeda modelos ou responde um pedido
         self._errors = {}                     # origem -> (hora, mensagem)
         self._engine_desc = (0.0, None)
@@ -1362,6 +1363,8 @@ class Host:
     def _work_jobs(self):
         """Uma volta pelos jobs abertos: reivindica os direcionados a esta máquina (sempre, mesmo enquanto responde
         outro), pega um público quando está livre e uma tarefa de computação de cada vez."""
+        if self.draining:   # atualização baixada: termina o que tem e não pega pedido novo
+            return
         rec = self._record
         if not rec or not rec.get("online"):
             return

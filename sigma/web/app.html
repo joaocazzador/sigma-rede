@@ -827,8 +827,8 @@ details.more p { margin: 6px 0 0; }
                 <span id="opt-text"><label>Resposta <select id="ai-len"><option value="256">Curta</option><option value="512" selected>Média</option><option value="1024">Longa</option></select></label></span>
                 <span id="opt-image" hidden><label>Formato <select id="ai-size"><option value="512x512">Quadrado · 512×512</option><option value="768x768">Quadrado · 768×768</option><option value="1024x1024" selected>Quadrado · 1024×1024</option><option value="768x1024">Retrato · 768×1024</option><option value="1024x768">Paisagem · 1024×768</option></select></label>
                   <label>Quantidade <select id="ai-count"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label></span>
-                <span id="opt-video" hidden><label>Duração <select id="ai-seconds"><option value="2">2 s</option><option value="3" selected>3 s</option><option value="5">5 s</option></select></label>
-                  <label>Formato <select id="ai-vsize"><option value="832x480" selected>Paisagem · 832×480</option><option value="480x832">Retrato · 480×832</option></select></label></span>
+                <span id="opt-video" hidden><label>Duração <select id="ai-seconds"><option value="2" selected>2 s</option><option value="3">3 s</option><option value="5">5 s</option></select></label>
+                  <label>Formato <select id="ai-vsize"><option value="480x272" selected>Paisagem · 480×272 (rápido)</option><option value="272x480">Retrato · 272×480 (rápido)</option><option value="832x480">Paisagem HD · 832×480 (lento)</option><option value="480x832">Retrato HD · 480×832 (lento)</option></select></label></span>
                 <span class="comp-kind" id="ai-kind"></span>
               </div>
               <div class="comp-box">
@@ -2059,7 +2059,7 @@ function recipeSize(name) {
 }
 function genOpts(t) {
   if (t === "image") return {size: $("ai-size").value, count: Math.max(1, Math.min(4, N($("ai-count").value) || 1))};
-  if (t === "video") return {size: $("ai-vsize").value, seconds: N($("ai-seconds").value) || 3};
+  if (t === "video") return {size: $("ai-vsize").value, seconds: N($("ai-seconds").value) || 2};
   return {max_tokens: Number($("ai-len").value) || 512};
 }
 function elapsedTxt(ms) { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${String(s % 60).padStart(2, "0")} s`; }
@@ -2370,7 +2370,8 @@ function liveHTML() {
   const stage = typeof p.stage === "string" ? p.stage : "";
   const steps = N(p.steps) > 0 ? ` · passo ${num(N(p.step))} de ${num(N(p.steps))}` : "";
   if (pct !== null) h += `<div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div>`;
-  if (stage || pct !== null) h += `<div class="life">${esc(stage)}${pct !== null ? ` · ${pct}%` : ""}${steps}</div>`;
+  const eta = N(p.eta) > 0 ? ` · faltam ~${elapsedTxt(N(p.eta) * 1000)}` : "";
+  if (stage || pct !== null) h += `<div class="life">${esc(stage)}${pct !== null ? ` · ${pct}%` : ""}${eta}</div>`;
   const quiet = age > 45;
   h += `<div class="life${quiet ? " warn" : ""}">${N(p.age) || p.stage ? (quiet
       ? `Sem notícias do computador há ${Math.round(age)} s. Se ele não voltar, o pedido vai para outro.`

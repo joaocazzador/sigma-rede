@@ -122,7 +122,7 @@ CATALOG = [
                   "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b"),
                  ("t5xxl", "city96/umt5-xxl-encoder-gguf", "umt5-xxl-encoder-Q4_K_M.gguf", 3655145312,
                   "17cf97a5bbbc60a646d6105b832b6f657ce904a8a1ad970e4b59df0c67584a40")),
-          recipe={"steps": 20, "cfg": 6.0, "sampler": "euler", "size": "832x480", "flow_shift": 3.0}),
+          recipe={"steps": 12, "cfg": 6.0, "sampler": "euler", "size": "480x272", "flow_shift": 3.0}),
     _item("flux.1-schnell", "FLUX.1 schnell", "city96/FLUX.1-schnell-gguf", "flux1-schnell-Q4_K_S.gguf", 6783943712,
           "4fd16477b3a5296d0cf722c4b92a9fd7f30d09ac7495826e4465d8de9c9fd973", "Apache-2.0",
           "Um dos melhores geradores de imagem abertos, em só 4 passos; pede uns 14 GB de memória.",
@@ -148,7 +148,7 @@ CATALOG = [
                   "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b"),
                  ("t5xxl", "city96/umt5-xxl-encoder-gguf", "umt5-xxl-encoder-Q4_K_M.gguf", 3655145312,
                   "17cf97a5bbbc60a646d6105b832b6f657ce904a8a1ad970e4b59df0c67584a40")),
-          recipe={"steps": 20, "cfg": 6.0, "sampler": "euler", "size": "832x480", "flow_shift": 3.0}),
+          recipe={"steps": 12, "cfg": 6.0, "sampler": "euler", "size": "480x272", "flow_shift": 3.0}),
 ]
 
 # Gigantes (regras v4): não cabem em nenhum computador comum e rodam divididos num grupo (sigma/grupo.py). O

@@ -108,7 +108,7 @@ PAGE_CSP = ("default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-i
 TASKS = ("text", "image", "video")
 UNITS = {"text": "mil tokens", "image": "imagem", "video": "segundo de vídeo"}
 MEDIA_LIMITS = {"image": {"sizes": ["512x512", "768x768", "1024x1024", "768x1024", "1024x768"], "max_count": 4},
-                "video": {"sizes": ["832x480", "480x832"], "seconds": [2, 3, 5]}}
+                "video": {"sizes": ["480x272", "272x480", "832x480", "480x832"], "seconds": [2, 3, 5]}}
 MAX_MEDIA_PRICE = 100_000_000   # teto da chain por imagem e por segundo de vídeo
 MEDIA_EXT = {"image/png": ".png", "video/webm": ".webm"}
 MEDIA_FILE = re.compile(r"^([0-9a-f]{64})\.(png|webm)\Z")
@@ -1650,10 +1650,22 @@ class App:
     def _restart_for_update(self, launch):
         """Arquivo novo já no lugar. Com `launch`, abre a versão nova, que pede para esta fechar (passagem de
         bastão); sem ele (systemd, pm2), esta desliga e o supervisor abre a nova."""
-        if launch:
-            launch()
-        else:
-            threading.Thread(target=self.shutdown, name="sigma-atualizacao", daemon=True).start()
+        def go():
+            host = self.host
+            if host:   # espera terminar o que tem (no máximo 3 h, o prazo de um vídeo); livre, para de pegar pedidos
+                end = time.time() + 3 * 3600   # e a versão nova, que sobe em segundos, pega os que chegarem
+                while time.time() < end and not self.stopping.is_set():
+                    if not host.busy():
+                        host.draining = True
+                        if not host.busy():   # nenhum pedido entrou entre a conferência e a trava
+                            break
+                        host.draining = False
+                    time.sleep(5)
+            if launch:
+                launch()
+            else:
+                self.shutdown()
+        threading.Thread(target=go, name="sigma-atualizacao", daemon=True).start()
 
     def _poll(self, full):
         node = self.settings["node"]
@@ -2593,8 +2605,8 @@ class App:
             p = dict(ctx.get("progress") or {}) if ctx else None
         if not p:
             return {"progress": None, "waiting": bool(ctx)}
-        keep = ("stage", "pct", "step", "steps", "text", "chars", "preview", "age", "machine", "status", "claimed",
-                "job")
+        keep = ("stage", "pct", "step", "steps", "eta", "text", "chars", "preview", "age", "machine", "status",
+                "claimed", "job")
         return {"progress": {k: p[k] for k in keep if k in p}, "waiting": True}
 
     def api_ai_dispute(self, d):

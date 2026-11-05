@@ -50,13 +50,13 @@ SD_ASSETS = {                             # variante -> (arquivo, sha256)
 WEIGHT_EXTS = (".safetensors", ".gguf")
 ROLE_FLAGS = {"vae": "--vae", "clip_l": "--clip_l", "clip_g": "--clip_g", "t5xxl": "--t5xxl", "llm": "--llm"}
 IMAGE_SIZES = ("512x512", "768x768", "1024x1024", "768x1024", "1024x768")
-VIDEO_SIZES = ("832x480", "480x832")
+VIDEO_SIZES = ("480x272", "272x480", "832x480", "480x832")   # os pequenos: minutos numa placa comum
 VIDEO_SECONDS = (2, 3, 5)
 VIDEO_FPS = 16                            # o Wan gera 16 quadros por segundo (4k+1 quadros por vídeo)
 SAMPLERS = ("euler", "euler_a", "heun", "dpm++2m", "lcm")
 MAX_PROMPT = 2000
 DEFAULTS = {"image": {"steps": 20, "cfg": 7.0, "sampler": "euler_a", "size": "512x512"},
-            "video": {"steps": 20, "cfg": 6.0, "sampler": "euler", "size": "832x480", "flow_shift": 3.0}}
+            "video": {"steps": 12, "cfg": 6.0, "sampler": "euler", "size": "480x272", "flow_shift": 3.0}}
 MAX_HEADER = 100 * 1024 * 1024            # cabeçalho de um safetensors (os de verdade têm alguns MB)
 # Limites do GGUF de imagem/vídeo que mudam em relação ao texto, conferidos no pacote do sd-cli fixado
 SD_MAX_NAME = 159                         # nome de tensor: o ggml do sd-cli vem com GGML_MAX_NAME=160
@@ -254,7 +254,7 @@ def install_sd_rpc(data_dir, log=print):
 
 
 # progresso do sd-cli: a barra dos passos ("| 3/20 - 1.2s/it") e as fases que o registro anuncia
-_STEP = re.compile(rb"\|\s*(\d+)/(\d+) - [\d.]+ ?(?:s/it|it/s)")
+_STEP = re.compile(rb"\|\s*(\d+)/(\d+) - ([\d.]+) ?(s/it|it/s)")
 PREVIEW_MAX = 200_000        # bytes: prévia maior que isso não vai (só a porcentagem)
 
 
@@ -272,11 +272,17 @@ def read_progress(log_path, task):
     if b"sampling completed" in log or b"generating latent video completed" in log:
         return {"stage": "finalizando", "pct": 95}
     if steps:
-        a, b = int(steps[-1][0]), int(steps[-1][1])
-        return {"stage": "desenhando" if task == "image" else "gerando o vídeo", "step": a, "steps": b,
-                "pct": 10 + int(85 * a / max(1, b))}
+        a, b, rate, unit = int(steps[-1][0]), int(steps[-1][1]), float(steps[-1][2] or 0), steps[-1][3]
+        per = rate if unit == b"s/it" else (1 / rate if rate else 0)       # segundos por passo
+        doing = "desenhando" if task == "image" else "gerando o vídeo"
+        out = {"stage": f"{doing}: passo {min(a + 1, b)} de {b}" if a < b else doing, "step": a, "steps": b,
+               "pct": 10 + int(85 * a / max(1, b))}
+        if per and a < b:
+            out["eta"] = round(per * (b - a))                                 # segundos que faltam, estimados
+        return out
     if b"get_learned_condition completed" in log or b"sampling using" in log:
-        return {"stage": "começando a desenhar" if task == "image" else "começando o vídeo", "pct": 10}
+        what = "desenhando" if task == "image" else "gerando o vídeo"
+        return {"stage": f"{what}: primeiro passo (o mais demorado; a porcentagem anda a cada passo)", "pct": 10}
     return {"stage": "carregando o modelo", "pct": 3}
 
 

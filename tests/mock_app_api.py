@@ -108,11 +108,11 @@ MEDIA_FILES = {"z-image-turbo": [("llm", 2_497_281_120), ("vae", 335_304_388)],
                "wan2.1-t2v-1.3b": [("vae", 253_815_318), ("t5xxl", 3_655_145_312)]}
 RECIPES = {"z-image-turbo": {"steps": 8, "cfg": 1.0, "sampler": "euler", "size": "1024x1024"},
            "stable-diffusion-1.5": {"steps": 20, "cfg": 7.0, "sampler": "euler_a", "size": "512x512"},
-           "wan2.1-t2v-1.3b": {"steps": 20, "cfg": 6.0, "sampler": "euler", "size": "832x480", "flow_shift": 3.0}}
+           "wan2.1-t2v-1.3b": {"steps": 12, "cfg": 6.0, "sampler": "euler", "size": "480x272", "flow_shift": 3.0}}
 MEDIA_RAM_MB = {"text": 512, "image": 1536, "video": 4096}   # o que a chain soma à memória de cada classe
 TASK_UNITS = {"text": "mil tokens", "image": "imagem", "video": "segundo de vídeo"}
 AI_LIMITS = {"image": {"sizes": ["512x512", "768x768", "1024x1024", "768x1024", "1024x768"], "max_count": 4},
-             "video": {"sizes": ["832x480", "480x832"], "seconds": [2, 3, 5]}}
+             "video": {"sizes": ["480x272", "272x480", "832x480", "480x832"], "seconds": [2, 3, 5]}}
 CHAT_ID = re.compile(r"c[0-9a-f]{12}")
 MEDIA_HASH = re.compile(r"[0-9a-f]{64}")
 
@@ -1372,7 +1372,7 @@ R.video = async () => {
   ok(await until(() => q("#ai-model option[value='wan2.1-t2v-1.3b']")), "modelo de vídeo no seletor");
   sel("#ai-model", "wan2.1-t2v-1.3b");
   ok(vis("#ai-seconds") && vis("#ai-vsize") && !vis("#ai-size"), "vídeo: duração e formato");
-  ok(qa("#ai-seconds option").map((o) => o.value).join(",") === "2,3,5" && qa("#ai-vsize option").map((o) => o.value).join(",") === "832x480,480x832", "durações e formatos de vídeo");
+  ok(qa("#ai-seconds option").map((o) => o.value).join(",") === "2,3,5" && qa("#ai-vsize option").map((o) => o.value).join(",") === "480x272,272x480,832x480,480x832", "durações e formatos de vídeo");
   type("#chat-text", "ondas do mar quebrando");
   ok(await until(() => txt("#chat-max").includes("0,75 SIG (250.000 µSIG por segundo de vídeo × 3 s)")), "custo máximo do vídeo: " + txt("#chat-max"));
   sel("#ai-seconds", "5");
@@ -1383,7 +1383,7 @@ R.video = async () => {
   ok(await until(() => q("#chat-log video[src^='blob:']") && byText("#chat-log .m-video a[download]", "Baixar"), 12000), "o vídeo aparece num player, com Baixar");
   ok(q("#chat-log video").controls, "player com controles");
   const reg = await registro(), sent = reg.filter((r) => r.path === "/api/ai/video").pop();
-  ok(sent && sent.body.size === "832x480" && sent.body.seconds === 3 && sent.body.max_price === 250000, "mandou /api/ai/video: " + JSON.stringify(sent && sent.body));
+  ok(sent && sent.body.size === "480x272" && sent.body.seconds === 2 && sent.body.max_price === 250000, "mandou /api/ai/video: " + JSON.stringify(sent && sent.body));
   type("#chat-text", "isto demora");
   click("#chat-send");
   ok(await until(() => q("[data-chat-cancel]")), "segundo pedido de vídeo esperando");
@@ -1411,7 +1411,7 @@ R.receita = async () => {   // trocar de modelo põe o formato da receita do cat
   sel("#ai-model", "z-image-turbo");   // mesma classe: continua a conversa de imagem
   ok(await until(() => q("#ai-size").value === "1024x1024"), "trocar para o Z-Image põe o formato da receita dele (1024×1024): " + q("#ai-size").value);
   sel("#ai-model", "wan2.1-t2v-1.3b");
-  ok(await until(() => vis("#ai-vsize") && q("#ai-vsize").value === "832x480"), "vídeo: o formato da receita do Wan (832×480): " + q("#ai-vsize").value);
+  ok(await until(() => vis("#ai-vsize") && q("#ai-vsize").value === "480x272"), "vídeo: o formato da receita do Wan (480×272): " + q("#ai-vsize").value);
 };
 R.apagar = async () => {   // apagar a conversa aberta enquanto ela espera resposta: a resposta a gravaria de novo
   click("[data-tab=ia]");
