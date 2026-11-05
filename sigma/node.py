@@ -36,7 +36,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from . import __version__, chain, netsafe, rpc
 from .chain import (UNIT, State, TxError, UpgradeRequired, block_hash, canon, genesis_block, make_block, tx_id,
                     tx_summary)
-from .crypto import Wallet, norm_address, to_eth, verify
+from .crypto import Wallet, norm_address, progress_message, to_eth, verify
 from .evm import DEFAULT_CHAIN_ID, SYSTEM_ADDRESS, system_call
 from .forum import CATEGORIES, Forum, ForumError
 from .pow import share_ok
@@ -51,6 +51,11 @@ BLOB_GRACE = 3600               # blob sem referência fica pelo menos 1 h (envi
 BLOB_GC_EVERY = 3600            # limpeza dos blobs a cada hora
 SITE_GRACE = 7 * 86400          # arquivos de site expirado ficam 7 dias: dá para recarregar sem publicar de novo
 MAX_TX = 256 * 1024             # corpo de /tx, /rpc e do fórum
+# progresso de um pedido de IA (fora da chain): a máquina manda a última notícia (texto parcial, prévia da imagem,
+# porcentagem, sinal de vida), assinada por ela e cifrada para o cliente; o nó guarda só a mais nova, na memória
+MAX_PROGRESS = 1024 * 1024      # corpo de /progress (a prévia da imagem vai junto, em hexadecimal)
+PROGRESS_KEEP = 2 * 3600        # segundos que a notícia fica depois da última atualização
+PROGRESS_JOBS = 4000            # pedidos acompanhados ao mesmo tempo (os mais velhos saem)
 MAX_SIGNED_DATA = 32 * 1024     # canon(data) de uma tx assinada: o resto é griefing de disco/cache (vai no /blob)
 MAX_DRAIN = MAX_BLOB + 1024 * 1024   # corpo recusado até este tamanho é lido e descartado (resposta chega inteira)
 MAX_JSON = 64 * 1024 * 1024     # resposta JSON de um peer (sincronização)
@@ -462,6 +467,7 @@ class Node:
         self.blocks = [self.genesis_block]           # só a cauda: os últimos MEM_BLOCKS
         self.offsets = array.array("q", [-1])        # altura -> posição no chain.jsonl (0 = genesis, fora dele)
         self.state = State(genesis)
+        self.progress, self._progress_trim = {}, 0.0   # job_id -> última notícia da máquina (put_progress)
         self.tx_pos = {}       # id -> (altura, posição no bloco): MetaMask para sempre, as demais por ~2 h
         self._recent_txs = collections.deque()       # (horário, altura, [ids comuns]) para podar o tx_pos
         self._recent_count = 0
@@ -1165,6 +1171,55 @@ class Node:
     def blob_path(self, h):
         return os.path.join(self.blob_dir, h)
 
+    # ------------------------------------------------------------ progresso
+    def put_progress(self, msg):
+        """POST /progress: {"job_id", "machine", "seq", "data" (hex, cifrado para o cliente), "sig"}. Só a máquina
+        que pegou o pedido (ou a escolhida, num direcionado) manda, e só enquanto ele está vivo. Guarda a mais nova
+        (seq maior); nada disso entra na chain."""
+        if not isinstance(msg, dict):
+            raise ValueError("progresso malformado")
+        jid, mach, seq, data, sig = (msg.get(k) for k in ("job_id", "machine", "seq", "data", "sig"))
+        if not (isinstance(jid, str) and re.fullmatch(r"[0-9a-f]{64}", jid)):
+            raise ValueError("job_id inválido")
+        if not (isinstance(seq, int) and not isinstance(seq, bool) and 0 <= seq < 2 ** 53):
+            raise ValueError("seq inválido")
+        if not (isinstance(data, str) and re.fullmatch(r"(?:[0-9a-f]{2})*", data)):
+            raise ValueError("data deve ser hexadecimal")
+        if not isinstance(sig, str):
+            raise ValueError("sig inválida")
+        try:
+            mach = norm_address(mach)
+        except (ValueError, TypeError):
+            raise ValueError("machine inválida") from None
+        st = self.state
+        job = st.jobs.get(jid)
+        if job is None or job.get("status") not in ("open", "running"):
+            raise ValueError("pedido não existe ou já terminou")
+        if mach not in (job.get("claims") or {}) and job.get("machine") != mach:
+            raise ValueError("esta máquina não está neste pedido")
+        pub = (st.machines.get(mach) or {}).get("pub")
+        if not pub or not verify(pub, progress_message(jid, seq, data), sig):
+            raise ValueError("assinatura do progresso não confere")
+        now = time.time()
+        with self.lock:
+            box = self.progress
+            old = box.get(jid)
+            if old and old["seq"] >= seq:
+                return {"ok": True, "seq": old["seq"]}
+            box[jid] = {"machine": mach, "seq": seq, "data": data, "time": now}
+            if len(box) > PROGRESS_JOBS or now - self._progress_trim > 60:
+                self._progress_trim = now
+                for k in [k for k, v in box.items() if now - v["time"] > PROGRESS_KEEP]:
+                    del box[k]
+                while len(box) > PROGRESS_JOBS:
+                    del box[min(box, key=lambda k: box[k]["time"])]
+        return {"ok": True, "seq": seq}
+
+    def get_progress(self, jid):
+        with self.lock:
+            v = self.progress.get(jid)
+            return dict(v, age=round(time.time() - v["time"], 1)) if v else None
+
     def put_blob(self, data, ip=None):
         h = hashlib.sha256(data).hexdigest()
         p = self.blob_path(h)
@@ -1612,6 +1667,9 @@ def make_handler(node):
                     # as máquinas consultam os abertos a cada poucos segundos: uma conta por bloco
                     return self._send(200, node.cached(st, ("jobs", status), jobs)
                                       if status in (None, "open") else jobs())
+                if parts[0] == "progress" and len(parts) == 2:
+                    p = node.get_progress(parts[1])
+                    return self._send(200 if p else 404, p or {"error": "sem notícia deste pedido"})
                 if parts[0] == "job" and len(parts) == 2:
                     j = st.jobs.get(parts[1])
                     return self._send(200 if j else 404, j or {"error": "job não existe"})
@@ -1670,6 +1728,8 @@ def make_handler(node):
                         self._drain(n)
                         raise
                     return self._send(200, {"hash": node.put_blob(self.rfile.read(n), ip=self._ip())})
+                if u.path == "/progress":
+                    return self._send(200, node.put_progress(self._json(self._body(MAX_PROGRESS))))
                 body = self._body(MAX_TX)
                 if u.path.startswith("/forum/api/"):
                     if "application/json" not in (self.headers.get("Content-Type") or ""):

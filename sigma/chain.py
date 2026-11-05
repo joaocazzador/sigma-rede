@@ -44,13 +44,15 @@ from .pow import report_points, share_ok
 
 UNIT = 1_000_000            # 1 SIG = 1.000.000 µSIG
 # ---- atualizações das regras (docs/ATUALIZACOES.md)
-RULES = 5                   # a versão mais nova das regras que este código sabe executar
+RULES = 6                   # a versão mais nova das regras que este código sabe executar
 # v1: a rede da v2.4. v2 (v2.5): modelos de imagem e vídeo, preço por imagem e por segundo de vídeo.
 # v3 (v2.6): caução dos coordenadores (bond/unbond, corte e reputação).
 # v4 (v2.8): modelo de texto em várias partes (GGUF dividido), até 600 GB, para rodar dividido entre computadores
 # v5 (v2.10): a máquina que devolve falha num pedido de imagem ou vídeo perde reputação (como a que some); e a
 # memória de IA conta só o MAIOR modelo da máquina, não a soma: ela carrega um por vez e troca quando pedem outro
 # (o disco continua contando todos)
+# v6 (v2.11): o cliente libera (release_job) um pedido direcionado cuja máquina sumiu da rede (não sinalizou nesta
+# janela nem na anterior): o valor volta na hora, a máquina leva a falta e o app manda o pedido para a próxima
 # atualizações marcadas: hash do genesis da rede -> {versão: altura do primeiro bloco com ela}. Uma rede nova
 # já nasce na versão RULES; as entradas daqui só valem para a rede cujo genesis tem aquele hash.
 # rede principal (genesis a8eabe25…1029, recriada na 2.4): a v2 (imagem e vídeo, reserva dos fundadores, votações
@@ -60,7 +62,8 @@ RULES = 5                   # a versão mais nova das regras que este código sa
 # a v4 (modelos de texto em partes, os gigantes) no bloco 4032, marcado no bloco 3882 (~1 h de aviso, 2.8)
 # a v5 (reputação na falha de imagem/vídeo, modelos que se revezam na memória) no bloco 4300, marcado no bloco 4236
 # (~18 min de aviso, 2.10: o dono pediu o mais rápido possível)
-SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300}}
+# a v6 (liberar o pedido de uma máquina que sumiu) no bloco 5800, marcado no bloco 5736 (~20 min de aviso, 2.11)
+SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300, 6: 5800}}
 UPGRADE_HISTORY_KEEP = 50
 # saldos que uma atualização cria na altura dela, uma vez só: hash do genesis -> {versão: [(endereço, µSIG)]}.
 # A v2 da rede principal cria a carteira dos fundadores: 1 milhão de SIG (1% do teto) para as primeiras despesas do
@@ -176,6 +179,7 @@ TX_FIELDS = {
     "claim_job": {"job_id"},
     "submit_result": {"job_id", "result_hash", "usage", "failed"},
     "cancel_job": {"job_id"},
+    "release_job": {"job_id"},           # regras v6 (TYPES_SINCE): pedido de uma máquina que sumiu
     "deploy_site": {"name", "manifest", "budget", "replicas"},
     "pin_site": {"name", "version"},
     "register_model": {"name", "url", "sha256", "size", "royalty_bps", "reinvest_bps", "replicas", "license",
@@ -198,7 +202,7 @@ JOB_FIELDS = {"ai": {"kind", "model", "spec_hash", "escrow", "max_price", "max_t
 SIGNED_TYPES = frozenset(TX_FIELDS) - {"work", "evm"} | {"create_job"}
 # tipos que só existem a partir de uma versão das regras: antes dela, são recusados como tipo desconhecido, como
 # sempre foram (SIGNED_TYPES sai de TX_FIELDS; sem isto, um tipo novo valeria em qualquer versão)
-TYPES_SINCE = {"bond": 3, "unbond": 3}
+TYPES_SINCE = {"bond": 3, "unbond": 3, "release_job": 6}
 HW_KEYS = frozenset(HW_FIELDS + ("gpu",))
 USAGE_KEYS = ("tokens_in", "tokens_out")
 LIVE = ("open", "running")  # jobs que ainda seguram escrow
@@ -1298,6 +1302,27 @@ class State:
         _need(job["status"] in LIVE, f"este pedido já foi encerrado ({job['status']})")
         _need(not job["claims"], "um computador já está respondendo este pedido")
         self._refund(job, "canceled")
+
+    def _tx_release_job(self, sender, d, txid):
+        """v6: a máquina escolhida pegou o pedido e sumiu da rede (não sinalizou nesta janela nem na anterior). Quem
+        pediu recebe tudo de volta na hora, em vez de esperar o prazo inteiro (2 h num vídeo), e a máquina leva a
+        falta, como no fim do prazo. Uma máquina que segue sinalizando está viva, só demorando: não dá para liberar
+        (assim ninguém recebe a resposta pela metade e foge da conta)."""
+        job = _get(self.jobs, d.get("job_id"))
+        _need(job is not None, "job não existe")
+        _need(job["client"] == sender, "só quem pediu pode liberar")
+        _need(job["status"] in LIVE, f"este pedido já foi encerrado ({job['status']})")
+        mach = job.get("machine")
+        _need(mach is not None, "só pedidos direcionados a uma máquina podem ser liberados")
+        _need(mach in job["claims"], "a máquina ainda não pegou o pedido: cancele em vez de liberar")
+        _need(mach not in job["results"], "a máquina já respondeu")
+        mc = self.machines.get(mach)
+        w = self.mining["window"]
+        _need(mc is None or mc["last_seen"] < w - 1,
+              "o computador ainda está sinalizando na rede: espere ele entregar ou o prazo acabar")
+        job["missed"] = True
+        self._refund(job, "expired")
+        self._miss(job)
 
     def _pay(self, job, mach, amount, cut=0):
         """Paga 100% do preço ao payout da máquina (menos o royalty do padrinho): sem taxa, sem queima.

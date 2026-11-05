@@ -264,6 +264,13 @@ td.hot { color: var(--accent); font-weight: 700; }
 .m-act { border: 0; background: none; color: var(--muted); padding: 4px 8px; font: 500 12.5px var(--sans); border-radius: 7px; text-decoration: none; display: inline-flex; }
 .m-act:hover, .m-act:focus-visible { color: var(--text); background: rgba(242, 239, 230, .08); }
 .m-wait { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; color: var(--muted); }
+.m-live { margin-top: 8px; }
+.m-live .bar { height: 6px; background: var(--line); margin: 6px 0 4px; max-width: 360px; }
+.m-live .bar i { display: block; height: 100%; background: var(--accent); transition: width .5s; }
+.m-live .life { font-size: 12px; color: var(--muted); }
+.m-live .life.warn { color: var(--warn, #e0a800); }
+.m-live img.preview { display: block; max-width: min(320px, 100%); image-rendering: auto; border: 1px solid var(--line); margin-top: 6px; filter: saturate(.9); }
+.m-live .partial::after { content: "▍"; color: var(--accent); animation: pulse 1s infinite; }
 .m-note { flex-basis: 100%; font-size: 13px; }
 .m-grid { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 560px; }
 .m-grid.n1 { grid-template-columns: minmax(0, 1fr); max-width: 440px; }
@@ -2344,6 +2351,41 @@ function emptyHTML() {
   return `<div class="ai-empty"><p class="ai-hello">Como posso ajudar?</p><p>${esc(lead)}</p>`
     + `<div class="chips">${SUGGEST[t].map((s, k) => `<button type="button" class="chip" data-chip="${k}">${esc(s)}</button>`).join("")}</div></div>`;
 }
+// notícias do computador que está respondendo (/api/ai/progress): texto até agora, prévia, porcentagem e sinal de vida
+const B64PNG = /^[A-Za-z0-9+/]+={0,2}$/;
+function liveHTML() {
+  const p = chat.progress;
+  if (!p) return "";
+  if (!p.claimed) return `<div class="m-live"><span class="life">Esperando um computador da rede pegar o pedido…</span></div>`;
+  const age = Math.max(0, N(p.age) + (Date.now() - chat.progressAt) / 1000);
+  const pct = typeof p.pct === "number" ? Math.max(0, Math.min(100, p.pct)) : null;
+  let h = `<div class="m-live">`;
+  if (typeof p.text === "string" && p.text) h += `<div class="m-body partial">${mdBlocks(p.text)}</div>`;
+  if (typeof p.preview === "string" && p.preview.length < 400000 && B64PNG.test(p.preview))
+    h += `<img class="preview" alt="Prévia do desenho até agora" src="data:image/png;base64,${p.preview}">`;
+  const stage = typeof p.stage === "string" ? p.stage : "";
+  const steps = N(p.steps) > 0 ? ` · passo ${num(N(p.step))} de ${num(N(p.steps))}` : "";
+  if (pct !== null) h += `<div class="bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div>`;
+  if (stage || pct !== null) h += `<div class="life">${esc(stage)}${pct !== null ? ` · ${pct}%` : ""}${steps}</div>`;
+  const quiet = age > 45;
+  h += `<div class="life${quiet ? " warn" : ""}">${N(p.age) || p.stage ? (quiet
+      ? `Sem notícias do computador há ${Math.round(age)} s. Se ele não voltar, o pedido vai para outro.`
+      : `Computador trabalhando · última notícia há ${Math.round(age)} s`) : "O computador pegou o pedido"}</div>`;
+  return h + `</div>`;
+}
+async function pollProgress(id) {
+  while (chat.busy && chat.reqId === id) {
+    try {
+      const r = await api("/api/ai/progress?id=" + encodeURIComponent(id), undefined, 8000);
+      if (chat.busy && chat.reqId === id) {
+        chat.progress = r.progress; chat.progressAt = Date.now();
+        setHTML("chat-pending", chatPendingHTML());
+        tickChat();
+      }
+    } catch (_) { /* o painel tenta de novo no próximo segundo */ }
+    await new Promise((ok) => setTimeout(ok, 1000));
+  }
+}
 function chatPendingHTML() {
   const t = chat.pendingTask;
   const what = t === "image" ? (chat.pendingCount > 1 ? `gerando ${num(chat.pendingCount)} imagens…` : "gerando a imagem…") : t === "video" ? "gerando o vídeo…" : "pensando…";
@@ -2351,7 +2393,7 @@ function chatPendingHTML() {
     + `<span>${what}</span><span id="chat-elapsed"></span>`
     + (t === "video" ? `<span class="m-note">O vídeo pode levar vários minutos. Pode trocar de aba: ele aparece aqui quando ficar pronto.</span>`
       : t === "image" ? `<span class="m-note">Uma imagem leva de alguns segundos a um minuto.</span>` : "")
-    + `</div></div>`;
+    + `</div>${liveHTML()}</div>`;
 }
 const tickChat = () => { if (chat.busy) setText("chat-elapsed", elapsedTxt(Date.now() - chat.started)); };
 function chatRender() {
@@ -2561,8 +2603,10 @@ async function chatSend(e, retry = null) {
   chat.messages.push({role: "user", content: text, time: nowSec()});
   if (!retry) { $("chat-text").value = ""; grow(); }
   chat.reqId = "p" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);   // o Parar vale só para este pedido
-  Object.assign(chat, {busy: true, started: Date.now(), pendingModel: model, pendingTask: t, pendingCount: opts.count || 1, canceling: false});
+  Object.assign(chat, {busy: true, started: Date.now(), pendingModel: model, pendingTask: t, pendingCount: opts.count || 1, canceling: false,
+                       progress: null, progressAt: Date.now()});
   renderIA();
+  pollProgress(chat.reqId);
   try {
     const fit = t === "text" ? apiMessages(opts.max_tokens) : null;
     const body = t === "text" ? {model, id: chat.reqId, max_tokens: opts.max_tokens, messages: fit.messages}

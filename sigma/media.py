@@ -207,6 +207,79 @@ def find_cli(folder):
     return exe
 
 
+# grupo de vídeo (docs/GRUPO-VIDEO.md): o sd-cli com RPC e o rpc-server compatível, compilados à parte
+# (packaging/build_sd_rpc.ps1) e publicados no site; o app baixa sozinho e confere o SHA-256 fixado aqui
+SD_RPC_URL = "https://sigma.195-35-29-232.sslip.io/downloads/sd-rpc-win-x64.zip"
+SD_RPC_SHA = "889847699de5ff7d1b9082f5ae347f6d4480b2be8812a75c34c67e171fa448d7"
+SD_RPC_SIZE = 16507415
+_sd_rpc_lock = threading.Lock()
+
+
+def sd_rpc_dir(data_dir):
+    return os.path.join(data_dir, "engine", "sd-rpc")
+
+
+def install_sd_rpc(data_dir, log=print):
+    """Pasta com sd-cli.exe e rpc-server.exe do grupo de vídeo, baixando na primeira vez (só Windows x64)."""
+    import platform
+    folder = sd_rpc_dir(data_dir)
+    ok = os.path.join(folder, ".ok")
+    if os.path.isfile(ok):
+        return folder
+    if os.name != "nt" or platform.machine().lower() not in ("amd64", "x86_64"):
+        raise EngineError("o grupo de vídeo ainda só tem os programas para Windows de 64 bits")
+    with _sd_rpc_lock:
+        if os.path.isfile(ok):
+            return folder
+        archive = folder + ".zip"
+        log("[grupo] baixando os programas do grupo de vídeo (16 MB)")
+        try:
+            os.makedirs(os.path.dirname(folder), exist_ok=True)
+            fetch(SD_RPC_URL, archive, SD_RPC_SHA, size=SD_RPC_SIZE)
+            tmp = folder + ".tmp"
+            shutil.rmtree(tmp, ignore_errors=True)
+            extract(archive, tmp)
+            for name in ("sd-cli.exe", "rpc-server.exe"):
+                if not os.path.isfile(os.path.join(tmp, name)):
+                    raise EngineError(f"o pacote do grupo de vídeo veio sem {name}")
+            shutil.rmtree(folder, ignore_errors=True)
+            os.replace(tmp, folder)
+            with open(ok, "w", encoding="utf-8") as f:
+                f.write(SD_RPC_SHA)
+            os.remove(archive)
+        except (OSError, zipfile.BadZipFile) as e:
+            raise EngineError(f"não consegui baixar os programas do grupo de vídeo: {e}") from None
+        log("[grupo] programas do grupo de vídeo prontos")
+        return folder
+
+
+# progresso do sd-cli: a barra dos passos ("| 3/20 - 1.2s/it") e as fases que o registro anuncia
+_STEP = re.compile(rb"\|\s*(\d+)/(\d+) - [\d.]+ ?(?:s/it|it/s)")
+PREVIEW_MAX = 200_000        # bytes: prévia maior que isso não vai (só a porcentagem)
+
+
+def read_progress(log_path, task):
+    """{"stage", "pct", "step", "steps"} lido do registro do sd-cli até agora (melhor esforço)."""
+    try:
+        with open(log_path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 200_000))
+            log = f.read()
+    except OSError:
+        return {"stage": "carregando", "pct": 1}
+    steps = _STEP.findall(log)
+    if b"sampling completed" in log or b"generating latent video completed" in log:
+        return {"stage": "finalizando", "pct": 95}
+    if steps:
+        a, b = int(steps[-1][0]), int(steps[-1][1])
+        return {"stage": "desenhando" if task == "image" else "gerando o vídeo", "step": a, "steps": b,
+                "pct": 10 + int(85 * a / max(1, b))}
+    if b"get_learned_condition completed" in log or b"sampling using" in log:
+        return {"stage": "começando a desenhar" if task == "image" else "começando o vídeo", "pct": 10}
+    return {"stage": "carregando o modelo", "pct": 3}
+
+
 # ------------------------------------------------------------------ motores
 class _SdCpp:
     kind = "sdcpp"
@@ -235,8 +308,9 @@ class _SdCpp:
 
     def _group_cli(self):
         """sd-cli com RPC (SD_RPC=ON), que o pacote oficial não traz: SIGMA_SD_CLI_RPC ou engine/sd-rpc/."""
-        exe = os.environ.get("SIGMA_SD_CLI_RPC") or os.path.join(
-            self.data_dir, "engine", "sd-rpc", "sd-cli.exe" if os.name == "nt" else "sd-cli")
+        exe = os.environ.get("SIGMA_SD_CLI_RPC")
+        if not exe:
+            exe = os.path.join(install_sd_rpc(self.data_dir, self.log), "sd-cli.exe")
         if not os.path.isfile(exe):
             raise EngineError(f"o sd-cli com RPC não está em {exe} (veja docs/GRUPO-VIDEO.md)")
         return exe
@@ -385,7 +459,7 @@ class _SdCpp:
             cmd += ["-b", str(spec["count"])]
         return cmd
 
-    def generate(self, name, spec, timeout=None, should_stop=None):
+    def generate(self, name, spec, timeout=None, should_stop=None, on_progress=None):
         """-> [(bytes, mime, meta)]: as imagens (PNG) ou o vídeo (WebM) que o sd-cli gravou; toda falha sai como
         EngineError (o host responde o pedido). Se a versão Vulkan não rodar, o mesmo pedido vai para a de CPU no
         tempo que sobrou; se a de CPU gerar, o problema era a Vulkan, que sai da lista nesta execução."""
@@ -397,11 +471,12 @@ class _SdCpp:
         rpc = self._rpc() if spec["task"] == "video" else []
         if rpc:   # grupo de vídeo: o modelo dividido entre os trabalhadores conectados (sem tentativa local)
             exe = self._group_cli()
-            return self._run(name, exe, m, spec, deadline, should_stop, self.group_args(exe, rpc))
+            return self._run(name, exe, m, spec, deadline, should_stop, self.group_args(exe, rpc), on_progress)
         gpu, error = None, EngineError("o stable-diffusion.cpp não está instalado")
         for variant in self._candidates():
             try:
-                results = self._run(name, self._install(variant), m, spec, deadline, should_stop)
+                results = self._run(name, self._install(variant), m, spec, deadline, should_stop,
+                                    on_progress=on_progress)
             except EngineError as e:
                 if "vulkan" not in variant or (should_stop and should_stop()) or deadline - time.time() < 60:
                     raise
@@ -413,12 +488,15 @@ class _SdCpp:
             return results
         raise error
 
-    def _run(self, name, exe, m, spec, deadline, should_stop, group=None):
+    def _run(self, name, exe, m, spec, deadline, should_stop, group=None, on_progress=None):
         """Um sd-cli com prioridade baixa numa pasta temporária, que sai logo depois: nada do pedido fica no
         disco."""
         job_dir = os.path.join(self.work, hashlib.sha256(os.urandom(16)).hexdigest()[:16])
         out = os.path.join(job_dir, "video.webm" if spec["task"] == "video" else "imagem.png")
         cmd = self._command(exe, m, spec, out, group) if group else self._command(exe, m, spec, out)
+        preview = os.path.join(job_dir, "previa.png")
+        if on_progress and spec["task"] == "image":   # o desenho até agora, a cada passo (projeção barata do latente)
+            cmd += ["--preview", "proj", "--preview-path", preview, "--preview-interval", "1"]
         nice = shutil.which("nice") if os.name != "nt" else None
         if nice:   # prioridade baixa desde o primeiro instante (no Windows vem pelo creationflags)
             cmd = [nice, "-n", "10", *cmd]
@@ -442,7 +520,25 @@ class _SdCpp:
             self.killer.add(proc)
             with self.lock:
                 self.running = name
+            seen, last_report = None, 0.0
             while proc.poll() is None:
+                if on_progress and time.time() - last_report >= 1.0:
+                    last_report = time.time()
+                    info = read_progress(os.path.join(job_dir, "sd.log"), spec["task"])
+                    try:
+                        st = os.stat(preview)
+                        if (st.st_mtime, st.st_size) != seen and 0 < st.st_size <= PREVIEW_MAX:
+                            seen = (st.st_mtime, st.st_size)
+                            with open(preview, "rb") as f:
+                                data = f.read()
+                            if data[:8] == b"\x89PNG\r\n\x1a\n":
+                                info["preview"] = base64.b64encode(data).decode()
+                    except OSError:
+                        pass
+                    try:
+                        on_progress(info)
+                    except Exception:
+                        pass   # progresso é extra: nunca derruba a geração
                 if (should_stop and should_stop()) or time.time() > deadline:
                     proc.kill()
                     try:
@@ -528,10 +624,13 @@ class _MockMedia:
     def loaded(self):
         return sorted(self.models)
 
-    def generate(self, name, spec, timeout=None, should_stop=None):
+    def generate(self, name, spec, timeout=None, should_stop=None, on_progress=None):
         if name not in self.models:
             raise EngineError(f"o modelo '{name}' não está pronto nesta máquina")
         seed = hashlib.sha256(f"{spec['prompt']}:{spec['seed']}".encode()).digest()
+        if on_progress:
+            for a in range(1, 3):
+                on_progress({"stage": "desenhando", "step": a, "steps": 2, "pct": 10 + 85 * a // 2})
         if spec["task"] == "image":
             return [(solid_png(spec["width"] // 8, spec["height"] // 8, seed[3 * i:3 * i + 3]), "image/png",
                      {"width": spec["width"] // 8, "height": spec["height"] // 8}) for i in range(spec["count"])]
@@ -594,8 +693,10 @@ class MediaManager:
     def loaded(self):
         return self._engine().loaded()
 
-    def generate(self, name, spec, timeout=None, should_stop=None):
-        return self._engine().generate(name, spec, timeout, should_stop)
+    def generate(self, name, spec, timeout=None, should_stop=None, on_progress=None):
+        if on_progress is None:
+            return self._engine().generate(name, spec, timeout, should_stop)
+        return self._engine().generate(name, spec, timeout, should_stop, on_progress=on_progress)
 
     def shutdown(self):
         with self._lock:

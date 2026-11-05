@@ -92,6 +92,14 @@ class TestUpdater(unittest.TestCase):
         u = updater.AutoUpdater(lambda: self.node, lambda: "9.9.9", lambda: False, lambda *a: None, print)
         self.assertFalse(u.enabled)
 
+    def test_same_file_is_not_swapped(self):
+        with open(self.path, "wb") as f:
+            f.write(NEW)
+        u = self.make()
+        self.assertFalse(u.tick())
+        self.assertEqual(self.restarts, [])
+        self.assertFalse(os.path.exists(self.path + ".new"))
+
     def test_backoff_after_failure(self):
         self.publish("f" * 64)
         u = self.make()

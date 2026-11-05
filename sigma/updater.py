@@ -60,10 +60,24 @@ def expected_sha(node, name):
     raise UpdateError(f"{name} não está na lista de SHA-256 do nó")
 
 
+def file_sha(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def download(node, kind, path):
-    """Baixa o instalador publicado para `path + '.new'`, conferindo o SHA-256. Devolve o caminho baixado."""
+    """Baixa o instalador publicado para `path + '.new'`, conferindo o SHA-256. Devolve o caminho baixado, ou None
+    se o publicado é o mesmo arquivo que já está rodando (nada a trocar)."""
     name = published_name(kind)
     want = expected_sha(node, name)
+    try:
+        if file_sha(path) == want:
+            return None
+    except OSError:
+        pass
     tmp = path + ".new"
     h, size = hashlib.sha256(), 0
     try:
@@ -145,6 +159,9 @@ class AutoUpdater:
         try:
             self.log(f"[atualização] baixando o Sigma {version}")
             new = download(self.node(), self.kind, self.path)
+            if new is None:   # o site ainda publica este mesmo arquivo: espera o novo aparecer
+                self.log(f"[atualização] o arquivo do {version} ainda não está no site; tento de novo depois")
+                return False
             swap(self.path, new)
         except (OSError, UpdateError) as e:
             self.log(f"[atualização] não deu para atualizar agora ({e}); tento de novo em {CHECK_EVERY // 60} min")

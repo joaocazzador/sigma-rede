@@ -4,6 +4,7 @@ verdade fica em pesquisa/grupo/e2e_video.py."""
 import os
 import sys
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sigma import grupo, media  # noqa: E402
@@ -38,8 +39,12 @@ class TestKind(unittest.TestCase):
 
     def test_sd_rpc_missing(self):
         os.environ.pop("SIGMA_SD_RPC", None)
-        with self.assertRaises(grupo.GroupError):
+        with mock.patch.object(media, "install_sd_rpc", side_effect=media.EngineError("sem rede")),                 self.assertRaises(grupo.GroupError):
             grupo.sd_rpc_exe(TMP)
+
+    def test_only_windows_has_the_package(self):
+        with mock.patch.object(media.os, "name", "posix"), self.assertRaisesRegex(media.EngineError, "Windows"):
+            media.install_sd_rpc(os.path.join(TMP, "nada"))
 
 
 class TestSplitCommand(unittest.TestCase):
@@ -80,7 +85,7 @@ class TestSplitCommand(unittest.TestCase):
         os.environ.pop("SIGMA_SD_CLI_RPC", None)
         self.eng.rpc_provider = lambda: ["127.0.0.1:5"]
         self.eng.models["wan"] = {"task": "video", "files": {"main": "wan.gguf"}}
-        with self.assertRaises(media.EngineError) as e:
+        with mock.patch.object(media, "install_sd_rpc", return_value=os.path.join(TMP, "vazio")),                 self.assertRaises(media.EngineError) as e:
             self.eng.generate("wan", VIDEO, timeout=5)
         self.assertIn("sd-cli com RPC", str(e.exception))
 

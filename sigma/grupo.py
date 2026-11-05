@@ -63,9 +63,16 @@ def parse_kind(value):
     return kind
 
 
-def sd_rpc_exe(data_dir):
-    """rpc-server compatível com o stable-diffusion.cpp: SIGMA_SD_RPC ou engine/sd-rpc/ na pasta de dados."""
-    exe = os.environ.get("SIGMA_SD_RPC") or os.path.join(data_dir, "engine", "sd-rpc", SD_RPC_NAME)
+def sd_rpc_exe(data_dir, log=print):
+    """rpc-server compatível com o stable-diffusion.cpp: SIGMA_SD_RPC, ou o pacote do grupo de vídeo, que o app
+    baixa sozinho na primeira vez (media.install_sd_rpc)."""
+    exe = os.environ.get("SIGMA_SD_RPC")
+    if not exe:
+        from . import media
+        try:
+            exe = os.path.join(media.install_sd_rpc(data_dir, log), SD_RPC_NAME)
+        except media.EngineError as e:
+            raise GroupError(str(e)) from None
     if not os.path.isfile(exe):
         raise GroupError(f"o rpc-server do vídeo não está em {exe} (veja docs/GRUPO-VIDEO.md)")
     return exe
@@ -159,7 +166,7 @@ class Worker:
 
     def _rpc_exe(self):
         if self.kind == "video":
-            return sd_rpc_exe(self.data_dir)
+            return sd_rpc_exe(self.data_dir, self.log)
         llama = engines._LlamaCpp(self.data_dir, self.log, self.threads)
         for variant in llama._candidates():
             exe = os.path.join(os.path.dirname(llama._install(variant)), RPC_NAME)

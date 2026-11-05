@@ -21,8 +21,10 @@ modelo de difusão do Wan, usando o RPC do stable-diffusion.cpp.
 O pacote pronto do stable-diffusion.cpp vem sem RPC. Os dois programas são compilados do código-fonte.
 
 1. **`sd-cli` com RPC.** O stable-diffusion.cpp na versão fixada `master-1026-997478a`, com `-DSD_RPC=ON`.
-2. **`rpc-server`.** O llama.cpp no commit de `ggml/scripts/sync-llama.last` (`47f5a64a…`), com `-DGGML_RPC=ON` e
-   `GGML_MAX_NAME=160`. Sem isso, os nomes dos tensores do Wan não cabem e a transferência falha.
+2. **`rpc-server`.** O `rpc-server.cpp` do llama.cpp (commit de `ggml/scripts/sync-llama.last`), mas compilado com o
+   **ggml do próprio stable-diffusion.cpp**, com `GGML_RPC=ON` e `GGML_MAX_NAME=160`. O ggml do llama.cpp tem menos
+   operações (101 contra 105) e o servidor cai com "op not implemented" no Wan. Sem o `GGML_MAX_NAME=160`, os nomes
+   dos tensores do Wan não cabem.
 
 Onde o app procura:
 
@@ -31,8 +33,9 @@ Onde o app procura:
 | `sd-cli` com RPC (coordenador) | `SIGMA_SD_CLI_RPC` | `<dados>/engine/sd-rpc/sd-cli.exe` |
 | `rpc-server` (trabalhador) | `SIGMA_SD_RPC` | `<dados>/engine/sd-rpc/rpc-server.exe` |
 
-Script de compilação no Windows: `packaging/build_sd_rpc.ps1`. Ainda falta publicar os binários em `/baixar` e o
-app baixá-los sozinho (com SHA-256 conferido), como faz com o llama.cpp.
+Script de compilação no Windows: `packaging/build_sd_rpc.ps1`. Os dois vão juntos em `sd-rpc-win-x64.zip`, publicado
+em `/downloads`; o app baixa sozinho na primeira vez e confere o SHA-256 fixado em `sigma/media.py` (`SD_RPC_SHA`).
+Por enquanto só para Windows de 64 bits.
 
 ## Como montar
 

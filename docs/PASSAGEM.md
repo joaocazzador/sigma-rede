@@ -27,6 +27,7 @@ A rede usa regras versionadas, que entram numa altura marcada sem recomeçar a c
 | v3 | 2780 | 2.6 | caução dos coordenadores: `bond` e `unbond`, 14 dias para retirar, `_slash` pronto mas ainda sem quem o chame |
 | v4 | 4032 | 2.8 | modelo de texto em partes, até 600 GB (os gigantes do catálogo) |
 | v5 | 4300 | 2.10 | falha em imagem ou vídeo tira 1 de reputação; a memória de IA conta só o maior modelo da máquina (eles se revezam na RAM), até 8 modelos por máquina |
+| v6 | 5800 | 2.11 | o cliente libera o pedido de uma máquina que sumiu da rede (release_job): valor de volta na hora, falta para a máquina |
 
 - A v4 foi marcada para ~23h20 de 04/11. Confira em `/mining`, que deve mostrar `"parts": true`.
 - Versões que não mudaram regras:

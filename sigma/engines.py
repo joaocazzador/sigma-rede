@@ -58,6 +58,9 @@ LOAD_TIMEOUT = 600              # modelo grande em disco lento demora para subir
 CHAT_TIMEOUT = 900
 # modelos se revezam na memória (regras v5): um modelo parado há tanto tempo sai da RAM e volta no próximo pedido
 IDLE_UNLOAD = 600
+# texto em fluxo: sem nenhum pedaço novo por tanto tempo, o motor travou; a máquina devolve falha e o cliente vai
+# para a próxima na hora (em vez de esperar o prazo inteiro do pedido)
+STALL_TIMEOUT = 120
 _LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # 127.0.0.1 nunca passa por proxy
 
 
@@ -412,6 +415,30 @@ def _http(method, url, body=None, timeout=CHAT_TIMEOUT, raw=None, headers=None):
         return r.read()
 
 
+def _stream_lines(method, url, body, timeout, headers, stall=STALL_TIMEOUT):
+    """POST com resposta em fluxo: devolve as linhas (bytes) conforme chegam. `stall` é quanto esperar cada
+    pedaço; `timeout`, o prazo total. Passou de qualquer um: EngineError (o motor travou)."""
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method=method, headers=headers or {"Content-Type": "application/json"})
+    deadline = time.time() + timeout
+    r = _LOCAL.open(req, timeout=min(stall, timeout))
+    try:
+        while True:
+            if time.time() > deadline:
+                raise EngineError("a resposta passou do prazo")
+            try:
+                line = r.readline()
+            except (TimeoutError, OSError) as e:
+                if "timed out" in str(e) or isinstance(e, TimeoutError):
+                    raise EngineError(f"o motor parou de responder (nada novo em {stall} s)") from None
+                raise
+            if not line:
+                return
+            yield line
+    finally:
+        r.close()
+
+
 def _http_error(e):
     try:
         return e.read().decode(errors="replace")[:200]
@@ -752,16 +779,62 @@ class _LlamaCpp:
         with self.lock:
             return self.procs[name]
 
-    def chat(self, name, messages, max_tokens, json_mode=False, timeout=None):
+    def chat(self, name, messages, max_tokens, json_mode=False, timeout=None, on_text=None):
         with self.lock:
             self.busy[name] = self.busy.get(name, 0) + 1
             self.used[name] = time.time()
         try:
+            if on_text:
+                return self._chat_stream(name, messages, max_tokens, json_mode, timeout, on_text)
             return self._chat(name, messages, max_tokens, json_mode, timeout)
         finally:
             with self.lock:
                 self.busy[name] -= 1
                 self.used[name] = time.time()
+
+    def _chat_stream(self, name, messages, max_tokens, json_mode, timeout, on_text):
+        """Como _chat, mas chama on_text(texto até agora) a cada pedaço que o llama-server solta."""
+        p = self._ready(name)
+        body = {"messages": messages, "max_tokens": max_tokens, "stream": True,
+                "stream_options": {"include_usage": True}}
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+        parts, tin, tout, chunks = [], 0, 0, 0
+        try:
+            for line in _stream_lines("POST", f"http://127.0.0.1:{p['port']}/v1/chat/completions", body,
+                                      timeout or CHAT_TIMEOUT, self._headers()):
+                line = line.strip()
+                if not line.startswith(b"data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == b"[DONE]":
+                    break
+                try:
+                    ev = json.loads(payload)
+                except ValueError:
+                    continue
+                usage = ev.get("usage") or {}
+                if usage:
+                    tin = int(usage.get("prompt_tokens") or tin)
+                    tout = int(usage.get("completion_tokens") or tout)
+                timings = ev.get("timings") or {}
+                if timings and not usage:
+                    tin = int(timings.get("prompt_n") or tin)
+                    tout = int(timings.get("predicted_n") or tout)
+                for ch in ev.get("choices") or []:
+                    piece = (ch.get("delta") or {}).get("content")
+                    if piece:
+                        parts.append(piece)
+                        chunks += 1
+                        on_text("".join(parts))
+        except urllib.error.HTTPError as e:
+            detail = _http_error(e)
+            if e.code == 400 and CONTEXT_OVERFLOW_SIG in detail.lower():
+                raise ContextOverflow(f"o llama-server recusou ({e.code}): {detail}") from None
+            raise EngineError(f"o llama-server recusou ({e.code}): {detail}") from None
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            raise EngineError(f"o llama-server não respondeu: {e}") from None
+        return "".join(parts), tin, tout or chunks
 
     def _chat(self, name, messages, max_tokens, json_mode=False, timeout=None):
         p = self._ready(name)
@@ -908,21 +981,48 @@ class _Ollama:
             except EngineError:
                 pass
 
-    def chat(self, name, messages, max_tokens, json_mode=False, timeout=None):
-        body = {"model": self.tag(name), "messages": messages, "stream": False,
+    def chat(self, name, messages, max_tokens, json_mode=False, timeout=None, on_text=None):
+        body = {"model": self.tag(name), "messages": messages, "stream": bool(on_text),
                 "options": {"num_predict": max_tokens, "num_ctx": CONTEXT}}
         if json_mode:
             body["format"] = "json"
-        try:
-            out = json.loads(self._call("POST", "/api/chat", body, timeout=timeout or CHAT_TIMEOUT))
-        except ValueError:
-            raise EngineError("resposta ilegível do Ollama") from None
+        if on_text:
+            out = self._chat_stream(body, timeout, on_text)
+        else:
+            try:
+                out = json.loads(self._call("POST", "/api/chat", body, timeout=timeout or CHAT_TIMEOUT))
+            except ValueError:
+                raise EngineError("resposta ilegível do Ollama") from None
         prompt = int(out.get("prompt_eval_count") or 0)
         # o Ollama não recusa um pedido grande: ele corta calado o que não cabe em num_ctx e responde sobre um
         # texto incompleto. Se a entrada já encheu o contexto, a resposta seria errada: trata como estouro.
         if prompt >= CONTEXT:
             raise ContextOverflow(f"o Ollama cortou o pedido: {prompt} tokens não cabem no contexto de {CONTEXT}")
         return out.get("message", {}).get("content") or "", prompt, int(out.get("eval_count") or 0)
+
+    def _chat_stream(self, body, timeout, on_text):
+        """O /api/chat em fluxo (uma linha JSON por pedaço): junta o texto e devolve como a resposta inteira."""
+        parts, last = [], {}
+        try:
+            for line in _stream_lines("POST", OLLAMA_URL + "/api/chat", body, timeout or CHAT_TIMEOUT, None):
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if ev.get("error"):
+                    raise EngineError(f"o Ollama recusou: {str(ev['error'])[:200]}")
+                piece = (ev.get("message") or {}).get("content")
+                if piece:
+                    parts.append(piece)
+                    on_text("".join(parts))
+                if ev.get("done"):
+                    last = ev
+                    break
+        except urllib.error.HTTPError as e:
+            raise EngineError(f"o Ollama recusou ({e.code}): {_http_error(e)}") from None
+        except (urllib.error.URLError, OSError) as e:
+            raise EngineError(f"o Ollama não respondeu: {getattr(e, 'reason', e)}") from None
+        return dict(last, message={"content": "".join(parts)})
 
     def shutdown(self):
         pass   # o Ollama é do usuário: os modelos ficam nele até a rede tirar
@@ -964,8 +1064,12 @@ class _Mock:
     def loaded(self):
         return sorted(self.models)
 
-    def chat(self, name, messages, max_tokens, json_mode=False, timeout=None):
+    def chat(self, name, messages, max_tokens, json_mode=False, timeout=None, on_text=None):
         text = self._reply(name, messages)
+        if on_text:
+            words = text.split(" ")
+            for i in range(1, len(words) + 1):
+                on_text(" ".join(words[:i]))
         tin = sum(len(str(m.get("content", "")).split()) for m in messages)
         return text, tin, len(text.split())
 
@@ -1059,8 +1163,11 @@ class EngineManager:
     def loaded(self) -> list:
         return self._engine().loaded()
 
-    def chat(self, name, messages, max_tokens, json_mode=False, timeout=None):
-        """-> (texto, tokens_in, tokens_out). `timeout`: segundos que o motor tem para responder."""
+    def chat(self, name, messages, max_tokens, json_mode=False, timeout=None, on_text=None):
+        """-> (texto, tokens_in, tokens_out). `timeout`: segundos que o motor tem para responder. `on_text`, se
+        dada, recebe o texto até agora a cada pedaço (o cliente vê a resposta sendo escrita)."""
+        if on_text:
+            return self._engine().chat(name, messages, max_tokens, json_mode, timeout, on_text=on_text)
         return self._engine().chat(name, messages, max_tokens, json_mode, timeout)
 
     def shutdown(self):

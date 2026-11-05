@@ -2328,7 +2328,8 @@ class App:
             self.chats.append(ctx)
         try:
             items, job = client.generate(model, task, spec, max_price=max_price, should_stop=ctx["stop"].is_set,
-                                         on_job=lambda jid: ctx.update(job=jid))
+                                         on_job=lambda jid: ctx.update(job=jid),
+                                         on_progress=lambda info: ctx.update(progress=info))
         except SigmaError as e:
             if ctx["stop"].is_set() and "cancelado" in str(e).lower():
                 raise AppError(CANCELED, code="canceled") from None
@@ -2563,7 +2564,8 @@ class App:
             self.chats.append(ctx)
         try:
             text, job = client.ask(model, clean, max_tokens=max_tokens, max_price=max_price,
-                                   should_stop=ctx["stop"].is_set, on_job=lambda jid: ctx.update(job=jid))
+                                   should_stop=ctx["stop"].is_set, on_job=lambda jid: ctx.update(job=jid),
+                                   on_progress=lambda info: ctx.update(progress=info))
         except SigmaError as e:
             if ctx["stop"].is_set() and "cancelado" in str(e).lower():
                 raise AppError(CANCELED, code="canceled") from None
@@ -2579,6 +2581,19 @@ class App:
         return {"text": text, "cost": num("cost") or 0, "machine": job.get("machine"), "trimmed": num("trimmed") or 0,
                 "attempts": num("attempts"), "job": job.get("id"),
                 "max_cost": num("escrow"), "price": num("max_price")}   # o que ficou reservado e o teto por mil tokens
+
+    def api_ai_progress(self, q):
+        """GET /api/ai/progress?id=<id do chat>: a última notícia do computador que está respondendo (texto até
+        agora, prévia da imagem, porcentagem, fase) e há quantos segundos ela chegou. {"progress": null} se nada."""
+        cid = (q.get("id") or [None])[0]
+        with self.chat_lock:
+            ctx = next((c for c in self.chats if c["id"] == cid), None) if cid else None
+            p = dict(ctx.get("progress") or {}) if ctx else None
+        if not p:
+            return {"progress": None, "waiting": bool(ctx)}
+        keep = ("stage", "pct", "step", "steps", "text", "chars", "preview", "age", "machine", "status", "claimed",
+                "job")
+        return {"progress": {k: p[k] for k in keep if k in p}, "waiting": True}
 
     def api_ai_cancel(self, d):
         """Botão Cancelar do chat: se nenhum computador pegou o pedido, ele é cancelado e o valor volta.
@@ -2794,6 +2809,7 @@ ROUTES = {
     ("POST", "/api/ai/quote"): App.api_ai_quote,
     ("POST", "/api/ai/chat"): App.api_chat,
     ("POST", "/api/ai/cancel"): App.api_ai_cancel,
+    ("GET", "/api/ai/progress"): App.api_ai_progress,
     ("POST", "/api/ai/image"): App.api_image,
     ("POST", "/api/ai/video"): App.api_video,
     ("GET", "/api/chats"): App.api_chats,

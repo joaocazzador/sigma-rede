@@ -76,3 +76,16 @@ reputação. Falta escrever e revisar o desenho completo, com estas partes:
   de imagem ou vídeo, a máquina libera a RAM dos modelos de texto. O Ollama já fazia isso sozinho.
 - **Atualização automática** do .exe e do .pyz (sigma/updater.py). Quem está na 2.9 ou antes ainda precisa baixar
   a 2.10 uma vez à mão; dali em diante, atualiza sozinho.
+
+## Feito na 2.11 (05/11/2026)
+
+- **Notícias do pedido enquanto ele roda** (fora da chain, pelo nó: `POST/GET /progress`). A máquina manda o texto
+  até agora (palavra por palavra), a prévia do desenho a cada passo, a porcentagem e um sinal de vida a cada 15 s,
+  cifrados para quem pediu. O painel mostra tudo na bolha da resposta.
+- **Troca de máquina.** O texto que trava (2 min sem nada novo) vira falha na hora e o app vai para a próxima. E,
+  pelas regras v6, a máquina que pega o pedido e some da rede é liberada pelo cliente (`release_job`).
+- **Grupo de vídeo funcionando com o Wan.** O `rpc-server` agora é compilado com o ggml do stable-diffusion.cpp
+  (o do llama.cpp não tinha 4 operações que o Wan usa). Testado neste PC: o vídeo saiu com o modelo dividido.
+- **Votação explicada no site** (1 SIG = 1 voto para todo mundo, sem voto especial) e **link do GitHub** no site.
+- Falta: o grupo no painel (hoje só pela linha de comando), os programas do grupo de vídeo para Linux e macOS, e
+  testar o grupo de vídeo entre PCs de verdade pela internet.

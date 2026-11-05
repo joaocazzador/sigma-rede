@@ -141,7 +141,52 @@ class _Unreadable(Exception):
 
 # o que um pedido malformado levanta ao ser lido: além de JSON e campos inválidos, número infinito (Infinity e
 # 1e999 passam no json do Python) virando inteiro (OverflowError) e JSON aninhado demais (RecursionError)
+MAX_PROGRESS_TEXT = 60_000   # caracteres do texto parcial mandados no progresso (o fim, se passar)
+
 MALFORMED = (ValueError, KeyError, TypeError, AttributeError, OverflowError, RecursionError)
+
+
+class _Progress:
+    """Notícias de um pedido para quem pediu, pelo nó (/progress), cifradas para a chave dele: o texto até agora,
+    a prévia do desenho, a porcentagem e, mesmo sem novidade, um sinal de vida a cada HEARTBEAT segundos. Manda no
+    máximo uma por EVERY segundos (a mais nova). Falha de rede aqui nunca atrapalha o pedido."""
+    EVERY, HEARTBEAT = 1.0, 15.0
+
+    def __init__(self, client, job, log):
+        self.client, self.job, self.log = client, job, log
+        self.pub = job.get("client_pub")
+        self.info, self.dirty, self.seq = {"stage": "começando", "pct": 0}, True, 0
+        self.lock, self.stop_ev = threading.Lock(), threading.Event()
+        self.thread = None
+        if self.pub:
+            self.thread = threading.Thread(target=self._loop, name="sigma-progresso", daemon=True)
+            self.thread.start()
+
+    def update(self, **info):
+        with self.lock:
+            self.info.update({k: v for k, v in info.items() if v is not None})
+            self.dirty = True
+
+    def _send(self):
+        with self.lock:
+            info, self.dirty = dict(self.info, t=round(time.time(), 1)), False
+        self.seq = max(self.seq + 1, int(time.time() * 1000))
+        try:
+            self.client.send_progress(self.job["id"], self.seq, self.pub, info)
+        except Exception:
+            pass   # nó antigo (sem /progress) ou rede: o pedido segue igual
+
+    def _loop(self):
+        last = 0.0
+        while not self.stop_ev.wait(self.EVERY):
+            if self.dirty or time.time() - last >= self.HEARTBEAT:
+                last = time.time()
+                self._send()
+
+    def close(self):
+        self.stop_ev.set()
+        if self.thread:
+            self.thread.join(timeout=2)
 
 
 class Host:
@@ -1649,15 +1694,23 @@ class Host:
             return self._fail(job, "busy", "esta máquina demorou demais para chegar a este pedido na fila")
         t0 = time.time()
         self._busy(True)
+        prog = _Progress(self.client, job, self.log)
+        prog.update(stage="pensando", pct=None)
+
+        def on_text(partial):
+            prog.update(stage="escrevendo", text=partial[-MAX_PROGRESS_TEXT:], chars=len(partial))
         try:
             text, tin, tout = self.engine.chat(model, item["messages"], max(1, item["max_tokens"]),
-                                               json_mode=item["json"], timeout=left)
+                                               json_mode=item["json"], timeout=left,
+                                               on_text=on_text if prog.pub else None)
         except ContextOverflow:   # o motor recusou por contexto (ou cortou calado): falha "context", não "engine"
             return self._fail(job, "context")
         except EngineError as e:
             self._error("ia", f"IA falhou no job {job['id'][:10]}: {e}")
             return self._fail(job, "engine", f"o motor de IA desta máquina falhou: {str(e)[:200]}")
         finally:
+            prog.update(stage="entregando", pct=100)
+            prog.close()
             self._busy(False)
         data = canon({"text": text, "model": model, "machine": self.address})
         try:
@@ -1680,8 +1733,11 @@ class Host:
         t0 = time.time()
         self._busy(True)
         self.engine.free_memory()   # os modelos de texto parados saem da RAM: imagem e vídeo precisam dela (v5)
+        prog = _Progress(self.client, job, self.log)
+        prog.update(stage="carregando o modelo", pct=1)
         try:
-            results = self.media.generate(model, spec, timeout=left, should_stop=self._stop.is_set)
+            results = self.media.generate(model, spec, timeout=left, should_stop=self._stop.is_set,
+                                          on_progress=(lambda info: prog.update(**info)) if prog.pub else None)
         except EngineError as e:
             self._error("ia", f"geração falhou no job {job['id'][:10]}: {e}")
             return self._fail(job, "engine", f"o motor de imagem e vídeo desta máquina falhou: {str(e)[:200]}")
@@ -1689,6 +1745,8 @@ class Host:
             self._error("ia", f"geração falhou no job {job['id'][:10]}: erro inesperado: {type(e).__name__}")
             return self._fail(job, "engine", "o motor de imagem e vídeo desta máquina falhou")
         finally:
+            prog.update(stage="entregando", pct=99)
+            prog.close()
             self._busy(False)
         out = [dict(meta, mime=mime, data=base64.b64encode(data).decode()) for data, mime, meta in results]
         units = len(out) if item["media"] == "image" else min(item["units"], int(out[0].get("seconds") or 0))

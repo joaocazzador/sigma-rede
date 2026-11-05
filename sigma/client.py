@@ -23,11 +23,12 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from . import chain, netsafe, tasks
 from .chain import UNIT, canon, make_tx
-from .crypto import checksum_ok, norm_address, seal
+from .crypto import checksum_ok, norm_address, progress_message, seal
 
 DEFAULT_NODE = "https://sigma.195-35-29-232.sslip.io"
 JOB_END = ("done", "failed", "disputed", "expired", "canceled")
 CONTEXT = 4096       # contexto dos modelos da rede (o mesmo engines.CONTEXT das máquinas; um teste confere)
+GONE_CHECK = 60      # segundos entre as conferências de "a máquina sumiu?" enquanto espera (regras v6)
 ATTEMPTS = 3         # cada pergunta tenta no máximo 3 máquinas diferentes
 _TX_LOCKS = {}   # endereço -> lock: o nonce é por chave, mesmo com vários Client usando a mesma carteira
 _RNG = random.SystemRandom()   # sorteio imprevisível: ninguém se posiciona para receber todas as perguntas
@@ -377,6 +378,31 @@ class Client:
         return self.send_tx("transfer", {"to": _typed_address(to), "amount": to_usig(amount_sig)})
 
     # ------------------------------------------------------------- blobs
+    # ------------------------------------------------------------ progresso
+    def send_progress(self, job_id, seq, client_pub, info: dict):
+        """Máquina: manda ao nó a última notícia do pedido (cifrada para o cliente, assinada por esta máquina)."""
+        w = self._signer()
+        data = seal(client_pub, canon(info)).hex()
+        return self.post("/progress", {"job_id": job_id, "machine": w.address, "seq": seq, "data": data,
+                                       "sig": w.sign(progress_message(job_id, seq, data))}, timeout=20)
+
+    def progress(self, job_id):
+        """Cliente: a última notícia da máquina sobre o pedido -> dict (com "age", segundos desde que chegou ao
+        nó) ou None (ainda nenhuma, máquina antiga, ou não abre com esta carteira)."""
+        try:
+            p = self.get(f"/progress/{_q(job_id)}", timeout=10)
+        except SigmaError:
+            return None
+        try:
+            info = json.loads(self._signer().unseal(bytes.fromhex(p["data"])))
+        except Exception:
+            return None
+        if not isinstance(info, dict):
+            return None
+        info["age"] = p.get("age") if isinstance(p.get("age"), (int, float)) else None
+        info["machine"] = p.get("machine")
+        return info
+
     def put_blob(self, data: bytes) -> str:
         timeout = 60 + len(data) // 100_000  # conexão lenta: pelo menos 100 KB/s
         return self._json(self._req("/blob", raw=data, timeout=timeout))["hash"]
@@ -632,7 +658,8 @@ class Client:
                                  f"{cheapest} µSIG {unit})")
         return order_machines([(a, m) for a, m, p in hosts if p <= ceiling], w), ceiling
 
-    def generate(self, model, task, spec, max_price=None, timeout=None, should_stop=None, on_job=None):
+    def generate(self, model, task, spec, max_price=None, timeout=None, should_stop=None, on_job=None,
+                 on_progress=None):
         """Pede imagens ou um vídeo a um modelo da rede (regras v2) e devolve (mídias, job). Paga só o que a
         máquina entregou; o resto volta.
 
@@ -697,7 +724,8 @@ class Client:
             # 2ª máquina começa com poucos minutos, o cliente desiste enquanto ela gera e a entrega é cobrada sem
             # a mídia aparecer
             until = max(deadline, time.time() + chain.TARGET_TIMEOUT + chain.MEDIA_CLAIM_TIMEOUT[task] + 60)
-            job = self._wait_private(job_id, until, should_stop, LATE_MEDIA[task])
+            job = self._wait_private(job_id, until, should_stop, LATE_MEDIA[task], on_progress=on_progress,
+                                     machine=addr)
             status = job.get("status")
             if status == "canceled":
                 raise SigmaError(CANCELED)
@@ -716,7 +744,7 @@ class Client:
         raise SigmaError(NO_ANSWER)
 
     def ask(self, model, messages, max_tokens=1024, max_price=None, timeout=900, json_mode=False,
-            should_stop=None, on_job=None):
+            should_stop=None, on_job=None, on_progress=None):
         """Pergunta a um modelo da rede e devolve (texto, job). Paga só os tokens usados; o resto volta.
 
         Sempre privado (nunca cai sozinho para um pedido público): sorteia uma máquina que tem o modelo, cifra
@@ -772,7 +800,7 @@ class Client:
                                  "responder, o valor reservado volta sozinho para a sua carteira.") from None
             attempts += 1
             created += 1
-            job = self._wait_private(job_id, deadline, should_stop)
+            job = self._wait_private(job_id, deadline, should_stop, on_progress=on_progress, machine=addr)
             status, res = job.get("status"), None
             if status == "canceled":
                 raise SigmaError(CANCELED)
@@ -798,11 +826,29 @@ class Client:
             raise SigmaError(str(last_error))
         raise SigmaError(NO_ANSWER)
 
-    def _wait_private(self, job_id, deadline, should_stop, late_msg=LATE_CLAIMED):
+    def _gone(self, job, machine):
+        """A máquina que pegou o pedido sumiu da rede (não sinalizou nesta janela nem na anterior)? Regras v6:
+        libera o pedido (o valor volta) e devolve True, para o app tentar a próxima."""
+        if not machine or machine not in (job.get("claims") or {}) or (job.get("results") or {}).get(machine):
+            return False
+        try:
+            rules = self.status().get("rules")
+            if not isinstance(rules, int) or rules < 6:
+                return False
+            w = self._window(self.mining())
+            seen = (self.machine(machine) or {}).get("last_seen")
+            if not isinstance(seen, int) or seen >= w - 1:
+                return False
+            self.send_tx("release_job", {"job_id": job["id"]})
+            return True
+        except (SigmaError, ValueError, TypeError, AttributeError):
+            return False
+
+    def _wait_private(self, job_id, deadline, should_stop, late_msg=LATE_CLAIMED, on_progress=None, machine=None):
         """Espera um pedido terminar. Uma falha de rede passageira não desiste: recua e continua consultando até
         o prazo do job (ele sempre termina na chain). Cancela se `should_stop()` (ou o prazo acabou) e ninguém
         reivindicou; se o prazo passar com o job vivo, avisa (`late_msg`) que só cobra se a máquina entregar."""
-        start, fails = time.time(), 0
+        start, fails, last_check = time.time(), 0, time.time()
         while True:
             late = time.time() >= deadline
             try:
@@ -818,6 +864,18 @@ class Client:
                 continue
             if job.get("status") in JOB_END:
                 return job
+            # máquina que pegou o pedido e parou de dar notícias: confere na chain, no máximo a cada GONE_CHECK
+            if machine and job.get("status") == "running" and time.time() - last_check >= GONE_CHECK:
+                last_check = time.time()
+                if self._gone(job, machine):
+                    continue                          # liberado: a próxima volta lê o job já encerrado
+            if on_progress and job.get("status") in ("open", "running"):
+                info = self.progress(job_id)
+                try:
+                    on_progress(dict(info or {}, job=job_id, status=job.get("status"),
+                                     claimed=bool(job.get("claims"))))
+                except Exception:
+                    pass   # quem mostra o progresso não derruba a espera
             stop = bool(should_stop and should_stop())
             if (stop or late) and job.get("status") == "open" and not job.get("claims") \
                     and self._try_cancel(job_id):

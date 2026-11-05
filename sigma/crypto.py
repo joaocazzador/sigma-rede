@@ -313,6 +313,12 @@ def is_sealed(blob) -> bool:
     return isinstance(blob, (bytes, bytearray)) and bytes(blob[:len(SEAL_MAGIC)]) == SEAL_MAGIC
 
 
+def progress_message(job_id, seq, data_hex):
+    """O que a máquina assina no progresso de um pedido (sigma/node.py): amarra o pedido, a ordem e o conteúdo."""
+    import hashlib
+    return f"sigma-progress:{job_id}:{seq}:{hashlib.sha256(bytes.fromhex(data_hex)).hexdigest()}".encode()
+
+
 class Wallet:
     def __init__(self, priv: int):
         self.priv = priv

@@ -30,14 +30,24 @@ git -C $llama checkout -q FETCH_HEAD
 & $cm -S $src -B (Join-Path $Work "build-sd") -A x64 -DSD_RPC=ON -DSD_BUILD_SHARED_LIBS=OFF
 & $cm --build (Join-Path $Work "build-sd") --config Release --target sd-cli -j 8
 
-# GGML_MAX_NAME=160: o tamanho de nome de tensor do sd.cpp (sem isto a transferência falha); /EHsc /GR porque
-# CMAKE_CXX_FLAGS substitui os padrões do MSVC
-& $cm -S $llama -B (Join-Path $Work "build-rpc") -A x64 -DGGML_RPC=ON -DGGML_BUILD_SHARED_LIBS=OFF `
-    -DBUILD_SHARED_LIBS=OFF -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF `
-    "-DCMAKE_C_FLAGS=/DWIN32 /D_WINDOWS /DGGML_MAX_NAME=160" `
-    "-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /EHsc /GR /DGGML_MAX_NAME=160"
-& $cm --build (Join-Path $Work "build-rpc") --config Release --target ggml-rpc-server -j 8
+# o rpc-server compilado com o ggml DO PRÓPRIO stable-diffusion.cpp: o do llama.cpp (sync-llama.last) tem menos
+# operações (101 contra 105) e cai com "op not implemented" no Wan. Só o rpc-server.cpp vem do llama.cpp.
+$rpcProj = Join-Path $Work "rpcsd"
+New-Item -ItemType Directory -Force $rpcProj | Out-Null
+@"
+cmake_minimum_required(VERSION 3.14)
+project(sd_rpc_server C CXX)
+add_definitions(-DGGML_MAX_NAME=160)
+set(GGML_RPC ON CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+add_subdirectory($($src -replace '\\','/')/ggml ggml)
+add_executable(rpc-server $($llama -replace '\\','/')/tools/rpc/rpc-server.cpp)
+target_link_libraries(rpc-server PRIVATE ggml)
+target_compile_features(rpc-server PRIVATE cxx_std_17)
+"@ | Set-Content -Encoding ascii (Join-Path $rpcProj "CMakeLists.txt")
+& $cm -S $rpcProj -B (Join-Path $Work "build-rpcsd") -A x64
+& $cm --build (Join-Path $Work "build-rpcsd") --config Release --target rpc-server -j 8
 
 Copy-Item (Join-Path $Work "build-sd\bin\Release\sd-cli.exe") (Join-Path $Out "sd-cli.exe") -Force
-Copy-Item (Join-Path $Work "build-rpc\bin\Release\ggml-rpc-server.exe") (Join-Path $Out "rpc-server.exe") -Force
+Copy-Item (Join-Path $Work "build-rpcsd\Release\rpc-server.exe") (Join-Path $Out "rpc-server.exe") -Force
 Get-ChildItem $Out | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName).Hash.ToLower(), $_.Name }

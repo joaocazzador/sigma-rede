@@ -70,8 +70,9 @@ class TestParts(unittest.TestCase):
 
     def test_mainnet_schedule(self):
         ups = chain.SCHEDULE[chain.MAINNET_GENESIS]
-        self.assertEqual(sorted(ups), [2, 3, 4])
-        self.assertLess(ups[3], ups[4])
+        self.assertEqual(sorted(ups)[:3], [2, 3, 4])
+        heights = [ups[v] for v in sorted(ups)]
+        self.assertEqual(heights, sorted(heights))        # cada versão entra depois da anterior
 
 
 if __name__ == "__main__":
