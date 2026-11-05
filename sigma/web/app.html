@@ -152,6 +152,21 @@ input[type=range]::-moz-range-thumb { width: 18px; height: 18px; background: var
 .kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; font-size: 14.5px; margin: 0; }
 .kv dt { color: var(--muted); font: 600 11.5px/1.9 var(--mono); text-transform: uppercase; letter-spacing: 1px; }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
+.cat-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0 4px; }
+.cat-tools input { flex: 1 1 260px; min-width: 0; }
+details.cat-group { border: 1px solid var(--line); background: var(--card); margin-top: 10px; }
+details.cat-group > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px; font: 600 16px/1.3 var(--sans, inherit); text-transform: none; letter-spacing: 0; }
+details.cat-group > summary::-webkit-details-marker { display: none; }
+details.cat-group > summary::before { content: "+"; display: inline-grid; place-items: center; width: 22px; height: 22px;
+  border: 1px solid var(--line-strong, var(--line)); font: 600 15px var(--mono); flex: none; transition: transform .15s; }
+details.cat-group[open] > summary::before { content: "–"; }
+details.cat-group > summary .cat-sub { color: var(--muted); font: 400 13px var(--sans, inherit); }
+details.cat-group > summary .cat-count { margin-left: auto; font: 600 12px var(--mono); color: var(--muted); white-space: nowrap; }
+details.cat-group > summary:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.cat-scroll { max-height: min(620px, 70vh); overflow-y: auto; overscroll-behavior: contain; padding: 4px 14px 16px;
+  border-top: 1px solid var(--line); scrollbar-gutter: stable; }
+.cat-scroll .tiles { margin-top: 10px; }
 .tiles { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); }
 .tile { background: var(--card); border: 1px solid var(--line); padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .tile h4 { font-size: 24px; overflow-wrap: anywhere; }
@@ -922,7 +937,13 @@ details.more p { margin: 6px 0 0; }
       <h3 class="sec">Apadrinhar um modelo</h3>
       <p class="muted">Do catálogo (modelos abertos, liberados para uso comercial) ou pelo link de um arquivo GGUF no Hugging Face.</p>
       <p class="hint" id="models-price"></p>
-      <div class="tiles" id="catalog"></div>
+      <div class="cat-tools">
+        <label class="sr" for="cat-search">Procurar no catálogo</label>
+        <input id="cat-search" type="search" placeholder="Procurar modelo (nome, uso, licença)…" spellcheck="false" autocomplete="off">
+        <button type="button" class="small" data-cat-all="open">Abrir todas</button>
+        <button type="button" class="small" data-cat-all="close">Fechar todas</button>
+      </div>
+      <div id="catalog"></div>
       <form class="card mt" id="hf-form" autocomplete="off" novalidate>
         <label for="hf-url" style="margin-top:0">Link de um GGUF no Hugging Face</label>
         <div class="input-btn"><input id="hf-url" placeholder="https://huggingface.co/…/resolve/main/modelo.gguf" spellcheck="false"><button class="primary" type="submit">Continuar</button></div>
@@ -3028,12 +3049,65 @@ function catalogTile(it, onNet, media) {
   const task = TASK_LIST.includes(it.task) ? it.task : "text";
   return `<div class="tile"><div class="row between"><h4>${esc(it.title || it.name || it.id)}</h4><span>${net ? `<span class="tag ok" title="na rede como ${esc(net)}">já na rede</span>` : ""}<span class="tag">${TASK_NAME[task]}</span></span></div>`
     + (it.description ? `<p class="desc">${esc(it.description)}</p>` : "")
-    + `<dl class="kv"><dt>Tamanho</dt><dd>${esc(fmtBytes(size))}</dd><dt>Memória</dt><dd>${esc(fmtMB(ram))} para rodar</dd>`
+    + `<dl class="kv"><dt>Tamanho</dt><dd>${esc(fmtBytes(size))}</dd><dt>Memória</dt><dd>${esc(fmtMB(ram))} para rodar`
+    + (task === "text" && ram > 15000 ? ` (num PC grande ou num grupo de uns ${num(Math.ceil(ram / 9000))} computadores de 16 GB)` : "") + `</dd>`
     + `<dt>Licença</dt><dd>${esc(it.license || "—")}</dd><dt>Custo</dt><dd>~${esc(sig(perDay(size, 2, true, ram)))} SIG por dia com 2 cópias</dd></dl>`
     + (task !== "text" && media === false
       ? `<p class="hint">Ainda não dá para apadrinhar: a rede só aceita modelos de imagem e vídeo depois da atualização das regras v2.</p>`
       : `<div class="row"><button type="button" class="small primary" data-sponsor="${esc(it.id)}">Apadrinhar</button></div>`) + `</div>`;
 }
+// catálogo em classes recolhíveis (uso e tamanho), cada uma com a sua rolagem; a busca abre as que têm resultado
+const CAT_GROUPS = [
+  ["chat-s", "Conversa · leves", "até 3 GB de memória: rodam em quase qualquer computador"],
+  ["chat-m", "Conversa · médios", "de 3 a 9 GB de memória"],
+  ["chat-l", "Conversa · grandes", "de 9 a 24 GB: computadores com bastante memória ou placa de vídeo"],
+  ["code", "Programação", "escrevem, revisam e explicam código"],
+  ["reason", "Raciocínio e matemática", "pensam passo a passo antes de responder"],
+  ["image", "Imagem", "geram imagens a partir de uma frase"],
+  ["video", "Vídeo", "geram vídeos curtos; pedem placa de vídeo"],
+  ["giant", "Gigantes · até 10 computadores", "não cabem num PC de 16 GB: rodam divididos num grupo de 3 a 10"],
+  ["giant-l", "Gigantes · mais de 10 computadores", "os maiores modelos abertos, divididos entre muitos PCs"],
+];
+const catOpen = new Set(["chat-s"]);
+function catGroupOf(it) {
+  const ram = N(it.ram_mb) || Math.ceil(catalogSize(it) / 1e6 * 1.2) + 512;
+  if (it.task === "image" || it.task === "video") return it.task;
+  if (it.split || ram > 24000) return Math.ceil(ram / 9000) > 10 ? "giant-l" : "giant";
+  if (it.use === "code" || it.use === "reason") return it.use;
+  return ram <= 3000 ? "chat-s" : ram <= 9000 ? "chat-m" : "chat-l";
+}
+function renderCatalog() {
+  const md = lazy.models.data;
+  if (!md) return;
+  const onNet = new Map(Object.values(md.network || {}).map((m) => [m.sha256, m.name]));
+  const q = String($("cat-search")?.value || "").trim().toLowerCase();
+  const items = (md.catalog || []).filter((it) => !q || [it.id, it.name, it.title, it.description, it.license, it.use, it.task]
+    .some((v) => String(v || "").toLowerCase().includes(q)));
+  const byGroup = new Map(CAT_GROUPS.map(([k]) => [k, []]));
+  for (const it of items) byGroup.get(catGroupOf(it))?.push(it);
+  const html = CAT_GROUPS.map(([k, title, sub]) => {
+    const list = byGroup.get(k).sort((a, b) => (N(a.ram_mb) - N(b.ram_mb)) || String(a.id).localeCompare(String(b.id)));
+    if (!list.length) return "";
+    const live = list.filter((it) => onNet.has(it.sha256)).length;
+    const open = q ? true : catOpen.has(k);
+    return `<details class="cat-group" data-cat="${k}"${open ? " open" : ""}><summary><span>${esc(title)} <span class="cat-sub">· ${esc(sub)}</span></span>`
+      + `<span class="cat-count">${num(list.length)} ${list.length === 1 ? "modelo" : "modelos"}${live ? ` · ${num(live)} na rede` : ""}</span></summary>`
+      + `<div class="cat-scroll"><div class="tiles">${list.map((it) => catalogTile(it, onNet, md.ai?.media)).join("")}</div></div></details>`;
+  }).join("");
+  setHTML("catalog", html || `<p class="empty">${q ? "Nenhum modelo do catálogo combina com a busca." : "Catálogo vazio."}</p>`);
+}
+document.addEventListener("toggle", (e) => {   // lembra o que a pessoa abriu (o painel redesenha a cada consulta)
+  const d = e.target;
+  if (!(d instanceof HTMLElement) || !d.matches("details.cat-group") || String($("cat-search")?.value || "").trim()) return;
+  if (d.open) catOpen.add(d.dataset.cat); else catOpen.delete(d.dataset.cat);
+}, true);
+document.addEventListener("input", (e) => { if (e.target?.id === "cat-search") renderCatalog(); });
+document.addEventListener("click", (e) => {
+  const b = e.target.closest?.("[data-cat-all]");
+  if (!b) return;
+  CAT_GROUPS.forEach(([k]) => b.dataset.catAll === "open" ? catOpen.add(k) : catOpen.delete(k));
+  renderCatalog();
+});
 function renderModelos() {
   const md = want("models"), me = S.wallet?.address;
   setHTML("models-notes", S.wallet?.can_spend ? "" : keyNote("apadrinhar"));
@@ -3047,8 +3121,7 @@ function renderModelos() {
   const mine = list.filter((m) => same(m.sponsor, me));
   setHTML("my-models", mine.length ? `<div class="tiles">${mine.map((m) => modelTile(m, true)).join("")}</div>`
     : `<p class="empty">Você ainda não apadrinhou nenhum modelo.</p>`);
-  const onNet = new Map(list.map((m) => [m.sha256, m.name]));
-  setHTML("catalog", (md.catalog || []).map((it) => catalogTile(it, onNet, md.ai?.media)).join("") || `<p class="empty">Catálogo vazio.</p>`);
+  renderCatalog();
 }
 function nameFromUrl(u) {
   let file = "";
