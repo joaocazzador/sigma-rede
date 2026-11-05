@@ -71,7 +71,8 @@ RULES = 7                   # a versão mais nova das regras que este código sa
 # a v5 (reputação na falha de imagem/vídeo, modelos que se revezam na memória) no bloco 4300, marcado no bloco 4236
 # (~18 min de aviso, 2.10: o dono pediu o mais rápido possível)
 # a v6 (liberar o pedido de uma máquina que sumiu) no bloco 5800, marcado no bloco 5736 (~20 min de aviso, 2.11)
-SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300, 6: 5800}}
+# a v7 (corrida e vigia) no bloco 6870, marcado no bloco 6797 (~22 min de aviso, 2.12)
+SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300, 6: 5800, 7: 6870}}
 UPGRADE_HISTORY_KEEP = 50
 # saldos que uma atualização cria na altura dela, uma vez só: hash do genesis -> {versão: [(endereço, µSIG)]}.
 # A v2 da rede principal cria a carteira dos fundadores: 1 milhão de SIG (1% do teto) para as primeiras despesas do
