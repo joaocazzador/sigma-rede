@@ -179,6 +179,8 @@ for i in $(seq 1 90); do curl -sf http://127.0.0.1:8700/status > /dev/null && br
 if ! curl -sf http://127.0.0.1:8700/status > /dev/null; then
   echo "ERRO: o nó não respondeu em 90 s; veja: pm2 logs sigma-node"; exit 1
 fi
+# a máquina do servidor no máximo que a VPS aguenta (deploy/vps-settings.json): mescla nas configurações salvas
+python3 deploy/apply_vps_settings.py || echo "AVISO: não consegui aplicar deploy/vps-settings.json"
 pm2 start deploy/ecosystem.config.cjs --only sigma-hosting --update-env
 pm2 save
 sleep 5

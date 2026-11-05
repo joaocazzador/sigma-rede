@@ -1,0 +1,11 @@
+{
+  "ai_enabled": true,
+  "ai_ram_gb": 4.5,
+  "ai_image": false,
+  "ai_video": false,
+  "compute_enabled": true,
+  "mining_enabled": true,
+  "cpu_percent": 100,
+  "disk_gb": 60,
+  "engine": "llamacpp"
+}

@@ -28,16 +28,23 @@ module.exports = {
       max_memory_restart: "1500M",
     },
     {
-      // A máquina do próprio servidor: o mesmo app que as pessoas baixam, sem janela e sem IA, minerando com 100%
-      // dos núcleos na classe idle (os processos do minerador herdam a classe).
+      // A máquina do próprio servidor: o mesmo app que as pessoas baixam, sem janela, no máximo que a VPS aguenta
+      // sem tocar no GardenCounties:
+      // - minera com 100% dos núcleos e responde IA de texto e computação, tudo na classe idle do Linux (chrt
+      //   --idle): os processos do minerador e o llama-server herdam a classe e só usam a sobra do processador;
+      // - oom_score_adj 1000: se a memória acabar (a VPS não tem swap), o Linux mata o Sigma primeiro, nunca os apps
+      //   do GardenCounties;
+      // - memória para IA, imagem/vídeo e computação vêm de deploy/vps-settings.json (sem placa de vídeo e com 2
+      //   núcleos, imagem e vídeo estourariam o prazo e tirariam reputação: ficam desligados).
       name: "sigma-hosting",
       cwd: "/opt/sigma/app",
-      script: "chrt",
-      args: `--idle 0 python3 -m sigma.app --headless --no-ai --cpu 100 --node http://127.0.0.1:8700 ` +
-            `--data-dir ${DATA}/host --disk-gb 5 --name servidor-sigma` + (PAYOUT ? ` --wallet ${PAYOUT}` : ""),
+      script: "sh",
+      args: ["-c", `echo 1000 > /proc/self/oom_score_adj; exec chrt --idle 0 python3 -m sigma.app --headless ` +
+             `--cpu 100 --node http://127.0.0.1:8700 --data-dir ${DATA}/host --disk-gb 60 --name servidor-sigma` +
+             (PAYOUT ? ` --wallet ${PAYOUT}` : "")],
       interpreter: "none",
-      env: { PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8" },
-      max_memory_restart: "300M",
+      env: { PYTHONUNBUFFERED: "1", PYTHONIOENCODING: "utf-8", SIGMA_NO_AUTO_UPDATE: "1" },
+      max_memory_restart: "800M",
       kill_timeout: 15000,   // o app desliga com calma (para a máquina e fecha o painel local)
     },
   ],
