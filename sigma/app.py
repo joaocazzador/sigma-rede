@@ -2611,6 +2611,21 @@ class App:
     def api_chat(self, d):
         model, clean, max_tokens = self._chat_input(d)
         cid = self._chat_id(d)
+        sources = []
+        if d.get("web") is True:   # internet: este app busca e lê as páginas; o texto vai junto para a IA da rede
+            from . import websearch
+            question = next((m["content"] for m in reversed(clean) if m.get("role") == "user"), "")
+            try:
+                found, sources = websearch.context(question)
+            except Exception as e:
+                raise AppError(f"não consegui pesquisar na internet agora ({type(e).__name__}); tente de novo ou "
+                               "desligue a pesquisa") from None
+            if found:
+                note = {"role": "system", "content": (
+                    "Resultados da internet buscados agora para a pergunta do usuário (podem estar incompletos). "
+                    "Use-os quando ajudarem, diga quando não tiver certeza e cite as fontes pelo número [n].\n\n"
+                    + found)}
+                clean = clean[:-1] + [note] + clean[-1:]
         # o teto que o painel mostrou como "custo máximo": a pergunta nunca reserva mais do que isso
         max_price = _opt(d, "max_price", None)
         max_price = None if max_price is None else _int(max_price, "max_price", 1, MAX_AI_PRICE)
@@ -2637,6 +2652,7 @@ class App:
             v = job.get(k)
             return v if isinstance(v, int) and not isinstance(v, bool) else None
         return {"text": text, "cost": num("cost") or 0, "machine": job.get("machine"), "trimmed": num("trimmed") or 0,
+                "sources": [{"title": x["title"], "url": x["url"]} for x in sources],
                 "review": job.get("status") == "review",
                 "attempts": num("attempts"), "job": job.get("id"),
                 "max_cost": num("escrow"), "price": num("max_price")}   # o que ficou reservado e o teto por mil tokens

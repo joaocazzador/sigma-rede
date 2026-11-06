@@ -839,7 +839,8 @@ details.more p { margin: 6px 0 0; }
           <form class="composer" id="chat-form" autocomplete="off">
             <div class="comp-wrap">
               <div class="comp-opts">
-                <span id="opt-text"><label>Resposta <select id="ai-len"><option value="256">Curta</option><option value="512" selected>Média</option><option value="1024">Longa</option></select></label></span>
+                <span id="opt-text"><label>Resposta <select id="ai-len"><option value="256">Curta</option><option value="512" selected>Média</option><option value="1024">Longa</option></select></label>
+                  <label class="check" title="O seu app busca na web e manda o que achou junto com a pergunta"><input type="checkbox" id="ai-web"> Pesquisar na internet</label></span>
                 <span id="opt-image" hidden><label>Formato <select id="ai-size"><option value="512x512">Quadrado · 512×512</option><option value="768x768">Quadrado · 768×768</option><option value="1024x1024" selected>Quadrado · 1024×1024</option><option value="768x1024">Retrato · 768×1024</option><option value="1024x768">Paisagem · 1024×768</option></select></label>
                   <label>Quantidade <select id="ai-count"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label></span>
                 <span id="opt-video" hidden><label>Duração <select id="ai-seconds"><option value="2" selected>2 s</option><option value="3">3 s</option><option value="5">5 s</option></select></label>
@@ -2637,11 +2638,17 @@ async function chatSend(e, retry = null) {
   pollProgress(chat.reqId);
   try {
     const fit = t === "text" ? apiMessages(opts.max_tokens) : null;
-    const body = t === "text" ? {model, id: chat.reqId, max_tokens: opts.max_tokens, messages: fit.messages}
+    const body = t === "text" ? {model, id: chat.reqId, max_tokens: opts.max_tokens, messages: fit.messages, web: !!$("ai-web")?.checked}
       : {model, id: chat.reqId, prompt: text, ...opts};
     if (shown) body.max_price = shown;   // o teto que o painel mostrou: o pedido nunca reserva mais do que isso
     const r = await api(t === "text" ? "/api/ai/chat" : t === "image" ? "/api/ai/image" : "/api/ai/video", body);
-    const msg = {role: "assistant", content: t === "text" ? String(r.text ?? "") : "", cost: N(r.cost),
+    const srcs = Array.isArray(r.sources) ? r.sources.filter((x) => x && /^https?:\/\//.test(String(x.url))).slice(0, 8) : [];
+    const srcMd = srcs.length ? "
+
+**Fontes da internet:**
+" + srcs.map((x, k) => `${k + 1}. [${String(x.title || x.url).replace(/[\[\]]/g, "")}](${x.url})`).join("
+") : "";
+    const msg = {role: "assistant", content: t === "text" ? String(r.text ?? "") + srcMd : "", cost: N(r.cost),
                  machine: r.machine ? String(r.machine) : "", model, time: nowSec(),
                  review: !!r.review, job: typeof r.job === "string" ? r.job : ""};
     if (t !== "text") msg.media = (Array.isArray(r.media) ? r.media : []).filter(validMedia).map((x) => ({hash: String(x.hash), mime: String(x.mime),
