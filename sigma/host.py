@@ -326,6 +326,23 @@ class Host:
             self._start_server()
         self._wake.set()
 
+    def _group_status(self):
+        """Resumo do grupo do host, incluindo frações ativas do coordenador quando existirem."""
+        group = self.group
+        if group is None:
+            return None
+        status = getattr(group, "status", None)
+        if callable(status):
+            try:
+                data = status()
+            except Exception:
+                data = None
+            if isinstance(data, dict):
+                return data
+        return {"role": getattr(group, "role", None), "kind": getattr(group, "kind", "text"),
+                "connected": list(getattr(group, "connected", lambda: [])()),
+                "workers": getattr(group, "workers", {})}
+
     def stats(self) -> dict:
         with self._lock:
             rec = self._record or {}
@@ -343,7 +360,8 @@ class Host:
                 "compute": bool(rec.get("compute")), "hw": self._hw, "ai_queue": queue, "media_queue": mqueue,
                 "media_engine": self._describe_media(), "tasks": list(rec.get("tasks") or ["text"]),
                 "engine_down": self._engine_down_since is not None,
-                "last_error": max(recent)[1] if recent else None}
+                "last_error": max(recent)[1] if recent else None,
+                "group": self._group_status()}
 
     def _describe_engine(self):
         t, desc = self._engine_desc   # o painel pergunta toda hora: guarda por alguns segundos

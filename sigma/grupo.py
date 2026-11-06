@@ -63,6 +63,162 @@ def parse_kind(value):
     return kind
 
 
+class LayerFractionPlanner:
+    """Planeja uma camada em frações sequenciais, com reatribuição simples em caso de falha.
+
+    O padrão aqui é o que o usuário propôs para o desenho do grupo: cada camada deixa de ser um bloco inteiro
+    e passa a ser uma fila de frações, cada uma com dependência da fração anterior. A máquina vence a fração
+    que entrega primeiro; se ela trava, a fração volta à fila e outra máquina pode assumir.
+    """
+
+    def __init__(self, machines):
+        self.machines = {str(k): int(v) for k, v in (machines or {}).items()}
+        self.layers = {}
+
+    def _frag(self, frag_id):
+        layer, _, idx = str(frag_id).rpartition(":")
+        layer_data = self._layer(layer)
+        return layer, layer_data, layer_data["fragments"][int(idx)]
+
+    def plan_layer(self, layer, total_units, fragment_size=1):
+        total_units = int(total_units)
+        fragment_size = int(fragment_size)
+        if total_units <= 0:
+            raise GroupError(f"camada {layer!r} sem unidades para dividir")
+        if fragment_size <= 0:
+            raise GroupError(f"fragment_size inválido para {layer!r}: {fragment_size!r}")
+        count = max(1, (total_units + fragment_size - 1) // fragment_size)
+        fragments = []
+        for idx in range(count):
+            start = idx * fragment_size
+            end = min(total_units, start + fragment_size)
+            fragments.append({
+                "id": f"{layer}:{idx}",
+                "layer": layer,
+                "index": idx,
+                "range": (start, end),
+                "size": end - start,
+                "state": "queued",
+                "assigned_to": None,
+                "attempts": 0,
+            })
+        self.layers[layer] = {"total_units": total_units, "fragment_size": fragment_size, "fragments": fragments}
+        return fragments
+
+    def _layer(self, layer):
+        if layer not in self.layers:
+            raise GroupError(f"camada {layer!r} não planejada")
+        return self.layers[layer]
+
+    def _prev_done(self, layer_data, idx):
+        if idx <= 0:
+            return True
+        return layer_data["fragments"][idx - 1]["state"] == "done"
+
+    def ready(self, layer):
+        layer_data = self._layer(layer)
+        out = []
+        for frag in layer_data["fragments"]:
+            if frag["state"] == "queued" and self._prev_done(layer_data, frag["index"]):
+                out.append(frag["id"])
+        return out
+
+    def claim(self, frag_id, machine):
+        _, _, frag = self._frag(frag_id)
+        if frag["state"] == "done":
+            return frag["id"]
+        frag["assigned_to"] = str(machine)
+        frag["state"] = "running"
+        frag["attempts"] += 1
+        frag["leased_at"] = time.time()
+        return frag["id"]
+
+    def leased(self, frag_id):
+        _, _, frag = self._frag(frag_id)
+        return frag.get("assigned_to")
+
+    def release(self, frag_id):
+        _, _, frag = self._frag(frag_id)
+        assigned = frag.get("assigned_to")
+        frag["assigned_to"] = None
+        frag["state"] = "queued"
+        frag.pop("leased_at", None)
+        return frag["id"]
+
+    def lease_expired(self, frag_id, timeout_seconds=30.0):
+        _, _, frag = self._frag(frag_id)
+        if frag.get("state") != "running":
+            return False
+        if "leased_at" not in frag:
+            frag["state"] = "queued"
+            frag["assigned_to"] = None
+            return True
+        expired = (time.time() - float(frag["leased_at"])) >= float(timeout_seconds)
+        if expired:
+            frag["state"] = "queued"
+            frag["assigned_to"] = None
+            frag.pop("leased_at", None)
+        return expired
+
+    def fail(self, frag_id):
+        _, _, frag = self._frag(frag_id)
+        frag["state"] = "queued"
+        frag["assigned_to"] = None
+        frag.pop("leased_at", None)
+        return frag["id"]
+
+    def reassign(self, frag_id, machine):
+        _, _, frag = self._frag(frag_id)
+        frag["assigned_to"] = str(machine)
+        frag["state"] = "running"
+        frag["leased_at"] = time.time()
+        return frag["id"]
+
+    def checkpoint(self, frag_id, done_units):
+        _, _, frag = self._frag(frag_id)
+        frag["size"] = max(frag["size"], int(done_units))
+        if int(done_units) >= (frag["range"][1] - frag["range"][0]):
+            frag["state"] = "done"
+            frag["assigned_to"] = None
+            frag.pop("leased_at", None)
+        return frag["id"]
+
+    def select_machine(self, frag_id):
+        if not self.machines:
+            raise GroupError("não há máquinas disponíveis para a fração")
+        machine, _ = max(sorted(self.machines.items()), key=lambda kv: kv[1])
+        return machine
+
+    def next_ready(self, layer=None):
+        if layer is None:
+            for name in sorted(self.layers):
+                ready = self.ready(name)
+                if ready:
+                    frag_id = ready[0]
+                    return frag_id, self.select_machine(frag_id)
+            return None
+        ready = self.ready(layer)
+        if not ready:
+            return None
+        return ready[0], self.select_machine(ready[0])
+
+    def assign_next(self, layer=None):
+        next_job = self.next_ready(layer)
+        if next_job is None:
+            return None
+        frag_id, machine = next_job
+        self.claim(frag_id, machine)
+        return frag_id
+
+    def status(self, layer):
+        layer_data = self._layer(layer)
+        done = sum(1 for frag in layer_data["fragments"] if frag["state"] == "done")
+        return {"layer": layer, "done": done, "fragments": [
+            {"id": frag["id"], "range": frag["range"], "state": frag["state"], "assigned_to": frag["assigned_to"],
+             "attempts": frag["attempts"]}
+            for frag in layer_data["fragments"]]}
+
+
 def sd_rpc_exe(data_dir, log=print):
     """rpc-server compatível com o stable-diffusion.cpp: SIGMA_SD_RPC, ou o pacote do grupo de vídeo, que o app
     baixa sozinho na primeira vez (media.install_sd_rpc)."""
@@ -107,6 +263,7 @@ class Coordinator:
         self.workers = dict(workers)          # endereço -> MB emprestados
         self.pubs = {}                        # endereço -> chave pública (da chain)
         self.hub = None
+        self.planner = LayerFractionPlanner(self.workers)
 
     def _peer(self, addr):
         try:
@@ -143,10 +300,45 @@ class Coordinator:
     def lent_mb(self):
         return sum(self.workers[a] for a in self.connected())
 
+    def plan_layer(self, layer, total_units, fragment_size=1):
+        """Agenda uma camada como uma sequência de frações que podem ser redistribuídas em falha."""
+        return self.planner.plan_layer(layer, total_units, fragment_size)
+
+    def ready(self, layer):
+        return self.planner.ready(layer)
+
+    def claim(self, frag_id, machine):
+        return self.planner.claim(frag_id, machine)
+
+    def next_ready(self, layer=None):
+        return self.planner.next_ready(layer)
+
+    def assign_next(self, layer=None):
+        return self.planner.assign_next(layer)
+
+    def fail(self, frag_id):
+        return self.planner.fail(frag_id)
+
+    def leased(self, frag_id):
+        return self.planner.leased(frag_id)
+
+    def release(self, frag_id):
+        return self.planner.release(frag_id)
+
+    def lease_expired(self, frag_id, timeout_seconds=30.0):
+        return self.planner.lease_expired(frag_id, timeout_seconds=timeout_seconds)
+
+    def reassign(self, frag_id, machine):
+        return self.planner.reassign(frag_id, machine)
+
+    def checkpoint(self, frag_id, done_units):
+        return self.planner.checkpoint(frag_id, done_units)
+
     def status(self):
+        layers = {name: self.planner.status(name) for name in sorted(self.planner.layers)}
         return {"role": self.role, "kind": self.kind, "listen": self.listen, "workers": [
             {"address": a, "lent_mb": mb, "connected": bool(self.hub and self.hub.bridge_port(a))}
-            for a, mb in sorted(self.workers.items())]}
+            for a, mb in sorted(self.workers.items())], "layers": layers}
 
 
 class Worker:

@@ -104,6 +104,16 @@ class TestAutoGroups(unittest.TestCase):
         data = self.h._registration()
         self.assertTrue(data.get("lend"))
 
+    def test_stats_reports_group_runtime(self):
+        self.record({"id": "g2", "role": "coordinator", "model": "gigante", "coordinator": self.w.address,
+                     "workers": {"sig" + "2" * 40: 3000, "sig" + "3" * 40: 3000}})
+        self.h._sync_groups()
+        self.h.group.status = lambda: {"role": "coordinator", "kind": "text", "layers": {}}
+        stats = self.h.stats()
+        self.assertIn("group", stats)
+        self.assertEqual(stats["group"]["role"], "coordinator")
+        self.assertEqual(stats["group"]["layers"], {})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,6 +33,71 @@ class TestOptions(unittest.TestCase):
         self.assertNotIn("--rpc", llama._command("llama-server", "cpu", "m.gguf", 1, []))
 
 
+class TestLayerFractionPlanner(unittest.TestCase):
+    def test_layer_fragments_are_scheduled_and_reassigned(self):
+        planner = grupo.LayerFractionPlanner({"pc-a": 8, "pc-b": 8, "pc-c": 8})
+        plan = planner.plan_layer("encoder", 12, fragment_size=4)
+        self.assertEqual([f["range"] for f in plan], [(0, 4), (4, 8), (8, 12)])
+        self.assertEqual(planner.ready("encoder"), ["encoder:0"])
+
+        planner.claim("encoder:0", "pc-a")
+        planner.fail("encoder:0")
+        self.assertEqual(planner.reassign("encoder:0", "pc-b"), "encoder:0")
+        planner.claim("encoder:0", "pc-b")
+        planner.checkpoint("encoder:0", 4)
+        self.assertEqual(planner.ready("encoder"), ["encoder:1"])
+        planner.claim("encoder:1", "pc-c")
+        planner.checkpoint("encoder:1", 4)
+        self.assertEqual(planner.ready("encoder"), ["encoder:2"])
+        planner.claim("encoder:2", "pc-a")
+        planner.checkpoint("encoder:2", 4)
+        self.assertEqual(planner.ready("encoder"), [])
+        self.assertEqual(planner.status("encoder")["done"], 3)
+
+    def test_failed_fragment_is_queued_again_only_after_release(self):
+        planner = grupo.LayerFractionPlanner({"pc-a": 4, "pc-b": 4})
+        planner.plan_layer("decoder", 8, fragment_size=4)
+        planner.claim("decoder:0", "pc-a")
+        planner.fail("decoder:0")
+        self.assertEqual(planner.ready("decoder"), ["decoder:0"])
+        planner.reassign("decoder:0", "pc-b")
+        self.assertEqual(planner.status("decoder")["fragments"][0]["assigned_to"], "pc-b")
+
+    def test_coordinator_tracks_fractioned_layer_runtime(self):
+        coord, worker_a, worker_b = Wallet.generate(), Wallet.generate(), Wallet.generate()
+        c = grupo.Coordinator(coord, type("Client", (), {"machine": lambda self, a: {"pub": {}}})(),
+                             "127.0.0.1:0", {worker_a.address: 4096, worker_b.address: 4096}, log=lambda m: None)
+        c.plan_layer("encoder", 12, fragment_size=4)
+        self.assertEqual(c.ready("encoder"), ["encoder:0"])
+        c.claim("encoder:0", worker_a.address)
+        c.checkpoint("encoder:0", 4)
+        self.assertEqual(c.ready("encoder"), ["encoder:1"])
+        c.claim("encoder:1", worker_b.address)
+        c.fail("encoder:1")
+        self.assertEqual(c.ready("encoder"), ["encoder:1"])
+        c.reassign("encoder:1", worker_a.address)
+        c.checkpoint("encoder:1", 4)
+        self.assertEqual(c.ready("encoder"), ["encoder:2"])
+
+    def test_timed_out_leases_reenter_queue(self):
+        planner = grupo.LayerFractionPlanner({"pc-a": 8, "pc-b": 8})
+        planner.plan_layer("decoder", 8, fragment_size=4)
+        planner.claim("decoder:0", "pc-a")
+        self.assertEqual(planner.leased("decoder:0"), "pc-a")
+        self.assertEqual(planner.release("decoder:0"), "decoder:0")
+        planner.claim("decoder:0", "pc-b")
+        self.assertEqual(planner.lease_expired("decoder:0", timeout_seconds=0.0), True)
+        self.assertEqual(planner.ready("decoder"), ["decoder:0"])
+
+    def test_runtime_selects_machine_for_next_ready_fragment(self):
+        coord = grupo.Coordinator(Wallet.generate(), type("Client", (), {"machine": lambda self, a: {"pub": {}}})(),
+                                 "127.0.0.1:0", {"pc-a": 8, "pc-b": 12}, log=lambda m: None)
+        coord.plan_layer("mix", 12, fragment_size=4)
+        self.assertEqual(coord.next_ready(), ("mix:0", "pc-b"))
+        self.assertEqual(coord.assign_next(), "mix:0")
+        self.assertEqual(coord.leased("mix:0"), "pc-b")
+
+
 @unittest.skipUnless(tunnel.AVAILABLE, tunnel.UNAVAILABLE)
 class TestCoordinator(unittest.TestCase):
     def test_lends_only_while_connected(self):

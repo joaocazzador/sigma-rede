@@ -14,6 +14,7 @@ import io
 import json
 import math
 import os
+import shlex
 import shutil
 import socket
 import subprocess
@@ -1296,7 +1297,22 @@ class TestMainAndDeploy(unittest.TestCase):
             ok = False
         if not ok:
             self.skipTest("sem bash para conferir a sintaxe")
-        r = subprocess.run([bash, "-n", path], capture_output=True, text=True, timeout=30)
+
+        # Em Windows/WSL, o bash reconhece caminhos do tipo /mnt/c/...; o caminho do projeto tem espaços e
+        # precisa ser convertido antes de a validação de sintaxe rodar. O próprio bash é a fonte confiável para
+        # fazer essa conversão, porque wslpath só aparece no ambiente do shell e não no PATH do Python.
+        bash_path = path
+        if os.name == "nt":
+            try:
+                bash_path = subprocess.check_output(
+                    [bash, "-lc", f"wslpath -u {shlex.quote(path)}"],
+                    text=True,
+                    timeout=30,
+                ).strip()
+            except (OSError, subprocess.SubprocessError):
+                bash_path = path.replace("\\", "/")
+
+        r = subprocess.run([bash, "-n", bash_path], capture_output=True, text=True, timeout=30)
         self.assertEqual(r.returncode, 0, r.stderr)
 
 

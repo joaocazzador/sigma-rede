@@ -1,0 +1,820 @@
+diff --git a/sigma/app.py b/sigma/app.py
+index 11e9c50..87686cf 100644
+--- a/sigma/app.py
++++ b/sigma/app.py
+@@ -41,6 +41,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+ from urllib.parse import parse_qs, urlparse
+ 
+ from . import __version__, catalog, chain, grupo, netsafe, securestore, updater
++from .agent import AgentRuntime, LocalProgrammerAgent, PolicyViolation, ProgramModeSession, SecurePolicy, Task
+ from .chain import UNIT
+ from .client import Client, SigmaError
+ from .crypto import N, Wallet, checksum_ok, norm_address, to_eth
+@@ -987,6 +988,9 @@ class App:
+         self.chats, self.chat_lock = [], threading.Lock()
+         self.canceled_ids = {}   # id -> quando: Cancelar que chegou antes da própria pergunta (corrida de cliques)
+         self.code = CodeRunner(self)
++        self.local_code_lock = threading.RLock()
++        self.local_code = None
++        self.local_code_folder = ""
+         self.ui_calls, self.window_up = queue.Queue(), False   # pedidos do painel para a thread da janelinha
+ 
+     @staticmethod
+@@ -2716,6 +2720,188 @@ class App:
+     def api_code_reset(self, d):
+         return self.code.reset()
+ 
++    def api_local_code_state(self, q):
++        with self.local_code_lock:
++            return {"active": self.local_code is not None, "workspace": self.local_code_folder,
++                    "session": self.local_code.snapshot() if self.local_code else None}
++
++    def api_local_code_models(self, q):
++        try:
++            network = self._read("/models") or {}
++            tasks = self._model_tasks(network)
++            client = Client(self.settings["node"], self.wallet)
++            hosted = client.hosted_models(tasks)
++            prices = self._ai_prices()
++            models = sorted(name for name, task in tasks.items() if task == "text" and name in hosted)
++            return {"available": bool(models), "models": models,
++                    "prices": {name: prices.get(name) for name in models}, "error": None}
++        except (AppError, SigmaError, ValueError) as exc:
++            return {"available": False, "models": [], "prices": {}, "error": friendly(exc)}
++
++    def api_local_code_start(self, d):
++        folder = code_folder(d.get("folder"), self.data_dir)
++        with self.local_code_lock:
++            if self.local_code is not None:
++                raise AppError("já existe uma sessão Programar local; encerre-a antes de começar outra")
++            runtime = AgentRuntime(SecurePolicy(folder), mode="programar")
++            self.local_code = ProgramModeSession(runtime)
++            self.local_code_folder = folder
++            return {"active": True, "workspace": folder, "session": self.local_code.snapshot()}
++
++    def _local_code_session(self):
++        if self.local_code is None:
++            raise AppError("não existe sessão Programar local; escolha uma pasta e comece uma sessão")
++        return self.local_code
++
++    def api_local_code_task(self, d):
++        description, action = d.get("description"), d.get("action")
++        if not isinstance(description, str) or not description.strip() or len(description) > 20_000:
++            raise AppError("descreva a tarefa em até 20.000 caracteres")
++        if not isinstance(action, str) or action not in {"read", "list_dir", "search", "diff", "write"}:
++            raise AppError("ação local inválida")
++        path = d.get("path")
++        if path is not None and (not isinstance(path, str) or len(path) > 4_000):
++            raise AppError("caminho de arquivo inválido")
++        metadata = d.get("metadata", {})
++        if not isinstance(metadata, dict):
++            raise AppError("metadata deve ser um objeto")
++        if "command" in d or "command" in metadata:
++            raise AppError("execução de comandos está desativada no modo local")
++        with self.local_code_lock:
++            session = self._local_code_session()
++            if len(session.tasks) >= 100:
++                raise AppError("a sessão local chegou ao limite de 100 operações")
++            task_id = session.enqueue(Task(description=description.strip(), action=action, path=path,
++                                           metadata=metadata))
++            return {"task_id": task_id, "session": session.snapshot()}
++
++    def _local_code_edit_context(self, d):
++        model, path, instruction = d.get("model"), d.get("path"), d.get("instruction")
++        if not isinstance(model, str) or not model or len(model) > 200:
++            raise AppError("escolha um modelo de texto da rede")
++        if not isinstance(path, str) or not path.strip() or os.path.isabs(path) or len(path) > 4_000:
++            raise AppError("informe um caminho relativo à pasta do projeto")
++        if not isinstance(instruction, str) or not instruction.strip() or len(instruction) > 20_000:
++            raise AppError("escreva a instrução em até 20.000 caracteres")
++        with self.local_code_lock:
++            session = self._local_code_session()
++        client = self._spender()
++        tasks = self._model_tasks()
++        if tasks.get(model) != "text":
++            raise AppError("escolha um modelo de texto da rede")
++        try:
++            hosted = client.hosted_models(tasks)
++        except SigmaError as exc:
++            raise AppError(friendly(exc)) from None
++        if model not in hosted:
++            raise AppError(f"o modelo {model} não está no ar agora: escolha outro")
++        agent = LocalProgrammerAgent(session.runtime)
++        try:
++            messages = agent.edit_messages(path, instruction)
++        except PolicyViolation as exc:
++            raise AppError(str(exc)) from None
++        return {"session": session, "client": client, "agent": agent, "messages": messages,
++                "model": model, "path": path, "instruction": instruction.strip()}
++
++    @staticmethod
++    def _local_code_quote_id(context, quote):
++        payload = {"session": context["session"].id, "model": context["model"], "messages": context["messages"],
++                   "price": quote.get("price"), "max_cost": quote.get("max_cost")}
++        return hashlib.sha256(json.dumps(payload, ensure_ascii=True, sort_keys=True).encode("utf-8")).hexdigest()
++
++    def _local_code_quote(self, context):
++        quote = self.api_ai_quote({"model": context["model"], "messages": context["messages"], "max_tokens": 2048})
++        if quote.get("price") is None or quote.get("max_cost") is None:
++            raise AppError("não foi possível estimar o custo deste modelo agora")
++        return {"model": context["model"], "price": quote["price"], "max_cost": quote["max_cost"],
++                "max_tokens": quote["max_tokens"], "quote_id": self._local_code_quote_id(context, quote)}
++
++    def api_local_code_quote(self, d):
++        return self._local_code_quote(self._local_code_edit_context(d))
++
++    def api_local_code_propose(self, d):
++        if d.get("share") is not True:
++            raise AppError("NÃO enviar: confirme que o arquivo selecionado será lido por máquinas da rede")
++        quote_id = d.get("quote_id")
++        if not isinstance(quote_id, str) or not HASH_RE.fullmatch(quote_id):
++            raise AppError("a cotação expirou; confira novamente antes de enviar")
++        context = self._local_code_edit_context(d)
++        quote = self._local_code_quote(context)
++        max_price = d.get("max_price")
++        if (quote_id != quote["quote_id"] or max_price != quote["price"]
++                or not isinstance(max_price, int) or isinstance(max_price, bool)):
++            raise AppError("arquivo, modelo ou preço mudou; confira novamente antes de enviar")
++        try:
++            response, job = context["client"].ask(context["model"], context["messages"], max_tokens=2048,
++                                                  max_price=max_price, json_mode=True)
++            task = context["agent"].parse_edit_proposal(context["path"], context["instruction"], response)
++        except PolicyViolation as exc:
++            raise AppError(str(exc)) from None
++        with self.local_code_lock:
++            session = context["session"]
++            if self.local_code is not session:
++                raise AppError("a sessão local foi encerrada durante a geração; a proposta foi descartada")
++            if len(session.tasks) >= 100:
++                raise AppError("a sessão local chegou ao limite de 100 operações")
++            task_id = session.enqueue(task)
++            return {"task_id": task_id, "session": session.snapshot(), "model": context["model"],
++                    "cost": job.get("cost", 0), "machine": job.get("machine"),
++                    "attempts": job.get("attempts"), "max_cost": quote["max_cost"]}
++
++    def api_local_code_advance(self, d):
++        task_id = d.get("task_id")
++        if not isinstance(task_id, str):
++            raise AppError("task_id inválido")
++        with self.local_code_lock:
++            session = self._local_code_session()
++            try:
++                session.advance(task_id)
++            except (KeyError, PolicyViolation) as exc:
++                raise AppError(str(exc)) from None
++            return session.snapshot()
++
++    def api_local_code_approve(self, d):
++        task_id = d.get("task_id")
++        if not isinstance(task_id, str):
++            raise AppError("task_id inválido")
++        with self.local_code_lock:
++            session = self._local_code_session()
++            try:
++                session.approve(task_id)
++            except (KeyError, PolicyViolation) as exc:
++                raise AppError(str(exc)) from None
++            return session.snapshot()
++
++    def api_local_code_reject(self, d):
++        task_id = d.get("task_id")
++        if not isinstance(task_id, str):
++            raise AppError("task_id inválido")
++        with self.local_code_lock:
++            session = self._local_code_session()
++            try:
++                session.reject(task_id)
++            except (KeyError, PolicyViolation) as exc:
++                raise AppError(str(exc)) from None
++            return session.snapshot()
++
++    def api_local_code_validate(self, d):
++        task_id, passed = d.get("task_id"), d.get("passed", True)
++        if not isinstance(task_id, str) or not isinstance(passed, bool):
++            raise AppError("task_id ou passed inválido")
++        with self.local_code_lock:
++            session = self._local_code_session()
++            try:
++                session.validate(task_id, passed=passed)
++            except (KeyError, PolicyViolation) as exc:
++                raise AppError(str(exc)) from None
++            return session.snapshot()
++
++    def api_local_code_reset(self, d):
++        with self.local_code_lock:
++            self.local_code = None
++            self.local_code_folder = ""
++        return {"ok": True}
++
+     def api_code_pick_folder(self, d):
+         folder = self.ask_ui(_pick_folder)
+         return {"folder": os.path.normpath(folder) if folder else ""}
+@@ -2818,6 +3004,15 @@ class App:
+ #   POST /api/code/continue       {"text"} -> /api/code/state   (próxima instrução da mesma sessão)
+ #   POST /api/code/reset          {} -> {"ok"}                  (Nova sessão)
+ #   POST /api/code/pick-folder    {} -> {"folder": caminho ou ""}   (sem janelinha: 400 "digite o caminho da pasta")
++#   GET  /api/local-code/state    -> sessão local separada do Sigma Code distribuído
++#   GET  /api/local-code/models   -> modelos de texto hospedados pela rede Sigma
++#   POST /api/local-code/start    {"folder"} -> workspace + sessão local
++#   POST /api/local-code/task     {"description", "action", "path"?, "metadata"?} -> task_id + sessão
++#   POST /api/local-code/quote    {"model", "path", "instruction"} -> custo máximo e cotação vinculada ao contexto
++#   POST /api/local-code/propose {"model", "path", "instruction", "quote_id", "max_price", "share": true}
++#                                 -> proposta write sem aprovação (contexto cifrado para modelo da rede)
++#   POST /api/local-code/advance|approve|reject|validate {"task_id", "passed"?} -> sessão atualizada
++#   POST /api/local-code/reset    {} -> encerra e descarta a sessão local
+ #   GET  /api/sites               -> {"mine": [site + "url"], "hosted": [nomes]}
+ #   POST /api/sites/publish       {"name", "budget", "replicas"?, "files": [{"path", "data_b64"}]} -> {"txid", "url"}
+ #   POST /api/sites/fund          {"name", "amount"} -> {"txid"}
+@@ -2854,6 +3049,17 @@ ROUTES = {
+     ("POST", "/api/code/continue"): App.api_code_continue,
+     ("POST", "/api/code/reset"): App.api_code_reset,
+     ("POST", "/api/code/pick-folder"): App.api_code_pick_folder,
++    ("GET", "/api/local-code/state"): App.api_local_code_state,
++    ("GET", "/api/local-code/models"): App.api_local_code_models,
++    ("POST", "/api/local-code/quote"): App.api_local_code_quote,
++    ("POST", "/api/local-code/start"): App.api_local_code_start,
++    ("POST", "/api/local-code/task"): App.api_local_code_task,
++    ("POST", "/api/local-code/propose"): App.api_local_code_propose,
++    ("POST", "/api/local-code/advance"): App.api_local_code_advance,
++    ("POST", "/api/local-code/approve"): App.api_local_code_approve,
++    ("POST", "/api/local-code/reject"): App.api_local_code_reject,
++    ("POST", "/api/local-code/validate"): App.api_local_code_validate,
++    ("POST", "/api/local-code/reset"): App.api_local_code_reset,
+     ("GET", "/api/sites"): App.api_sites,
+     ("POST", "/api/sites/publish"): App.api_publish,
+     ("POST", "/api/sites/fund"): App.api_site_fund,
+diff --git a/sigma/web/app.html b/sigma/web/app.html
+index bf25e6c..f3b1c5b 100644
+--- a/sigma/web/app.html
++++ b/sigma/web/app.html
+@@ -479,6 +479,26 @@ details.tech p { font: 12.5px/1.5 var(--mono); overflow-wrap: anywhere; margin:
+ .cc-cost { text-align: right; font-size: 11.5px; color: var(--muted); opacity: .85; overflow-wrap: anywhere; }
+ .cc-run { color: var(--muted); }
+ .cc-status { padding: 6px 16px; border-top: 1px solid var(--line); font: 600 12.5px var(--sans); color: var(--signal); }
++.local-code { margin-bottom: 20px; }
++.local-code-head, .local-code-row, .local-code-workspace { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
++.local-code-head h2 { margin: 4px 0 0; font-size: 20px; }
++.local-code-start, .local-code-task-form { display: grid; gap: 9px; margin-top: 16px; }
++.local-model-row { display: flex; align-items: end; gap: 10px; }
++.local-model-row > div { flex: 1; min-width: 0; }
++.local-code-row input { flex: 1; min-width: 0; }
++.local-code-workspace { justify-content: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
++.local-code-workspace code { min-width: 0; overflow-wrap: anywhere; flex: 1; }
++.local-code-task-form { max-width: 760px; padding: 12px 0 18px; }
++.local-code-tasks { border-top: 1px solid var(--line); }
++.local-task { padding: 14px 0; border-bottom: 1px solid var(--line); }
++.local-task-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
++.local-task h3 { margin: 0; font-size: 15px; overflow-wrap: anywhere; }
++.local-task pre { max-height: 260px; overflow: auto; padding: 10px; background: var(--bg); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
++.local-task-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
++@media (max-width: 600px) {
++  .local-code-head, .local-code-row, .local-code-workspace, .local-model-row { align-items: stretch; flex-direction: column; }
++  .local-code-row button { width: 100%; }
++}
+ /* pedido de aprovação, embaixo da transcrição */
+ .approve { border: 1px solid var(--signal); border-radius: 10px; padding: 12px 14px; background: rgba(255, 212, 0, .04); font-family: var(--sans); }
+ .approve.cmd { border-color: var(--bad); background: rgba(255, 107, 91, .05); }
+@@ -863,6 +883,8 @@ details.more p { margin: 6px 0 0; }
+ 
+     <!-- PROGRAMAR (Sigma Code) -->
+     <section data-pane="programar" role="tabpanel" aria-label="Programar" hidden>
++      <details class="distributed-code cc-foot more">
++        <summary>Usar o Sigma Code distribuído</summary>
+       <div id="code-notes"></div>
+       <form class="cc" id="code-form" autocomplete="off" novalidate>
+         <div class="cc-head">
+@@ -893,6 +915,37 @@ details.more p { margin: 6px 0 0; }
+           <p id="code-fixed">Escolha a pasta do projeto. O Sigma Code só mexe dentro dela. Cada passo vai cifrado para uma máquina sorteada da rede e leva tudo o que o agente já leu: ao longo de uma tarefa, as máquinas de várias pessoas diferentes veem os seus arquivos. Arquivos de senha e chaves (.env, .key, .ssh) ficam de fora. Cada passo é pago em SIG.</p>
+           <p id="code-folder-hint">Não use em pastas com senhas, chaves ou documentos pessoais: cada passo do Sigma Code vai para uma máquina sorteada e, ao longo de uma tarefa, as máquinas de várias pessoas veem o que ele ler. Enter envia, Shift+Enter pula linha.</p></details>
+       </form>
++          </details>
++      <section class="card mt local-code" aria-labelledby="local-code-title">
++        <div class="local-code-head">
++          <div><div class="kicker">Programar</div><h2 id="local-code-title">Sessão de código</h2></div>
++          <span class="tag">modelo da rede · arquivos locais</span>
++        </div>
++        <form id="local-code-start-form" class="local-code-start" autocomplete="off" novalidate>
++          <label for="local-code-folder">Pasta do projeto</label>
++          <div class="local-code-row"><input id="local-code-folder" spellcheck="false" placeholder="C:\projetos\meu-app" required>
++            <button type="submit" class="primary" id="local-code-start">Abrir projeto</button></div>
++          <p class="err" id="local-code-start-err" hidden></p>
++        </form>
++        <div id="local-code-active" hidden>
++          <div class="local-code-workspace"><span class="hint">Workspace</span><code id="local-code-workspace"></code>
++            <button type="button" class="small" data-local-code-reset>Trocar projeto</button></div>
++          <form id="local-code-task-form" class="local-code-task-form" autocomplete="off" novalidate>
++            <label for="local-code-description">O que vamos construir?</label>
++            <textarea id="local-code-description" rows="4" maxlength="20000" placeholder="Descreva a mudança que você quer fazer neste projeto…" required></textarea>
++            <label for="local-code-path">Arquivo principal da mudança</label>
++            <input id="local-code-path" placeholder="src/app.py" spellcheck="false">
++            <div class="local-model-row"><div><label for="local-code-model">Modelo de texto hospedado na rede</label>
++              <select id="local-code-model"></select><p class="hint" id="local-code-model-status"></p></div>
++              <button type="button" class="primary" id="local-code-propose" data-local-code-propose>Enviar tarefa</button></div>
++            <p class="err" id="local-code-task-err" hidden></p>
++          </form>
++          <div id="local-code-tasks" class="local-code-tasks" aria-live="polite"></div>
++        </div>
++      </section>
++      <details class="cc-foot more"><summary>Alternativa: Sigma Code distribuído</summary>
++        <p>Este modo envia contexto e arquivos lidos para computadores da rede e cobra em SIG. Ele é separado da sessão acima.</p>
++      </details>
+     </section>
+ 
+     <!-- SITES -->
+@@ -1291,6 +1344,7 @@ let failures = 0, pollTimer = 0, polling = false, histFilter = "all", cfgDirty =
+ const pending = {};      // ajustes recém-salvos: valem até o /api/state seguinte confirmar
+ // dados pedidos só quando a aba precisa
+ const lazy = {models: {path: "/api/models"}, sites: {path: "/api/sites"}, code: {path: "/api/code/state"},
++              local_code: {path: "/api/local-code/state"}, local_code_models: {path: "/api/local-code/models"},
+               gov: {path: "/api/governance"}, chats: {path: "/api/chats"}};
+ // a conversa aberta na aba IA (cid = id guardado no app; reqId = o pedido em andamento, para o Parar)
+ const chat = {cid: "", title: "", task: "text", model: "", convModel: "", messages: [], total: 0, seq: 0, saving: null, side: false,
+@@ -2708,6 +2762,7 @@ async function chatCancel() {
+ // No jeito de um agente de terminal. Quem responde é o computador de outra pessoa: nada é gravado nem executado sem a
+ // pessoa aprovar aqui. Tudo o que vem do agente (texto, argumentos, saídas, prévias, comandos) passa por esc()/richText.
+ let codeModel = "";
++let localCodeModel = "";
+ const ccUI = {open: new Set(), lastPending: "", scrollKey: ""};
+ const CODE_LABEL = {read_file: "Ler", list_dir: "Listar", write_file: "Escrever", create_file: "Criar", edit_file: "Editar", run_command: "Rodar"};
+ // o alvo mostrado vem do backend: p.target/step.target (caminho resolvido por sigmacode.visible(), ou o comando em
+@@ -2774,6 +2829,53 @@ function pendingHTML(p) {
+ // new = sem sessão (pasta, modelo e caixa no topo); running = trabalhando; continue = a mesma caixa manda a próxima instrução
+ const codeMode = (cs) => !cs?.task ? "new" : cs.running ? "running" : cs.can_continue === true ? "continue" : "new";
+ const FOLDER_HINT = "Não use em pastas com senhas, chaves ou documentos pessoais: cada passo do Sigma Code vai para uma máquina sorteada e, ao longo de uma tarefa, as máquinas de várias pessoas veem o que ele ler. Enter envia, Shift+Enter pula linha.";
++const localCodeLabel = {review_scope: "Revisar escopo", preview: "Gerar prévia", read: "Ler arquivo", list_dir: "Listar pasta",
++                        search: "Buscar texto", diff: "Comparar proposta", write: "Gravar arquivo"};
++function renderLocalCode() {
++  const data = want("local_code", 5000);
++  const modelState = want("local_code_models", 30000);
++  const localModels = Array.isArray(modelState?.models) ? modelState.models : [];
++  if (!localModels.includes(localCodeModel)) localCodeModel = localModels[0] || "";
++  setHTML("local-code-model", localModels.map((name) => `<option value="${esc(name)}"${name === localCodeModel ? " selected" : ""}>${esc(name)}</option>`).join("")
++    || `<option value="">${modelState?.available ? "nenhum modelo da rede" : "rede Sigma indisponível"}</option>`);
++  setVal($("local-code-model"), localCodeModel);
++  setText("local-code-model-status", modelState?.available
++    ? `${localModels.length} modelo${localModels.length === 1 ? "" : "s"} de texto no ar${localCodeModel && modelState.prices?.[localCodeModel] != null ? ` · ${sig(modelState.prices[localCodeModel])} SIG/1.000 tokens` : ""}. O envio pede confirmação.`
++    : modelState?.error || (lazy.local_code_models.err ? "Não foi possível consultar os modelos da rede." : "Consultando modelos da rede Sigma…"));
++  $("local-code-propose").disabled = !modelState?.available || !localModels.length;
++  const active = !!data?.active, session = data?.session;
++  $("local-code-start-form").hidden = active;
++  $("local-code-active").hidden = !active;
++  if (!active) {
++    formErr("local-code-start-err", data ? "" : lazy.local_code.err || "");
++    setHTML("local-code-tasks", "");
++    return;
++  }
++  setText("local-code-workspace", data.workspace || "");
++  formErr("local-code-start-err", "");
++  const tasks = Object.entries(session?.tasks || {});
++  if (!tasks.length) {
++    setHTML("local-code-tasks", `<p class="empty">A sessão está pronta. Descreva a próxima mudança acima.</p>`);
++    return;
++  }
++  setHTML("local-code-tasks", tasks.map(([id, task]) => {
++    const steps = Array.isArray(task.steps) ? task.steps : [], next = steps[task.steps_done];
++    const status = String(task.status || "queued");
++    const stateTag = status === "awaiting_approval" ? "aguardando aprovação" : status.replaceAll("_", " ");
++    const actions = status === "awaiting_approval"
++      ? `<button type="button" class="primary" data-local-code-action="approve" data-id="${esc(id)}">Aprovar</button><button type="button" class="danger" data-local-code-action="reject" data-id="${esc(id)}">Recusar</button>`
++      : (status === "queued" || status === "in_progress" || status === "approved") && next
++        ? `<button type="button" class="small" data-local-code-action="advance" data-id="${esc(id)}">${esc(localCodeLabel[next.action] || "Avançar etapa")}</button>`
++        : status === "in_progress" && task.steps_done >= steps.length
++          ? `<button type="button" class="primary" data-local-code-action="validate" data-id="${esc(id)}">Marcar validada</button>` : "";
++    const output = task.result ? JSON.stringify(task.result, null, 2) : "";
++    const shown = output.length > 10_000 ? output.slice(0, 10_000) + "\n… saída limitada na interface" : output;
++    return `<article class="local-task"><div class="local-task-head"><h3>${esc(task.description || "Operação")}</h3><span class="tag">${esc(stateTag)} · ${esc(task.risk || "low")}</span></div>`
++      + `<p class="hint">${esc(task.action === "write" ? "Alteração de arquivo" : task.action || "")} ${task.path ? `· ${esc(task.path)} ` : ""}· etapa ${num(task.steps_done)}/${steps.length}</p>`
++      + (shown ? `<pre>${esc(shown)}</pre>` : "")
++      + (actions ? `<div class="local-task-actions">${actions}</div>` : "") + `</article>`;
++  }).join(""));
++}
+ function renderCode() {
+   const cs = want("code", 1500), md = want("models"), w = S.wallet || {};
+   const running = !!(cs ? cs.running : S.code?.running), mode = cs ? codeMode(cs) : running ? "running" : "new";
+@@ -2824,6 +2926,7 @@ function renderCode() {
+   const pid = cs?.pending?.id || "";
+   if (pid && pid !== ccUI.lastPending && tab === "programar" && !$("dlg").open) { ccUI.lastPending = pid; $("code-pending")?.focus({preventScroll: true}); }
+   if (!pid) ccUI.lastPending = "";
++  renderLocalCode();
+ }
+ function codeGot(r) { lazy.code.data = r; lazy.code.t = Date.now(); lazy.code.err = null; }
+ async function codeSubmit(e) {
+@@ -2880,6 +2983,56 @@ async function codeReset() {
+   } catch (x) { formErr("code-err", x.message); }
+   finally { renderCode(); }
+ }
++function localCodeGot(data) { lazy.local_code.data = data; lazy.local_code.t = Date.now(); lazy.local_code.err = null; }
++async function localCodeStart(e) {
++  e?.preventDefault(); formErr("local-code-start-err", "");
++  try {
++    const folder = $("local-code-folder").value.trim();
++    if (!folder) throw new Error("Escolha a pasta do projeto.");
++    localCodeGot(await api("/api/local-code/start", {folder}));
++    renderCode();
++  } catch (x) { formErr("local-code-start-err", x.message); }
++}
++async function localCodePropose() {
++  const button = $("local-code-propose");
++  formErr("local-code-task-err", "");
++  button.disabled = true;
++  try {
++    const body = {model: localCodeModel, path: $("local-code-path").value.trim(),
++                  instruction: $("local-code-description").value.trim()};
++    if (!body.model) throw new Error("Escolha um modelo disponível na rede.");
++    if (!body.instruction) throw new Error("Descreva a mudança que você quer fazer.");
++    if (!body.path) throw new Error("Informe o arquivo principal da mudança.");
++    const quote = await api("/api/local-code/quote", body);
++    openDialog({
++      title: "Enviar arquivo à IA da rede?",
++      text: `A instrução e o arquivo ${body.path} serão enviados cifrados para um modelo da rede. A máquina que responder precisa ler o conteúdo; se não responder, até três máquinas podem ser tentadas. Custo máximo desta pergunta: ${sig(quote.max_cost)} SIG. O arquivo não será gravado sem uma aprovação separada do diff.`,
++      ok: "Enviar para a rede", danger: true,
++      run: async () => {
++        const generated = await api("/api/local-code/propose", {...body, quote_id: quote.quote_id,
++          max_price: quote.price, share: true});
++        localCodeGot({...lazy.local_code.data, active: true, session: generated.session});
++        $("local-code-description").value = "";
++        toast(`A proposta chegou (${sig(generated.cost)} SIG). Revise o diff antes de aprovar.`);
++        renderCode();
++      },
++    });
++  } catch (x) { formErr("local-code-task-err", x.message); }
++  finally { button.disabled = false; }
++}
++async function localCodeAction(operation, taskId) {
++  document.querySelectorAll("[data-local-code-action]").forEach((button) => { button.disabled = true; });
++  try {
++    if (operation === "reset") localCodeGot(await api("/api/local-code/reset", {}));
++    else {
++      const session = await api(`/api/local-code/${operation}`, {task_id: taskId,
++        ...(operation === "validate" ? {passed: true} : {})});
++      localCodeGot({...lazy.local_code.data, active: true, session});
++    }
++    if (operation === "reset") localCodeGot(await api("/api/local-code/state"));
++    renderCode();
++  } catch (x) { toast(x.message, "err", 6000); refresh("local_code"); }
++}
+ async function codePick() {
+   const btn = $("code-pick");
+   btn.disabled = true; formErr("code-err", "");
+@@ -3617,6 +3770,9 @@ function bind() {
+     if ((t = el("[data-chat-del]"))) return deleteChat(t.dataset.chatDel);
+     if ((t = el("[data-cc-open]"))) { const i = Number(t.dataset.ccOpen); ccUI.open.has(i) ? ccUI.open.delete(i) : ccUI.open.add(i); return renderCode(); }
+     if ((t = el("[data-code-answer]"))) return codeAnswer(t.dataset.id, t.dataset.codeAnswer === "1");
++    if ((t = el("[data-local-code-action]"))) return localCodeAction(t.dataset.localCodeAction, t.dataset.id);
++    if ((t = el("[data-local-code-propose]"))) return localCodePropose();
++    if ((t = el("[data-local-code-reset]"))) return localCodeAction("reset");
+     if ((t = el("[data-scroll]"))) { const x = $(t.dataset.scroll); x?.scrollIntoView({block: "center"}); return x?.focus?.({preventScroll: true}); }
+     if ((t = el("[data-vote]"))) return voteFlow(t.dataset.vote);
+     if ((t = el("[data-gov-kind]"))) { govKind = t.dataset.govKind === "param" ? "param" : "text"; formErr("gov-err", ""); return renderVotacoes(); }
+@@ -3693,6 +3849,8 @@ function bind() {
+   $("chat-text").addEventListener("input", () => { grow(); renderMaxCost(); });
+   ["ai-len", "ai-size", "ai-count", "ai-seconds", "ai-vsize"].forEach((id) => { $(id).onchange = renderMaxCost; });
+   $("code-form").onsubmit = codeSubmit;
++  $("local-code-start-form").onsubmit = localCodeStart;
++  $("local-code-model").onchange = (e) => { localCodeModel = e.target.value; };
+   $("code-task").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("code-form").requestSubmit(); } });
+   $("code-task").addEventListener("input", () => grow($("code-task"), 200));
+   $("code-stop").onclick = codeStop;
+diff --git a/tests/mock_app_api.py b/tests/mock_app_api.py
+index 71345d4..d06e0f2 100644
+--- a/tests/mock_app_api.py
++++ b/tests/mock_app_api.py
+@@ -425,6 +425,94 @@ class CodeSim:
+             self._ask_command(multi)
+ 
+ 
++class LocalCodeSim:
++    def __init__(self):
++        self.active, self.workspace, self.tasks, self.counter = False, "", {}, 0
++
++    def snapshot(self):
++        tasks = {}
++        pending = []
++        for task_id, entry in self.tasks.items():
++            task = {k: entry[k] for k in ("description", "action", "path", "status", "approved", "validated",
++                                           "steps_done", "risk", "requires_approval", "steps", "result")
++                    if k in entry}
++            tasks[task_id] = task
++            if entry["status"] == "awaiting_approval":
++                pending.append(task_id)
++        completed = sum(task["status"] == "completed" for task in tasks.values())
++        return {"session_id": "local-test", "pending_approvals": pending, "tasks": tasks,
++                "total_tasks": len(tasks), "completed_tasks": completed,
++                "summary": {"pending_approvals": len(pending), "completed": completed, "total": len(tasks)}}
++
++    def state(self):
++        return {"active": self.active, "workspace": self.workspace,
++                "session": self.snapshot() if self.active else None}
++
++    def start(self, body):
++        self.active, self.workspace, self.tasks, self.counter = True, str(body.get("folder") or ""), {}, 0
++        return self.state()
++
++    def create(self, description, action, path, content=""):
++        self.counter += 1
++        task_id = f"local-{self.counter}"
++        write = action == "write"
++        steps = ([{"action": "review_scope", "requires_approval": False},
++                  {"action": "preview", "requires_approval": False},
++                  {"action": "write", "requires_approval": True}] if write else
++                 [{"action": "inspect", "requires_approval": False},
++                  {"action": action, "requires_approval": False}])
++        self.tasks[task_id] = {"description": description, "action": action, "path": path,
++                               "status": "queued", "approved": False, "validated": False,
++                               "steps_done": 0, "risk": "high" if write else "low",
++                               "requires_approval": write, "steps": steps, "content": content}
++        return {"task_id": task_id, "session": self.snapshot()}
++
++    def advance(self, task_id):
++        entry = self.tasks.get(task_id)
++        if not entry or entry["status"] in {"rejected", "completed", "failed"}:
++            raise Bad("tarefa inválida")
++        step = entry["steps"][entry["steps_done"]]
++        if step["requires_approval"] and not entry["approved"]:
++            entry["status"] = "awaiting_approval"
++            raise Bad("aguardando aprovação humana")
++        if step["action"] == "preview":
++            entry["result"] = {"path": entry["path"], "diff": f"--- {entry['path']}\n+++ proposto\n+{entry['content']}"}
++            entry["status"] = "awaiting_approval"
++        elif step["action"] == "write":
++            entry["result"] = {"status": "written", "path": entry["path"]}
++            entry["status"] = "in_progress"
++        else:
++            entry["result"] = {"content": "resultado local"}
++            entry["status"] = "in_progress"
++        entry["steps_done"] += 1
++        return self.snapshot()
++
++    def approve(self, task_id):
++        entry = self.tasks.get(task_id)
++        if not entry or entry["status"] != "awaiting_approval":
++            raise Bad("tarefa não está aguardando aprovação")
++        entry.update(approved=True, status="approved")
++        return self.snapshot()
++
++    def reject(self, task_id):
++        entry = self.tasks.get(task_id)
++        if not entry or entry["status"] != "awaiting_approval":
++            raise Bad("tarefa não está aguardando aprovação")
++        entry.update(status="rejected")
++        return self.snapshot()
++
++    def validate(self, task_id, passed):
++        entry = self.tasks.get(task_id)
++        if not entry or entry["steps_done"] < len(entry["steps"]):
++            raise Bad("tarefa ainda não terminou")
++        entry.update(validated=passed, status="completed" if passed else "failed")
++        return self.snapshot()
++
++    def reset(self):
++        self.active, self.workspace, self.tasks = False, "", {}
++        return {"ok": True}
++
++
+ # ------------------------------------------------------------------ estado
+ class Mock:
+     def __init__(self, cenario="pronto", port=PORT):
+@@ -443,6 +531,7 @@ class Mock:
+         self.canceled = set()        # ids cancelados antes de a pergunta chegar (clique logo depois de enviar)
+         self.features = {"autostart": cenario != "sem-recursos", "pick_folder": cenario != "sem-recursos"}
+         self.code = CodeSim()
++        self.local_code = LocalCodeSim()
+         if cenario == "codigo":
+             self.code.pending_command()
+         elif cenario == "codigo-linhas":
+@@ -1030,6 +1119,35 @@ def handle(mock, method, path, q, d):
+         for c in chats:
+             c["ev"].set()
+         return {"ok": True, "running": bool(chats), "claimed": claimed, "message": CLAIMED if claimed else None}
++    if (method, path) == ("GET", "/api/local-code/state"):
++        return mock.local_code.state()
++    if (method, path) == ("GET", "/api/local-code/models"):
++        return {"available": True, "models": ["qwen2.5-coder-7b"], "prices": {"qwen2.5-coder-7b": 2000}, "error": None}
++    if (method, path) == ("POST", "/api/local-code/start"):
++        return mock.local_code.start(d)
++    if (method, path) == ("POST", "/api/local-code/task"):
++        return mock.local_code.create(d.get("description", ""), d.get("action", "read"), d.get("path") or ".",
++                                      d.get("metadata", {}).get("content", ""))
++    if (method, path) == ("POST", "/api/local-code/propose"):
++        if d.get("share") is not True:
++            raise Bad("NÃO enviar: confirme que o arquivo selecionado será lido por máquinas da rede")
++        if d.get("quote_id") != "a" * 64 or d.get("max_price") != 2000:
++            raise Bad("arquivo, modelo ou preço mudou; confira novamente antes de enviar")
++        return mock.local_code.create(d.get("instruction", ""), "write", d.get("path", ""),
++                                      "def resposta():\n    return 42\n")
++    if (method, path) == ("POST", "/api/local-code/quote"):
++        return {"model": d.get("model"), "price": 2000, "max_cost": 12_345, "max_tokens": 2048,
++                "quote_id": "a" * 64}
++    if (method, path) == ("POST", "/api/local-code/advance"):
++        return mock.local_code.advance(d.get("task_id"))
++    if (method, path) == ("POST", "/api/local-code/approve"):
++        return mock.local_code.approve(d.get("task_id"))
++    if (method, path) == ("POST", "/api/local-code/reject"):
++        return mock.local_code.reject(d.get("task_id"))
++    if (method, path) == ("POST", "/api/local-code/validate"):
++        return mock.local_code.validate(d.get("task_id"), d.get("passed", True))
++    if (method, path) == ("POST", "/api/local-code/reset"):
++        return mock.local_code.reset()
+     if (method, path) == ("GET", "/api/code/state"):
+         return mock.code.state()
+     if (method, path) == ("POST", "/api/code/start"):
+@@ -1551,6 +1669,39 @@ R.programar = async () => {
+   click("#code-stop");
+   ok(await until(() => txt("#code-log").includes("Tarefa parada") && !q(".approve")), "Parar recusa o que estava pendente");
+ };
++R.programar_local = async () => {
++    click("[data-tab=programar]");
++    ok(await until(() => vis("#local-code-start-form")), "painel local aparece separado do Sigma Code da rede");
++    ok(txt(".local-code").includes("máquinas que responderem precisam ler esse conteúdo")
++        && txt(".local-code").includes("Comandos e testes não são executados"), "aviso explica envio à rede, privacidade e limite de execução");
++    ok(await until(() => q("#local-code-model option")?.value === "qwen2.5-coder-7b"), "lista só modelos de texto hospedados pela rede");
++    type("#local-code-folder", "C:\\projetos\\teste-local");
++    click("#local-code-start");
++    ok(await until(() => vis("#local-code-active")), "sessão local iniciada");
++    type("#local-code-description", "adicione uma função resposta");
++    type("#local-code-path", "app.py");
++    click("#local-code-propose");
++    ok(await until(() => q("#dlg").open && txt("#dlg-title").includes("Enviar arquivo à IA da rede")), "confirmação de compartilhamento antes do pedido de rede");
++    ok(txt("#dlg-text").includes("Custo máximo desta pergunta"), "a confirmação mostra o teto de custo");
++    click("#dlg-ok");
++    ok(await until(() => q(".local-task") && txt(".local-task").includes("queued")), "proposta feita pelo modelo da rede fica em fila");
++    click("[data-local-code-action=advance]");
++    ok(await until(() => byText(".local-task button", "Gerar prévia")), "a etapa de escopo antecede a prévia");
++    click("[data-local-code-action=advance]");
++    ok(await until(() => txt(".local-task").includes("+def resposta()")), "diff local aparece antes de aprovar");
++    ok(byText(".local-task button", "Aprovar") && byText(".local-task button", "Recusar"), "aprovação e recusa explícitas");
++    click("[data-local-code-action=approve]");
++    click("[data-local-code-action=advance]");
++    ok(await until(() => txt(".local-task").includes("written")), "arquivo só é aplicado depois da aprovação");
++    click("[data-local-code-action=validate]");
++    ok(await until(() => txt(".local-task").includes("completed")), "tarefa local validada");
++    const reg = await registro();
++    ok(reg.some((r) => r.path === "/api/local-code/models") && reg.some((r) => r.path === "/api/local-code/quote")
++        && reg.some((r) => r.path === "/api/local-code/propose" && r.body.share === true)
++        && reg.some((r) => r.path === "/api/local-code/approve"), "cotou, confirmou envio à rede e aprovou localmente");
++    click("[data-local-code-reset]");
++    ok(await until(() => vis("#local-code-start-form")), "encerrar limpa só a sessão local");
++};
+ R.assistente = async () => {
+   ok(await until(() => vis("#wiz-next1")), "assistente abre");
+   click("#wiz-next1");
+@@ -1800,6 +1951,7 @@ ROTEIROS = {   # nome[-variação]: (cenário, tamanho da janela)
+     "conversas": ("pronto", None), "conversas-380": ("pronto", M380), "imagem": ("pronto", None),
+     "imagem-380": ("pronto", M380), "video": ("pronto", None),
+     "programar": ("pronto", None), "programar-380": ("pronto", M380), "assistente": ("assistente", None),
++    "programar-local": ("pronto", None), "programar-local-380": ("pronto", M380),
+     "assistente-380": ("assistente", M380), "assistente-bateria": ("assistente-bateria", None),
+     "config": ("pronto", None), "config-sem-recursos": ("sem-recursos", None),
+     "gate": ("sem-conexao", None), "gate-380": ("sem-conexao", M380),
+@@ -2183,6 +2335,14 @@ def static_checks(port):
+              ("POST", "/api/chats/rename"): {"id": "ca1a1a1a1a1a1", "title": "Outro nome"},
+              ("POST", "/api/chats/delete"): {"id": "cc3c3c3c3c3c3"},
+              ("POST", "/api/code/start"): {"folder": r"C:\Users\teste\projetos\x", "task": "oi"},
++             ("GET", "/api/local-code/state"): None, ("GET", "/api/local-code/models"): None,
++             ("POST", "/api/local-code/start"): {"folder": r"C:\Users\teste\projetos\local"},
++             ("POST", "/api/local-code/task"): {"description": "ler arquivo", "action": "read", "path": "a.py"},
++             ("POST", "/api/local-code/quote"): {"model": "qwen2.5-coder-7b", "path": "a.py",
++                                                   "instruction": "adicione uma função"},
++             ("POST", "/api/local-code/propose"): {"model": "qwen2.5-coder-7b", "path": "a.py",
++                                                     "instruction": "adicione uma função", "quote_id": "a" * 64,
++                                                     "max_price": 2000, "share": True},
+              ("POST", "/api/code/stop"): {}, ("POST", "/api/code/pick-folder"): {},
+              ("GET", "/api/sites"): None,
+              ("POST", "/api/sites/publish"): {"name": "teste-site", "budget": 1, "replicas": 2,
+@@ -2192,7 +2352,9 @@ def static_checks(port):
+              ("POST", "/api/governance/propose"): {"title": "Uma decisão de teste", "text": "oi"},
+              ("POST", "/api/governance/vote"): {"proposal_id": PID["a1"], "choice": "nao", "amount": "1,5"},
+              ("POST", "/api/quit"): {}}
+-    later = {"/api/code/answer", "/api/code/continue", "/api/code/reset"}   # conferidas logo abaixo, em sequência
++    later = {"/api/code/answer", "/api/code/continue", "/api/code/reset", "/api/local-code/advance",
++             "/api/local-code/approve", "/api/local-code/reject", "/api/local-code/validate",
++             "/api/local-code/reset"}   # conferidas logo abaixo, em sequência
+     missing = sorted(f"{m} {p}" for m, p in routes if (m, p) not in tries and p not in later)
+     res.append((not missing, "o mock conhece todas as rotas do sigma/app.py" + (f": faltam {missing}" if missing else "")))
+     for (method, path), body in tries.items():
+@@ -2221,6 +2383,28 @@ def static_checks(port):
+     st = json.loads(call(port, "GET", "/api/code/state", token=tok)[1])
+     res.append((code == 200 and not st["task"] and not st["steps"] and st["can_continue"] is False,
+                 f"POST /api/code/reset -> {code} (Nova sessão)"))
++    local = json.loads(call(port, "GET", "/api/local-code/state", token=tok)[1])
++    task_body = {"task_id": "local-2"}
++    call(port, "POST", "/api/local-code/advance", task_body, token=tok)   # revisar escopo
++    preview = json.loads(call(port, "POST", "/api/local-code/advance", task_body, token=tok)[1])
++    code, raw, _ = call(port, "POST", "/api/local-code/approve", task_body, token=tok)
++    res.append((local["active"] and code == 200 and "local-2" in preview["pending_approvals"],
++                "proposta local fica pendente depois da prévia e pode ser aprovada"))
++    applied = json.loads(call(port, "POST", "/api/local-code/advance", task_body, token=tok)[1])
++    code, raw, _ = call(port, "POST", "/api/local-code/validate", {"task_id": "local-2", "passed": True}, token=tok)
++    res.append((code == 200 and applied["tasks"]["local-2"]["result"]["status"] == "written",
++                "proposta local só grava depois da aprovação e aceita validação"))
++    created = json.loads(call(port, "POST", "/api/local-code/task", {
++        "description": "gravar para recusar", "action": "write", "path": "recusado.py",
++        "metadata": {"content": "pass\n"}}, token=tok)[1])
++    reject_id = created["task_id"]
++    call(port, "POST", "/api/local-code/advance", {"task_id": reject_id}, token=tok)
++    call(port, "POST", "/api/local-code/advance", {"task_id": reject_id}, token=tok)
++    code, raw, _ = call(port, "POST", "/api/local-code/reject", {"task_id": reject_id}, token=tok)
++    reset_code, _, _ = call(port, "POST", "/api/local-code/reset", {}, token=tok)
++    reset_state = json.loads(call(port, "GET", "/api/local-code/state", token=tok)[1])
++    res.append((code == 200 and reset_code == 200 and not reset_state["active"],
++                "recusar e encerrar a sessão local limpa apenas o runtime local"))
+     # mídia e conversas guardadas
+     code, raw, hd = call(port, "POST", "/api/ai/image", {"model": "z-image-turbo", "prompt": "um gato", "size": "512x512",
+                                                          "count": 1}, token=tok)
+diff --git a/tests/test_app.py b/tests/test_app.py
+index bd57fcd..0b2b2a7 100644
+--- a/tests/test_app.py
++++ b/tests/test_app.py
+@@ -1241,6 +1241,92 @@ class AppTest(unittest.TestCase):
+     def code_state(self):
+         return self.ok("GET", "/api/code/state")
+ 
++    def test_local_program_api_requires_preview_and_approval(self):
++        code, page, _ = call(self.port, "GET", "/", token=self.token)
++        self.assertEqual(code, 200)
++        page = page.decode("utf-8")
++        self.assertIn("Ferramentas neste computador", page)
++        self.assertIn('id="local-code-model"', page)
++        self.assertIn("data-local-code-propose", page)
++        self.assertIn("máquinas que responderem precisam ler esse conteúdo", page)
++        project = self._project()
++        started = self.ok("POST", "/api/local-code/start", {"folder": project})
++        self.assertTrue(started["active"])
++        self.assertEqual(os.path.realpath(started["workspace"]), os.path.realpath(project))
++
++        class FakeNetworkClient:
++            def ask(self, model, messages, **kwargs):
++                self.request = (model, messages, kwargs)
++                return json.dumps({"summary": "implementar resposta", "content": "def resposta():\n    return 42\n"}), {
++                    "cost": 321, "machine": "sig" + "1" * 40, "attempts": 1,
++                }
++
++        runtime = self.app.local_code.runtime
++        agent = app.LocalProgrammerAgent(runtime)
++        instruction = "crie uma função resposta"
++        messages = agent.edit_messages("generated.py", instruction)
++        fake_client = FakeNetworkClient()
++        edit_context = {"session": self.app.local_code, "agent": agent, "client": fake_client,
++                        "messages": messages, "model": "qwen2.5-coder-7b", "path": "generated.py",
++                        "instruction": instruction}
++        quote_data = {"model": "qwen2.5-coder-7b", "price": 2000, "max_cost": 12345,
++                  "max_tokens": 2048, "quote_id": "a" * 64}
++        with mock.patch.object(self.app, "_local_code_edit_context", return_value=edit_context), \
++                mock.patch.object(self.app, "api_ai_quote", return_value=quote_data):
++            quote = self.ok("POST", "/api/local-code/quote", {
++                "model": "qwen2.5-coder-7b", "path": "generated.py", "instruction": instruction,
++            })
++            self.assertEqual(quote["max_cost"], 12345)
++            self.assertIn("NÃO enviar", self.err("POST", "/api/local-code/propose", {
++                "model": "qwen2.5-coder-7b", "path": "generated.py", "instruction": instruction,
++                "quote_id": quote["quote_id"], "max_price": quote["price"],
++            }))
++            generated = self.ok("POST", "/api/local-code/propose", {
++                "model": "qwen2.5-coder-7b", "path": "generated.py", "instruction": instruction,
++                "quote_id": quote["quote_id"], "max_price": quote["price"], "share": True,
++            })
++        self.assertEqual(fake_client.request[0], "qwen2.5-coder-7b")
++        self.assertTrue(fake_client.request[2]["json_mode"])
++        self.assertEqual(fake_client.request[2]["max_price"], 2000)
++        self.assertIn("current_content", fake_client.request[1][1]["content"])
++        generated_id = generated["task_id"]
++        self.ok("POST", "/api/local-code/advance", {"task_id": generated_id})
++        proposal = self.ok("POST", "/api/local-code/advance", {"task_id": generated_id})
++        self.assertIn(generated_id, proposal["pending_approvals"])
++        self.assertIn("+def resposta()", proposal["tasks"][generated_id]["result"]["diff"])
++        self.assertFalse(os.path.exists(os.path.join(project, "generated.py")))
++        self.ok("POST", "/api/local-code/approve", {"task_id": generated_id})
++        self.ok("POST", "/api/local-code/advance", {"task_id": generated_id})
++        self.ok("POST", "/api/local-code/validate", {"task_id": generated_id, "passed": True})
++        with open(os.path.join(project, "generated.py"), encoding="utf-8") as file:
++            self.assertEqual(file.read(), "def resposta():\n    return 42\n")
++
++        created = self.ok("POST", "/api/local-code/task", {
++            "description": "criar arquivo de teste",
++            "action": "write",
++            "path": "result.txt",
++            "metadata": {"content": "resultado local\n"},
++        })
++        task_id = created["task_id"]
++        self.ok("POST", "/api/local-code/advance", {"task_id": task_id})
++        preview = self.ok("POST", "/api/local-code/advance", {"task_id": task_id})
++        self.assertIn(task_id, preview["pending_approvals"])
++        self.assertIn("+resultado local", preview["tasks"][task_id]["result"]["diff"])
++        self.assertFalse(os.path.exists(os.path.join(project, "result.txt")))
++
++        self.ok("POST", "/api/local-code/approve", {"task_id": task_id})
++        applied = self.ok("POST", "/api/local-code/advance", {"task_id": task_id})
++        self.assertEqual(applied["tasks"][task_id]["result"]["status"], "written")
++        self.ok("POST", "/api/local-code/validate", {"task_id": task_id, "passed": True})
++        with open(os.path.join(project, "result.txt"), encoding="utf-8") as file:
++            self.assertEqual(file.read(), "resultado local\n")
++
++        self.assertIn("execução de comandos", self.err("POST", "/api/local-code/task", {
++            "description": "executar shell", "action": "read", "path": "result.txt", "command": "pytest",
++        }))
++        self.ok("POST", "/api/local-code/reset", {})
++        self.assertFalse(self.ok("GET", "/api/local-code/state")["active"])
++
+     def wait_code(self, cond, what):
+         return wait_for(lambda: (lambda s: s if cond(s) else None)(self.code_state()), timeout=30, what=what)
+ 
