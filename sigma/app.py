@@ -2249,6 +2249,48 @@ class App:
         self.log(f"saquei {sig_txt(amount)} do orçamento do modelo '{name}'")
         return self._done(txid)
 
+    # ------------------------------------------------- chat global, nomes e máquinas (v9)
+    def api_net_chat(self, q):
+        after = (q.get("after") or ["0"])[0]
+        return Client(self.settings["node"]).chat_feed(int(after) if str(after).isdigit() else 0)
+
+    def api_net_chat_post(self, d):
+        text = d.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise AppError("escreva a mensagem")
+        if len(text.encode("utf-8")) > chain.CHAT_MAX_BYTES:
+            raise AppError(f"mensagem grande demais (até {chain.CHAT_MAX_BYTES // 4:,} caracteres)".replace(",", "."))
+        return self._done(self._spender().chat_post(text.strip()))
+
+    def api_set_name(self, d):
+        name = d.get("name")
+        if not isinstance(name, str):
+            raise AppError("nome inválido")
+        return self._done(self._spender().set_name(name))
+
+    def api_net_machines(self, q):
+        """Máquinas da rede para o pop-up "Máquinas online": nome, dono (nome público), o que servem e o hardware."""
+        c = Client(self.settings["node"])
+        machines, names, mining = c.machines(), c.get("/names"), c.mining()
+        miners = (mining or {}).get("miners") or {}
+        sites = self._read("/sites") if hasattr(self, "_read") else {}
+        hosting = {}
+        for name, s in (sites or {}).items():
+            for a in (s.get("pinners") or {}) if isinstance(s, dict) else ():
+                hosting.setdefault(a, []).append(name)
+        out = []
+        for a, m in (machines or {}).items():
+            if not isinstance(m, dict):
+                continue
+            out.append({"address": a, "name": m.get("name"), "online": bool(m.get("online")),
+                        "owner": m.get("payout"), "owner_name": (names or {}).get(m.get("payout")),
+                        "models": list(m.get("models") or []) + list(m.get("media_models") or []),
+                        "sites": hosting.get(a, []), "hw": m.get("hw") or {}, "reputation": m.get("reputation"),
+                        "tasks": m.get("tasks"), "lend": m.get("lend"), "compute": m.get("compute"),
+                        "jobs_done": m.get("jobs_done"), "mining": a in miners or m.get("payout") in miners})
+        out.sort(key=lambda x: (not x["online"], -(x["reputation"] or 0), str(x["name"])))
+        return {"machines": out}
+
     def api_model_update(self, d):
         name = self._model_name(d.get("name"))
         def pct(key, top):   # ausente = não muda
@@ -2890,6 +2932,10 @@ ROUTES = {
     ("POST", "/api/models/update"): App.api_model_update,
     ("POST", "/api/models/retire"): App.api_model_retire,
     ("POST", "/api/models/withdraw"): App.api_model_withdraw,
+    ("GET", "/api/net/chat"): App.api_net_chat,
+    ("POST", "/api/net/chat"): App.api_net_chat_post,
+    ("POST", "/api/name"): App.api_set_name,
+    ("GET", "/api/net/machines"): App.api_net_machines,
     ("POST", "/api/ai/quote"): App.api_ai_quote,
     ("POST", "/api/ai/chat"): App.api_chat,
     ("POST", "/api/ai/cancel"): App.api_ai_cancel,

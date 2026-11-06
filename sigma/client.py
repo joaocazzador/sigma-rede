@@ -541,6 +541,17 @@ class Client:
             d["new_sponsor"] = _typed_address(new_sponsor)
         return self.send_tx("update_model", d)
 
+    # ------------------------------------------------- nomes e chat global (v9)
+    def set_name(self, name):
+        return self.send_tx("set_name", {"name": name})
+
+    def chat_feed(self, after=0):
+        return self.get(f"/chat?after={int(after)}", timeout=20)
+
+    def chat_post(self, text):
+        data = str(text).encode("utf-8")
+        return self.send_tx("chat_post", {"blob": self.put_blob(data), "size": len(data)})
+
     def withdraw_model(self, name, amount_sig):
         """v9: saca do orçamento do modelo (fica um dia de aluguel)."""
         return self.send_tx("withdraw_model", {"name": name, "amount": to_usig(amount_sig)})

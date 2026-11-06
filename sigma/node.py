@@ -409,6 +409,8 @@ def blob_refs(st):
         for f in (s.get("manifest") or {}).values():
             if isinstance(f, dict) and isinstance(f.get("hash"), str):
                 refs.add(f["hash"])
+    for m in st.ext.get("chat") or []:   # v9: os textos do chat global que ainda estão na lista
+        refs.add(m["blob"])
     for j in st.jobs.values():
         for k in ("spec_hash", "result_hash"):
             if isinstance(j.get(k), str):
@@ -970,6 +972,37 @@ class Node:
             time.sleep(max(0.05, BLOCK_TIME - (time.time() - start)))
 
     # --------------------------------------------------------- transações
+    def _check_chat_blob(self, d):
+        h, size = d.get("blob"), d.get("size")
+        path = self.blob_path(h) if isinstance(h, str) and re.fullmatch(r"[0-9a-f]{64}", h) else None
+        if not path or not os.path.isfile(path):
+            raise TxError("o texto da mensagem não está no nó: mande o blob antes")
+        if os.path.getsize(path) != size or size > chain.CHAT_MAX_BYTES:
+            raise TxError("o tamanho da mensagem não confere")
+        try:
+            with open(path, "rb") as f:
+                text = f.read().decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            raise TxError("a mensagem precisa ser texto UTF-8") from None
+        if not text.strip():
+            raise TxError("mensagem vazia")
+
+    def chat_feed(self, after=0, limit=200):
+        """GET /chat: as mensagens do chat global depois de `after` (as `limit` mais novas), com o nome público."""
+        st = self.state
+        names = st.ext.get("names") or {}
+        out = []
+        for m in [m for m in (st.ext.get("chat") or []) if m["n"] > after][-limit:]:
+            try:
+                with open(self.blob_path(m["blob"]), "rb") as f:
+                    text = f.read(chain.CHAT_MAX_BYTES).decode("utf-8", "replace")
+            except OSError:
+                text = None
+            out.append({"n": m["n"], "from": m["from"], "name": names.get(m["from"]), "time": m["time"], "text": text})
+        return {"messages": out, "price": st.params.get("chat_price"), "keep": chain.CHAT_KEEP,
+                "max_bytes": chain.CHAT_MAX_BYTES, "fund": st.ext.get("public_fund", 0),
+                "fund_bps": st.params.get("public_fund_bps"), "name_price": st.params.get("name_price")}
+
     def submit_tx(self, tx, gossip=True, ip=None):
         """Admissão (SPEC §10): (1) formato, chaves e canon; (2) work/evm refeitos só com os campos do contrato;
         (3) fora do lock, o que é caro de conferir (assinatura, MetaMask, scrypt) fica no cache, e o apply_tx lá
@@ -977,6 +1010,8 @@ class Node:
         A cota de transações assinadas é cobrada antes da parte cara: tx recusada também conta, senão quem manda
         lixo nunca chegaria ao limite. A de relatórios de mineração só gasta a parte baixa com os recusados."""
         tx = normalize_tx(tx)
+        if tx.get("type") == "chat_post":   # v9: o texto tem de estar aqui, do tamanho declarado e em UTF-8
+            self._check_chat_blob(tx.get("data") or {})
         key = ip_key(ip) if self.public and ip is not None else None
         if key is not None and tx["type"] != "work" and not self._targeted_job_tx(tx):
             # claim_job/submit_result de um job direcionado são forçados pela máquina por causa de jobs de
@@ -1735,6 +1770,11 @@ def make_handler(node):
                 if parts[0] == "watch" and len(parts) == 4:
                     w = node.get_watch(parts[1], parts[2], parts[3])
                     return self._send(200 if w else 404, w or {"error": "sem cópia"})
+                if parts[0] == "chat" and len(parts) == 1:
+                    after = int(q.get("after", ["0"])[0] or 0)
+                    return self._send(200, node.chat_feed(after))
+                if parts[0] == "names" and len(parts) == 1:
+                    return self._send(200, node.state.ext.get("names") or {})
                 if parts[0] == "progress" and len(parts) == 2:
                     p = node.get_progress(parts[1])
                     return self._send(200 if p else 404, p or {"error": "sem notícia deste pedido"})

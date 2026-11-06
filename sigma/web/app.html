@@ -167,6 +167,19 @@ details.cat-group > summary:hover { background: color-mix(in srgb, var(--text) 4
 .cat-scroll { max-height: min(620px, 70vh); overflow-y: auto; overscroll-behavior: contain; padding: 4px 14px 16px;
   border-top: 1px solid var(--line); scrollbar-gutter: stable; }
 .cat-scroll .tiles { margin-top: 10px; }
+.gchat { margin-bottom: 18px; }
+.gchat-log { max-height: 420px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--line); margin: 10px 0; padding: 4px 12px; }
+.gchat-msg { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.gchat-msg:last-child { border-bottom: 0; }
+.gchat-msg .who { font: 600 12.5px var(--mono); }
+.gchat-msg .when { color: var(--muted); font-size: 12px; margin-left: 6px; }
+.gchat-msg .txt { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 3px; }
+.gchat-form { display: flex; gap: 8px; align-items: flex-end; }
+.gchat-form textarea { flex: 1; min-width: 0; resize: vertical; }
+.pubname { margin-top: 14px; max-width: 520px; }
+.mach-list { max-height: 60vh; overflow-y: auto; }
+.mach { border-bottom: 1px solid var(--line); padding: 10px 0; }
+.mach h4 { margin: 0 0 4px; font-size: 15px; }
 .tiles { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); }
 .tile { background: var(--card); border: 1px solid var(--line); padding: 18px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .tile h4 { font-size: 24px; overflow-wrap: anywhere; }
@@ -732,6 +745,10 @@ details.more p { margin: 6px 0 0; }
         <div class="addr-line"><span class="addr" id="w-addr">—</span><button class="small" type="button" data-copy="w-addr">Copiar</button></div>
         <div class="addr-line"><span class="addr muted" id="w-eth">—</span><button class="small" type="button" data-copy="w-eth">Copiar</button></div>
         <p class="hint">É o mesmo endereço, nos formatos Sigma e MetaMask. Para receber SIG, passe qualquer um dos dois.</p>
+        <form class="pubname" id="pubname-form" autocomplete="off" novalidate>
+          <label for="pubname">Nome público <span class="muted">(aparece no chat da rede; trocar custa <span id="pubname-price">1</span> SIG)</span></label>
+          <div class="input-btn"><input id="pubname" maxlength="32" spellcheck="false" placeholder="como você quer aparecer"><button type="submit" class="small primary">Salvar</button></div>
+        </form>
       </div>
       <div class="card receive" id="receive-card">
         <h3>Carteira que recebe</h3>
@@ -959,6 +976,17 @@ details.more p { margin: 6px 0 0; }
     <section data-pane="rede" role="tabpanel" aria-label="Rede" hidden>
       <div class="kicker">A rede</div>
       <h2>100 milhões de SIG. Nenhum de graça.</h2>
+      <div class="row" style="margin:6px 0 14px"><button type="button" class="small" data-net-machines>Máquinas online</button></div>
+      <section class="card gchat" aria-labelledby="gchat-title">
+        <div class="row between"><h3 id="gchat-title" style="margin:0">Chat da rede</h3><span class="muted mono" id="gchat-meta"></span></div>
+        <div class="gchat-log" id="gchat-log"><p class="empty">Carregando…</p></div>
+        <form id="gchat-form" class="gchat-form" autocomplete="off" novalidate>
+          <label class="sr" for="gchat-text">Mensagem para a rede</label>
+          <textarea id="gchat-text" rows="2" maxlength="8000" placeholder="Escreva para todo mundo da rede"></textarea>
+          <button type="submit" class="primary" id="gchat-send">Enviar</button>
+        </form>
+        <p class="hint" id="gchat-note"></p>
+      </section>
       <div class="supply">
         <div class="row between supply-top"><span class="big-n"><b id="n-minted">—</b>SIG impressos</span><span class="mono muted">teto: <span id="n-cap">—</span> SIG</span></div>
         <div class="bar big"><i id="n-bar"></i></div>
@@ -2643,11 +2671,7 @@ async function chatSend(e, retry = null) {
     if (shown) body.max_price = shown;   // o teto que o painel mostrou: o pedido nunca reserva mais do que isso
     const r = await api(t === "text" ? "/api/ai/chat" : t === "image" ? "/api/ai/image" : "/api/ai/video", body);
     const srcs = Array.isArray(r.sources) ? r.sources.filter((x) => x && /^https?:\/\//.test(String(x.url))).slice(0, 8) : [];
-    const srcMd = srcs.length ? "
-
-**Fontes da internet:**
-" + srcs.map((x, k) => `${k + 1}. [${String(x.title || x.url).replace(/[\[\]]/g, "")}](${x.url})`).join("
-") : "";
+    const srcMd = srcs.length ? "\n\n**Fontes da internet:**\n" + srcs.map((x, k) => `${k + 1}. [${String(x.title || x.url).replace(/[\[\]]/g, "")}](${x.url})`).join("\n") : "";
     const msg = {role: "assistant", content: t === "text" ? String(r.text ?? "") + srcMd : "", cost: N(r.cost),
                  machine: r.machine ? String(r.machine) : "", model, time: nowSec(),
                  review: !!r.review, job: typeof r.job === "string" ? r.job : ""};
@@ -3235,7 +3259,63 @@ function chartHTML(eps, mine) {
     + `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="SIG impressos nos últimos ${list.length} períodos de 12 horas">${bars}<line x1="0" y1="${H - 1}" x2="${W}" y2="${H - 1}"/></svg>`
     + `<div class="chart-foot"><span>#${esc(list[0].epoch)}</span>${anyMine ? '<span class="legend"><i></i>sua parte</span>' : ""}<span>#${esc(list[list.length - 1].epoch)}</span></div></div>`;
 }
+// chat global da rede (v9): cada mensagem custa chat_price e vai para o fundo de hospedagem pública
+const gchat = {last: 0, msgs: [], busy: false, info: null};
+async function loadGChat() {
+  try {
+    const r = await api("/api/net/chat?after=" + gchat.last, undefined, 15000);
+    gchat.info = r;
+    for (const m of r.messages || []) if (N(m.n) > gchat.last) { gchat.msgs.push(m); gchat.last = N(m.n); }
+    gchat.msgs = gchat.msgs.slice(-500);
+    renderGChat();
+  } catch (_) { if (!gchat.msgs.length) setHTML("gchat-log", `<p class="empty">O chat aparece quando a rede estiver nas regras v9.</p>`); }
+}
+function renderGChat() {
+  const log = $("gchat-log"); if (!log) return;
+  const atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  setHTML("gchat-log", gchat.msgs.length ? gchat.msgs.map((m) => `<div class="gchat-msg"><span class="who" title="${esc(m.from)}">${esc(m.name || short(m.from))}</span>`
+    + `<span class="when">${esc(new Date(N(m.time) * 1000).toLocaleString("pt-BR"))}</span><div class="txt">${esc(m.text ?? "(texto indisponível)")}</div></div>`).join("")
+    : `<p class="empty">Nenhuma mensagem ainda. Seja a primeira pessoa a escrever.</p>`);
+  if (atEnd) log.scrollTop = log.scrollHeight;
+  const i = gchat.info || {};
+  setText("gchat-meta", i.price != null ? `${sig(N(i.price))} SIG por mensagem` : "");
+  setText("gchat-note", i.price != null ? `Cada mensagem custa ${sig(N(i.price))} SIG e vai para o fundo de hospedagem pública (hoje ${sig(N(i.fund))} SIG); a cada 12 h, ${(N(i.fund_bps) / 100).toLocaleString("pt-BR")}% dele vai para as máquinas que guardam o que é público. A rede guarda as ${num(N(i.keep))} mensagens mais novas.` : "");
+  if (i.name_price != null) setText("pubname-price", sig(N(i.name_price)));
+}
+document.addEventListener("submit", async (e) => {
+  if (e.target?.id === "gchat-form") {
+    e.preventDefault();
+    const t = $("gchat-text"), text = t.value.trim();
+    if (!text || gchat.busy) return;
+    gchat.busy = true; $("gchat-send").disabled = true;
+    try { needKey(); await api("/api/net/chat", {text}); t.value = ""; toast("Mensagem enviada: aparece no próximo bloco."); setTimeout(loadGChat, 4000); }
+    catch (x) { toast("Não deu para enviar: " + x.message, "err", 8000); }
+    finally { gchat.busy = false; $("gchat-send").disabled = false; }
+  }
+  if (e.target?.id === "pubname-form") {
+    e.preventDefault();
+    try { needKey(); await api("/api/name", {name: $("pubname").value}); toast("Nome público salvo: aparece no próximo bloco."); }
+    catch (x) { toast("Não deu para salvar o nome: " + x.message, "err", 8000); }
+  }
+});
+setInterval(() => { if (!document.hidden && !$("gchat-log")?.closest("[hidden]")) loadGChat(); }, 8000);
+// pop-up "Máquinas online": o que cada máquina serve para a rede (nome dado pelo dono em Configurações → Nome na rede)
+async function showMachines() {
+  let r;
+  try { r = await api("/api/net/machines", undefined, 20000); } catch (x) { return toast("Não deu para carregar as máquinas: " + x.message, "err"); }
+  const list = (r.machines || []).filter((m) => m.online);
+  const gb = (mb) => (N(mb) / 1000).toLocaleString("pt-BR", {maximumFractionDigits: 1}) + " GB";
+  const html = `<p class="hint">${num(list.length)} máquinas online. O nome de cada uma é escolhido pelo dono em Configurações → Nome na rede.</p><div class="mach-list">`
+    + list.map((m) => `<div class="mach"><h4>${esc(m.name || short(m.address))}</h4>`
+      + `<div class="hint">Dono: ${esc(m.owner_name || short(m.owner || ""))} · reputação ${num(N(m.reputation))} · ${num(N(m.jobs_done))} pedidos atendidos</div>`
+      + `<div class="hint">${esc(m.hw.gpu || "sem placa de vídeo")} · ${num(N(m.hw.cpu_cores))} núcleos · IA ${gb(m.hw.ai_ram_mb)} · disco ${gb(m.hw.disk_mb)}${m.lend ? " · empresta memória para grupos" : ""}${m.compute ? " · computação" : ""}</div>`
+      + `<div class="hint">Servindo: ${m.models.length ? esc(m.models.join(", ")) : "nenhum modelo"}${m.sites.length ? " · sites: " + esc(m.sites.join(", ")) : ""}</div></div>`).join("")
+    + `</div>`;
+  openDialog({title: "Máquinas online", html, ok: "Fechar", safe: true, run: async () => {}});
+}
+document.addEventListener("click", (e) => { if (e.target.closest?.("[data-net-machines]")) showMachines(); });
 function renderRede() {
+  if (!gchat.info && !gchat.loading) { gchat.loading = true; loadGChat(); }
   const sup = supply(), net = S.network || {};
   const minted = N(sup.minted), capv = N(sup.cap) || 100e6 * UNIT, p = Math.min(100, minted / capv * 100);
   setText("n-minted", sig(minted, 0));

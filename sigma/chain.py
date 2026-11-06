@@ -81,7 +81,10 @@ RULES = 9                   # a versão mais nova das regras que este código sa
 # a v7 (corrida e vigia) no bloco 6870, marcado no bloco 6797 (~22 min de aviso, 2.12)
 # a v8 (grupos automáticos, relé, punição severa) no bloco 11180, marcado no bloco 11108 (~22 min de aviso, 2.14;
 # a primeira marcação, bloco 7150, nunca foi publicada)
-# v9 (v2.15): withdraw_model, o padrinho saca do orçamento do modelo (deixando um dia de aluguel)
+# v9 (v2.15): withdraw_model, o padrinho saca do orçamento do modelo (deixando um dia de aluguel); nome público das
+# carteiras (set_name); chat global da rede (chat_post, as CHAT_KEEP mais novas; o texto é um blob guardado pela rede,
+# a chain guarda o hash); o que se paga no chat e nos nomes vai para o FUNDO DE HOSPEDAGEM PÚBLICA, que a cada 12 h
+# reparte public_fund_bps dele entre as máquinas online que hospedam algo para a rede. Preços e fatia: votáveis.
 SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300, 6: 5800, 7: 6870, 8: 11180}}
 UPGRADE_HISTORY_KEEP = 50
 # saldos que uma atualização cria na altura dela, uma vez só: hash do genesis -> {versão: [(endereço, µSIG)]}.
@@ -94,7 +97,8 @@ UPGRADE_GRANTS = {MAINNET_GENESIS: {2: [(FOUNDERS, 1_000_000 * 1_000_000)]}}
 # nunca em DEFAULT_PARAMS — senão o estado do genesis muda e a chain antiga deixa de bater.
 # parâmetros que uma versão cria: versão -> {nome: valor inicial}. Entram em `params` na altura dela (ou desde o
 # genesis, numa rede que já nasce nela); depois disso se votam como os outros (GOVERNABLE).
-UPGRADE_PARAMS = {3: {"min_bond": 1_000 * UNIT}}   # v3: caução mínima para coordenar (1.000 SIG)
+UPGRADE_PARAMS = {3: {"min_bond": 1_000 * UNIT},   # v3: caução mínima para coordenar (1.000 SIG)
+                  9: {"chat_price": UNIT, "name_price": UNIT, "public_fund_bps": 10}}   # v9: 1 SIG, 1 SIG e 0,1%
 DEFAULT_PARAMS = {"epoch_seconds": 43200, "window_seconds": 300, "min_share_bits": 12, "max_shares": 32,
                   "supply_cap": 100_000_000 * UNIT,
                   "mint_bps": 1,                  # 0,01% do que falta a cada 12 h, saindo aos poucos em todo bloco
@@ -113,8 +117,12 @@ CHOICES = ("sim", "nao")
 GOVERNABLE = {"mint_bps": (0, 50), "hosting_per_mb_window": (1, MAX_HOSTING_PRICE), "ram_per_mb_window": (0, 100),
               "demand_max_bps": (0, 100_000), "min_share_bits": (8, 32),
               "proposal_deposit": (UNIT, 10_000 * UNIT), "quorum_bps": (0, 5000),
-              "min_bond": (10 * UNIT, 1_000_000 * UNIT)}
-GOVERNABLE_SINCE = {"min_bond": 3}   # parâmetro que só existe a partir de uma versão: antes dela, não se vota
+              "min_bond": (10 * UNIT, 1_000_000 * UNIT),
+              "chat_price": (1, 1_000 * UNIT), "name_price": (1, 1_000 * UNIT), "public_fund_bps": (0, 10_000)}
+GOVERNABLE_SINCE = {"min_bond": 3, "chat_price": 9, "name_price": 9, "public_fund_bps": 9}
+CHAT_KEEP = 5000            # v9: mensagens do chat global guardadas (as mais antigas saem)
+CHAT_MAX_BYTES = 32_000     # v9: tamanho máximo do blob de uma mensagem (~8.000 caracteres)
+NAME_RE = re.compile(r"^[^\x00-\x1f\x7f<>]{2,32}\Z")   # v9: nome público de uma carteira   # parâmetro que só existe a partir de uma versão: antes dela, não se vota
 MAX_AI_PRICE = 1_000_000    # µSIG por mil tokens: nenhuma máquina engole o escrow com um preço absurdo
 MAX_COMPUTE_PRICE = 1_000_000
 # ---- classes de IA (regras v2): além de texto, modelos que geram imagem e vídeo (stable-diffusion.cpp)
@@ -206,7 +214,9 @@ TX_FIELDS = {
     "register_model": {"name", "url", "sha256", "size", "royalty_bps", "reinvest_bps", "replicas", "license",
                        "description", "budget", "task", "files"},
     "fund_model": {"name", "amount"},
-    "withdraw_model": {"name", "amount"},   # regras v9 (TYPES_SINCE): o padrinho saca do orçamento do modelo
+    "withdraw_model": {"name", "amount"},
+    "set_name": {"name"},                # regras v9: nome público da carteira
+    "chat_post": {"blob", "size"},       # regras v9: mensagem no chat global (o texto é um blob)   # regras v9 (TYPES_SINCE): o padrinho saca do orçamento do modelo
     "update_model": {"name", "royalty_bps", "reinvest_bps", "new_sponsor"},
     "retire_model": {"name"},
     "pin_model": {"name"},
@@ -224,7 +234,7 @@ JOB_FIELDS = {"ai": {"kind", "model", "spec_hash", "escrow", "max_price", "max_t
 SIGNED_TYPES = frozenset(TX_FIELDS) - {"work", "evm"} | {"create_job"}
 # tipos que só existem a partir de uma versão das regras: antes dela, são recusados como tipo desconhecido, como
 # sempre foram (SIGNED_TYPES sai de TX_FIELDS; sem isto, um tipo novo valeria em qualquer versão)
-TYPES_SINCE = {"bond": 3, "unbond": 3, "release_job": 6, "review_job": 7, "dispute_job": 7, "withdraw_model": 9}
+TYPES_SINCE = {"bond": 3, "unbond": 3, "release_job": 6, "review_job": 7, "dispute_job": 7, "withdraw_model": 9, "set_name": 9, "chat_post": 9}
 HW_KEYS = frozenset(HW_FIELDS + ("gpu",))
 USAGE_KEYS = ("tokens_in", "tokens_out")
 LIVE = ("open", "running", "review")  # jobs que ainda seguram escrow ("review" só existe a partir da v7)
@@ -678,8 +688,9 @@ class State:
         self.mining["rent"] = {"disk_bps": mult(disk_need, disk_cap), "ram_bps": mult(ram_need, ram_cap)}
 
     def locked(self):
-        """SIG travado em votações abertas (votos + depósitos): conta na oferta."""
-        return sum(p["deposit"] + p["yes"] + p["no"] for p in self.proposals.values() if p["status"] == "open")
+        """SIG travado em votações abertas (votos + depósitos) e no fundo de hospedagem pública (v9)."""
+        return (sum(p["deposit"] + p["yes"] + p["no"] for p in self.proposals.values() if p["status"] == "open")
+                + self.ext.get("public_fund", 0))
 
     def bonded(self):
         """SIG travado nas cauções dos coordenadores (regras v3), ativo + retiradas em espera: conta na oferta."""
@@ -747,6 +758,8 @@ class State:
         self._emit()                             # a fatia de emissão do tempo desde o bloco anterior
         if time >= m["epoch_start"] + E:         # fecha a estatística do período de 12 h (não há liquidação)
             self._close_period()
+            if self.rule(9):
+                self._pay_public_fund()
             k = max(1, int((time - m["epoch_start"]) // E))
             m["epoch"] += k
             m["epoch_start"] += k * E
@@ -1834,6 +1847,63 @@ class State:
                               "retire o modelo")
         m["budget"] -= amount
         self._give(sender, amount, "budget", m["name"])
+
+    # ------------------------------------------------- nomes e chat global (v9)
+    def _to_fund(self, sender, amount, what):
+        _need(self.bal(sender) >= amount, f"saldo insuficiente: {what} custa {fmt(amount)}")
+        self._debit(sender, amount)
+        self.ext["public_fund"] = self.ext.get("public_fund", 0) + amount
+
+    def _tx_set_name(self, sender, d, txid):
+        """Nome público da carteira (aparece no chat global), pago ao fundo de hospedagem pública. Único na rede,
+        sem diferenciar maiúsculas; nome vazio ("") apaga."""
+        name = d.get("name")
+        _need(isinstance(name, str), "name deve ser texto")
+        name = " ".join(name.split())
+        names = self.ext.setdefault("names", {})
+        if name:
+            _need(NAME_RE.match(name), "nome: de 2 a 32 caracteres, sem < > nem caracteres de controle")
+            low = name.lower()
+            _need(not any(a != sender and n.lower() == low for a, n in names.items()), "esse nome já é de outra carteira")
+        self._to_fund(sender, self.params["name_price"], "trocar o nome")
+        if name:
+            names[sender] = name
+        else:
+            names.pop(sender, None)
+
+    def _tx_chat_post(self, sender, d, txid):
+        """Mensagem no chat global: o texto é um blob (o nó confere que existe e o tamanho); a chain guarda quem,
+        quando e o hash. Paga chat_price ao fundo. Ficam as CHAT_KEEP mais novas."""
+        _need(_hex64(d.get("blob")), "blob inválido")
+        size = _int_in(d.get("size"), "size", 1, CHAT_MAX_BYTES)
+        self._to_fund(sender, self.params["chat_price"], "uma mensagem no chat")
+        chat = self.ext.setdefault("chat", [])
+        n = self.ext.get("chat_seq", 0) + 1
+        self.ext["chat_seq"] = n
+        chat.append({"n": n, "from": sender, "blob": d["blob"], "size": size, "time": self.now})
+        del chat[:-CHAT_KEEP]
+
+    def _pay_public_fund(self):
+        """Fim do período de 12 h (v9): public_fund_bps do fundo, em partes iguais, para as máquinas online que
+        hospedam algo para a rede (um modelo ou um site) — elas guardam o que é público."""
+        fund = self.ext.get("public_fund", 0)
+        share = fund * self.params.get("public_fund_bps", 0) // 10_000
+        if share <= 0:
+            return
+        hosts = set()
+        for m in self.models.values():
+            hosts.update(m["pinners"])
+        for st in self.sites.values():
+            hosts.update(st["pinners"])
+        hosts = sorted(a for a in hosts if a in self.machines and self.machines[a]["online"])
+        if not hosts:
+            return
+        each = share // len(hosts)
+        for a in hosts:
+            if each > 0:
+                self._give(self.machines[a]["payout"], each, "public", "fundo")
+                self.machines[a]["earned"] += each
+        self.ext["public_fund"] = fund - each * len(hosts)
 
     def _tx_update_model(self, sender, d, txid):
         m = self._model_of(sender, d)
