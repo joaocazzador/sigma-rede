@@ -30,6 +30,7 @@ A rede usa regras versionadas, que entram numa altura marcada sem recomeçar a c
 | v6 | 5800 | 2.11 | o cliente libera o pedido de uma máquina que sumiu da rede (release_job): valor de volta na hora, falta para a máquina |
 | v7 | 6870 | 2.12 | corrida (até 2 máquinas ociosas a mais; a primeira que entrega vence) e vigia (a entrega fica "review"; uma máquina sorteada aprova ou reprova; 5% para ela; o cliente contesta uma vez; sem veredito em 30 min paga sozinho) |
 | v8 | 11180 | 2.14 | grupos automáticos pela reputação (lend), cópias que correm, rateio pela memória, punição severa (reputação e metade da caução), vigia de reserva; relé dos grupos na porta 7790 |
+| v9 | 11345 | 2.15 | saque do orçamento do modelo, nome público das carteiras, chat global pago (5.000 mensagens) e fundo de hospedagem pública (0,1% a cada 12 h) |
 
 - A v4 foi marcada para ~23h20 de 04/11. Confira em `/mining`, que deve mostrar `"parts": true`.
 - Versões que não mudaram regras:

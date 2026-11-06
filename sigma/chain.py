@@ -81,11 +81,12 @@ RULES = 9                   # a versão mais nova das regras que este código sa
 # a v7 (corrida e vigia) no bloco 6870, marcado no bloco 6797 (~22 min de aviso, 2.12)
 # a v8 (grupos automáticos, relé, punição severa) no bloco 11180, marcado no bloco 11108 (~22 min de aviso, 2.14;
 # a primeira marcação, bloco 7150, nunca foi publicada)
+# a v9 no bloco 11345, marcado no bloco 11275 (~23 min de aviso, 2.15)
 # v9 (v2.15): withdraw_model, o padrinho saca do orçamento do modelo (deixando um dia de aluguel); nome público das
 # carteiras (set_name); chat global da rede (chat_post, as CHAT_KEEP mais novas; o texto é um blob guardado pela rede,
 # a chain guarda o hash); o que se paga no chat e nos nomes vai para o FUNDO DE HOSPEDAGEM PÚBLICA, que a cada 12 h
 # reparte public_fund_bps dele entre as máquinas online que hospedam algo para a rede. Preços e fatia: votáveis.
-SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300, 6: 5800, 7: 6870, 8: 11180}}
+SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300, 6: 5800, 7: 6870, 8: 11180, 9: 11345}}
 UPGRADE_HISTORY_KEEP = 50
 # saldos que uma atualização cria na altura dela, uma vez só: hash do genesis -> {versão: [(endereço, µSIG)]}.
 # A v2 da rede principal cria a carteira dos fundadores: 1 milhão de SIG (1% do teto) para as primeiras despesas do
