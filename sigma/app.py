@@ -2020,6 +2020,40 @@ class App:
                 return f"{NO_MEDIA_YET}, marcada para o bloco {h}"
         return f"{NO_MEDIA_YET}, que ainda não tem bloco marcado"
 
+    def _group_reason(self, need, size, replicas, cands, used):
+        """Por que um gigante ainda não ganhou grupo (regras v8), com as contas: quando a regra entra, quanta memória
+        os computadores online emprestam somados (o que sobra depois dos modelos que já hospedam) e quem tem disco
+        para coordenar."""
+        st = self.cache.get("status") or {}
+        rules = st.get("rules") if isinstance(st.get("rules"), int) else 0
+        gb = lambda mb: f"{mb / 1000:.1f}".replace(".", ",")   # noqa: E731
+        head = (f"Ele só roda dividido num grupo de computadores: pede {gb(need)} GB por grupo (uns "
+                f"{math.ceil(need / 8000)} computadores cedendo 8 GB cada)"
+                + (f", e cada uma das {replicas} cópias é um grupo." if replicas > 1 else "."))
+        if rules < 8:
+            h = next((u.get("height") for u in st.get("upgrades") or []
+                      if isinstance(u, dict) and u.get("rules") == 8), None)
+            when = f"no bloco {h} (a rede está no {st.get('height')})" if h else "quando a atualização das regras v8 entrar"
+            return head + f" A rede passa a montar grupos sozinha {when}; até lá, nenhum grupo se forma."
+        lenders = {a: x for a, x in cands.items() if x.get("lend")}
+        free = {a: int((x.get("hw") or {}).get("ai_ram_mb") or 0) - used.get(a, [0])[0] for a, x in lenders.items()}
+        free = {a: v for a, v in free.items() if v >= chain.MIN_LEND_MB}
+        coords = [a for a in free if int((lenders[a].get("hw") or {}).get("disk_mb") or 0) * 1_000_000
+                  - used.get(a, [0, 0])[1] >= size]
+        total = sum(free.values())
+        if not lenders:
+            return head + (" Nenhum computador online está emprestando memória agora (Configurações → "
+                           "\"Emprestar memória para grupos\"; os apps 2.14 já vêm com isso ligado).")
+        msg = (head + f" Hoje {len(free)} computador(es) online emprestam memória, somando {gb(total)} GB livres "
+               f"(o que sobra depois dos modelos que eles já hospedam)")
+        if total < need:
+            msg += f": faltam {gb(need - total)} GB para o primeiro grupo."
+        else:
+            msg += "."
+        if not coords:
+            msg += f" Nenhum deles tem {gb(size / 1e6)} GB de disco livre para coordenar (guardar o modelo inteiro)."
+        return msg
+
     def _waiting(self, network, machines):
         """Modelo sem nenhuma máquina: por que a rede ainda não o colocou em ninguém (a mesma conta da chain em
         _assign_models) e o que mudaria neste computador. {"reasons": [...], "here": "..."} por nome."""
@@ -2063,10 +2097,7 @@ class App:
                 reasons.append(f"O modelo pede {need / 1000:.1f} GB de memória para IA e o computador que mais tem "
                                f"livre cede {max(best, 0) / 1000:.1f} GB.")
                 if need > 15000:   # não cabe num PC comum: só num grupo (docs/GRUPO.md)
-                    reasons.append(f"Ele só roda dividido num grupo de computadores (uns {math.ceil(need / 8000)} "
-                                   "cedendo 8 GB cada). A rede monta o grupo sozinha, pela reputação, assim que houver computadores "
-                                   "online emprestando memória que some isso (Configurações → \"Emprestar memória "
-                                   "para grupos\") e um deles com disco para o modelo inteiro.")
+                    reasons.append(self._group_reason(need, size, int(m.get("replicas") or 1), ok_task, used))
             elif not ok_all:
                 reasons.append(f"Os computadores com memória suficiente não têm disco livre (ou já hospedam {top} modelos).")
             else:
@@ -2210,6 +2241,12 @@ class App:
         name, amount = self._model_name(d.get("name")), micro(d.get("amount"), "valor")
         txid = self._spender().fund_model(name, _sig(amount))
         self.log(f"modelo '{name}' recarregado com {sig_txt(amount)}")
+        return self._done(txid)
+
+    def api_model_withdraw(self, d):
+        name, amount = self._model_name(d.get("name")), micro(d.get("amount"), "valor")
+        txid = self._spender().withdraw_model(name, _sig(amount))
+        self.log(f"saquei {sig_txt(amount)} do orçamento do modelo '{name}'")
         return self._done(txid)
 
     def api_model_update(self, d):
@@ -2836,6 +2873,7 @@ ROUTES = {
     ("POST", "/api/models/fund"): App.api_model_fund,
     ("POST", "/api/models/update"): App.api_model_update,
     ("POST", "/api/models/retire"): App.api_model_retire,
+    ("POST", "/api/models/withdraw"): App.api_model_withdraw,
     ("POST", "/api/ai/quote"): App.api_ai_quote,
     ("POST", "/api/ai/chat"): App.api_chat,
     ("POST", "/api/ai/cancel"): App.api_ai_cancel,

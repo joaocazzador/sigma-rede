@@ -3027,7 +3027,7 @@ function modelTile(m, mine) {
     + `<dt>Orçamento</dt><dd>${esc(sig(m.budget))} SIG · dura ${esc(lifetime(m.budget, rent(m)))}</dd>`
     + (mine ? `<dt>Royalties</dt><dd class="ok">${esc(sig(m.royalties))} SIG recebidos</dd>` : "") + `</dl>`
     + (!h && !a ? waitingNote(m) : "")
-    + `<div class="row">${mine ? act("fund", "Recarregar", "primary") + act("royalty", "Royalty") + act("transfer", "Passar adiante") + act("retire", "Apagar", "danger")
+    + `<div class="row">${mine ? act("fund", "Recarregar", "primary") + act("withdraw", "Sacar") + act("royalty", "Royalty") + act("transfer", "Passar adiante") + act("retire", "Apagar", "danger")
       : h ? `<button type="button" class="small" data-chat="${esc(m.name)}">${talk}</button>` : ""}</div></div>`;
 }
 // imagem e vídeo: o disco conta todos os arquivos (o principal, o VAE e o codificador de texto), como a chain cobra
@@ -3177,6 +3177,10 @@ function modelAction(act, name) {
     text: `O orçamento paga o aluguel de quem guarda o modelo. Hoje ele tem ${sig(m.budget)} SIG e dura ${lifetime(m.budget, rent(m))}.`,
     fields: [{k: "amount", label: "Quantidade (SIG)", mode: "decimal", ph: "ex.: 10"}],
     run: async (v) => { needKey(); const amount = parseSig(v.amount); checkBalance(amount); await api("/api/models/fund", {name, amount}); done(`Modelo ${name} recarregado com ${sigNum(amount)} SIG`); }});
+  if (act === "withdraw") openDialog({title: "Sacar do orçamento de " + name, ok: "Sacar",
+    text: `Hoje o orçamento tem ${sig(m.budget)} SIG. Dá para sacar o que passar de um dia de aluguel de todas as cópias (o modelo segue no ar). Para levar tudo, use Apagar: o que sobrar volta para você.`,
+    fields: [{k: "amount", label: "Quantidade (SIG)", mode: "decimal", ph: "ex.: 10"}],
+    run: async (v) => { needKey(); const amount = parseSig(v.amount); await api("/api/models/withdraw", {name, amount}); done(`${sigNum(amount)} SIG do orçamento de ${name} voltaram para você`); }});
   if (act === "royalty") openDialog({title: "Royalty de " + name, ok: "Salvar",
     text: "Royalty é a parte de cada pagamento pelo modelo que vai para você. Reinvestir devolve parte dele ao orçamento.",
     fields: [{k: "royalty", label: "Royalty (%)", value: bpsPct(m.royalty_bps), mode: "decimal", hint: "De 0 a 50%."},

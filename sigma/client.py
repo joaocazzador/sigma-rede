@@ -541,6 +541,10 @@ class Client:
             d["new_sponsor"] = _typed_address(new_sponsor)
         return self.send_tx("update_model", d)
 
+    def withdraw_model(self, name, amount_sig):
+        """v9: saca do orçamento do modelo (fica um dia de aluguel)."""
+        return self.send_tx("withdraw_model", {"name": name, "amount": to_usig(amount_sig)})
+
     def retire_model(self, name):
         return self.send_tx("retire_model", {"name": name})
 

@@ -44,7 +44,7 @@ from .pow import report_points, share_ok
 
 UNIT = 1_000_000            # 1 SIG = 1.000.000 µSIG
 # ---- atualizações das regras (docs/ATUALIZACOES.md)
-RULES = 8                   # a versão mais nova das regras que este código sabe executar
+RULES = 9                   # a versão mais nova das regras que este código sabe executar
 # v1: a rede da v2.4. v2 (v2.5): modelos de imagem e vídeo, preço por imagem e por segundo de vídeo.
 # v3 (v2.6): caução dos coordenadores (bond/unbond, corte e reputação).
 # v4 (v2.8): modelo de texto em várias partes (GGUF dividido), até 600 GB, para rodar dividido entre computadores
@@ -81,6 +81,7 @@ RULES = 8                   # a versão mais nova das regras que este código sa
 # a v7 (corrida e vigia) no bloco 6870, marcado no bloco 6797 (~22 min de aviso, 2.12)
 # a v8 (grupos automáticos, relé, punição severa) no bloco 11180, marcado no bloco 11108 (~22 min de aviso, 2.14;
 # a primeira marcação, bloco 7150, nunca foi publicada)
+# v9 (v2.15): withdraw_model, o padrinho saca do orçamento do modelo (deixando um dia de aluguel)
 SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300, 6: 5800, 7: 6870, 8: 11180}}
 UPGRADE_HISTORY_KEEP = 50
 # saldos que uma atualização cria na altura dela, uma vez só: hash do genesis -> {versão: [(endereço, µSIG)]}.
@@ -205,6 +206,7 @@ TX_FIELDS = {
     "register_model": {"name", "url", "sha256", "size", "royalty_bps", "reinvest_bps", "replicas", "license",
                        "description", "budget", "task", "files"},
     "fund_model": {"name", "amount"},
+    "withdraw_model": {"name", "amount"},   # regras v9 (TYPES_SINCE): o padrinho saca do orçamento do modelo
     "update_model": {"name", "royalty_bps", "reinvest_bps", "new_sponsor"},
     "retire_model": {"name"},
     "pin_model": {"name"},
@@ -222,7 +224,7 @@ JOB_FIELDS = {"ai": {"kind", "model", "spec_hash", "escrow", "max_price", "max_t
 SIGNED_TYPES = frozenset(TX_FIELDS) - {"work", "evm"} | {"create_job"}
 # tipos que só existem a partir de uma versão das regras: antes dela, são recusados como tipo desconhecido, como
 # sempre foram (SIGNED_TYPES sai de TX_FIELDS; sem isto, um tipo novo valeria em qualquer versão)
-TYPES_SINCE = {"bond": 3, "unbond": 3, "release_job": 6, "review_job": 7, "dispute_job": 7}
+TYPES_SINCE = {"bond": 3, "unbond": 3, "release_job": 6, "review_job": 7, "dispute_job": 7, "withdraw_model": 9}
 HW_KEYS = frozenset(HW_FIELDS + ("gpu",))
 USAGE_KEYS = ("tokens_in", "tokens_out")
 LIVE = ("open", "running", "review")  # jobs que ainda seguram escrow ("review" só existe a partir da v7)
@@ -1819,6 +1821,19 @@ class State:
         _need(self.bal(sender) >= amount, "saldo insuficiente")
         self._debit(sender, amount)
         m["budget"] += amount
+
+    def _tx_withdraw_model(self, sender, d, txid):
+        """v9: o padrinho saca parte do orçamento do modelo, com ele no ar. Fica pelo menos um dia de aluguel de
+        todas as cópias (MIN_FUNDED_SECONDS), para o modelo não sumir da rede de surpresa; para levar tudo, é só
+        retirá-lo (retire_model devolve o orçamento inteiro)."""
+        m = self._model_of(sender, d)
+        amount = _int_in(d.get("amount"), "amount", 1, self.params["supply_cap"])
+        keep = self.rent_window(m) * _ceil_div(MIN_FUNDED_SECONDS, self.params["window_seconds"])
+        free = max(0, m["budget"] - keep)
+        _need(amount <= free, f"dá para sacar até {fmt(free)} (fica um dia de aluguel: {fmt(keep)}); para levar tudo, "
+                              "retire o modelo")
+        m["budget"] -= amount
+        self._give(sender, amount, "budget", m["name"])
 
     def _tx_update_model(self, sender, d, txid):
         m = self._model_of(sender, d)

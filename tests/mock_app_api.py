@@ -825,7 +825,7 @@ def handle(mock, method, path, q, d):
                                  budget=b, description=c["description"], pinners={}, assigned={MACHINE: 1},
                                  royalty_bps=int(float(d.get("royalty", 10)) * 100), reinvest_bps=int(float(d.get("reinvest", 0)) * 100))
         return {"txid": txid(), "name": name}
-    if method == "POST" and path in ("/api/models/fund", "/api/models/update", "/api/models/retire"):
+    if method == "POST" and path in ("/api/models/fund", "/api/models/update", "/api/models/retire", "/api/models/withdraw"):
         spender()
         m = mock.models.get(d.get("name"))
         if not m or m["sponsor"] != ME:
@@ -2172,6 +2172,7 @@ def static_checks(port):
              ("POST", "/api/models/fund"): {"name": "qwen2.5-0.5b", "amount": 2},
              ("POST", "/api/models/update"): {"name": "qwen2.5-0.5b", "royalty": 12.5, "reinvest": 50},
              ("POST", "/api/models/retire"): {"name": "qwen2.5-1.5b"},
+             ("POST", "/api/models/withdraw"): {"name": "qwen2.5-1.5b", "amount": 1},
              ("POST", "/api/ai/chat"): {"model": "qwen2.5-0.5b", "messages": [{"role": "user", "content": "oi"}], "max_tokens": 64, "max_price": 2000},
              ("POST", "/api/ai/cancel"): {}, ("GET", "/api/code/state"): None,
              ("POST", "/api/ai/quote"): {"model": "qwen2.5-0.5b", "messages": [{"role": "user", "content": "isto demora"}]},
