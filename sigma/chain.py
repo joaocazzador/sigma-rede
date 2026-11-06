@@ -79,8 +79,9 @@ RULES = 8                   # a versão mais nova das regras que este código sa
 # (~18 min de aviso, 2.10: o dono pediu o mais rápido possível)
 # a v6 (liberar o pedido de uma máquina que sumiu) no bloco 5800, marcado no bloco 5736 (~20 min de aviso, 2.11)
 # a v7 (corrida e vigia) no bloco 6870, marcado no bloco 6797 (~22 min de aviso, 2.12)
-# a v8 (grupos automáticos, relé, punição severa) no bloco 7150, marcado no bloco 7078 (~24 min de aviso, 2.14)
-SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300, 6: 5800, 7: 6870, 8: 7150}}
+# a v8 (grupos automáticos, relé, punição severa) no bloco 11180, marcado no bloco 11108 (~22 min de aviso, 2.14;
+# a primeira marcação, bloco 7150, nunca foi publicada)
+SCHEDULE = {"a8eabe25b19487fdc77c5bf86a812e55c2837e053c20d1aba2bc0794a7bb1029": {2: 1950, 3: 2780, 4: 4032, 5: 4300, 6: 5800, 7: 6870, 8: 11180}}
 UPGRADE_HISTORY_KEEP = 50
 # saldos que uma atualização cria na altura dela, uma vez só: hash do genesis -> {versão: [(endereço, µSIG)]}.
 # A v2 da rede principal cria a carteira dos fundadores: 1 milhão de SIG (1% do teto) para as primeiras despesas do
