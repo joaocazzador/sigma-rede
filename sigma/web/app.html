@@ -3033,13 +3033,13 @@ function modelTile(m, mine) {
 // imagem e vídeo: o disco conta todos os arquivos (o principal, o VAE e o codificador de texto), como a chain cobra
 const catalogSize = (it) => N(it.total_size ?? it.size ?? it.bytes);
 // media = ai.media do app: false enquanto a rede não aceita imagem e vídeo (antes das regras v2)
-// gigantes (split): só rodam divididos entre várias máquinas; um PC de 16 GB empresta uns 9 GB
+// gigantes (split): só rodam divididos entre várias máquinas; a conta usa 8 GB cedidos por computador
 function giantTile(it, parts) {
-  const size = catalogSize(it), ram = N(it.ram_mb) || Math.ceil(size / 1e6 * 1.2) + 512, pcs = Math.ceil(ram / 9000);
+  const size = catalogSize(it), ram = N(it.ram_mb) || Math.ceil(size / 1e6 * 1.2) + 512, pcs = Math.ceil(ram / 8000);
   return `<div class="tile"><div class="row between"><h4>${esc(it.title || it.name || it.id)}</h4><span><span class="tag">várias máquinas</span><span class="tag">${TASK_NAME.text}</span></span></div>`
     + (it.description ? `<p class="desc">${esc(it.description)}</p>` : "")
     + `<dl class="kv"><dt>Tamanho</dt><dd>${esc(fmtBytes(size))}${N(it.parts) > 1 ? ` em ${num(it.parts)} partes` : ""}</dd>`
-    + `<dt>Memória</dt><dd>${esc(fmtMB(ram))} somando as máquinas (uns ${num(pcs)} computadores de 16 GB)</dd>`
+    + `<dt>Memória</dt><dd>${esc(fmtMB(ram))} somando as máquinas (uns ${num(pcs)} computadores cedendo 8 GB cada)</dd>`
     + `<dt>Licença</dt><dd>${esc(it.license || "—")}</dd></dl>`
     + (parts
       ? `<p class="hint">Não cabe em nenhum computador comum: a rede o coloca num grupo (um coordenador com disco para o modelo inteiro e trabalhadores emprestando memória até somar a que ele pede).</p><div class="row"><button type="button" class="small primary" data-sponsor="${esc(it.id)}">Apadrinhar</button></div>`
@@ -3052,7 +3052,7 @@ function catalogTile(it, onNet, media) {
   return `<div class="tile"><div class="row between"><h4>${esc(it.title || it.name || it.id)}</h4><span>${net ? `<span class="tag ok" title="na rede como ${esc(net)}">já na rede</span>` : ""}<span class="tag">${TASK_NAME[task]}</span></span></div>`
     + (it.description ? `<p class="desc">${esc(it.description)}</p>` : "")
     + `<dl class="kv"><dt>Tamanho</dt><dd>${esc(fmtBytes(size))}</dd><dt>Memória</dt><dd>${esc(fmtMB(ram))} para rodar`
-    + (task === "text" && ram > 15000 ? ` (num PC grande ou num grupo de uns ${num(Math.ceil(ram / 9000))} computadores de 16 GB)` : "") + `</dd>`
+    + (task === "text" && ram > 15000 ? ` (num PC grande ou num grupo de uns ${num(Math.ceil(ram / 8000))} computadores cedendo 8 GB cada)` : "") + `</dd>`
     + `<dt>Licença</dt><dd>${esc(it.license || "—")}</dd><dt>Custo</dt><dd>~${esc(sig(perDay(size, 2, true, ram)))} SIG por dia com 2 cópias</dd></dl>`
     + (task !== "text" && media === false
       ? `<p class="hint">Ainda não dá para apadrinhar: a rede só aceita modelos de imagem e vídeo depois da atualização das regras v2.</p>`
@@ -3067,14 +3067,14 @@ const CAT_GROUPS = [
   ["reason", "Raciocínio e matemática", "pensam passo a passo antes de responder"],
   ["image", "Imagem", "geram imagens a partir de uma frase"],
   ["video", "Vídeo", "geram vídeos curtos; pedem placa de vídeo"],
-  ["giant", "Gigantes · até 10 computadores", "não cabem num PC de 16 GB: rodam divididos num grupo de 3 a 10"],
+  ["giant", "Gigantes · até 10 computadores", "rodam divididos num grupo de até 10 computadores cedendo 8 GB cada"],
   ["giant-l", "Gigantes · mais de 10 computadores", "os maiores modelos abertos, divididos entre muitos PCs"],
 ];
 const catOpen = new Set(["chat-s"]);
 function catGroupOf(it) {
   const ram = N(it.ram_mb) || Math.ceil(catalogSize(it) / 1e6 * 1.2) + 512;
   if (it.task === "image" || it.task === "video") return it.task;
-  if (it.split || ram > 24000) return Math.ceil(ram / 9000) > 10 ? "giant-l" : "giant";
+  if (it.split || ram > 24000) return Math.ceil(ram / 8000) > 10 ? "giant-l" : "giant";
   if (it.use === "code" || it.use === "reason") return it.use;
   return ram <= 3000 ? "chat-s" : ram <= 9000 ? "chat-m" : "chat-l";
 }

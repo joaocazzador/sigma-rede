@@ -2063,8 +2063,8 @@ class App:
                 reasons.append(f"O modelo pede {need / 1000:.1f} GB de memória para IA e o computador que mais tem "
                                f"livre cede {max(best, 0) / 1000:.1f} GB.")
                 if need > 15000:   # não cabe num PC comum: só num grupo (docs/GRUPO.md)
-                    reasons.append(f"Ele só roda dividido num grupo de computadores (uns {math.ceil(need / 9000)} de "
-                                   "16 GB). A rede monta o grupo sozinha, pela reputação, assim que houver computadores "
+                    reasons.append(f"Ele só roda dividido num grupo de computadores (uns {math.ceil(need / 8000)} "
+                                   "cedendo 8 GB cada). A rede monta o grupo sozinha, pela reputação, assim que houver computadores "
                                    "online emprestando memória que some isso (Configurações → \"Emprestar memória "
                                    "para grupos\") e um deles com disco para o modelo inteiro.")
             elif not ok_all:
