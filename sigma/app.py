@@ -781,9 +781,17 @@ class CodeRunner:
         auto = d.get("auto_files", False)   # padrão: toda gravação de arquivo pede aprovação
         if not isinstance(auto, bool):
             raise AppError("auto_files deve ser true ou false")
-        client = app._spender()
         model = d.get("model")
+        if d.get("local") is True:   # modo local: o modelo baixado neste PC, sem rede nem custo
+            if not isinstance(model, str) or not app.local().ready(model):
+                raise AppError("no modo local, escolha um modelo baixado neste computador (tela Modelos → Baixar)")
+            client = app.local()
+        else:
+            client = None
         try:   # "no ar" = alguma máquina que aceita pedido cifrado agora (a mesma regra do client.ask)
+            if client is not None:
+                raise _LocalOK()
+            client = app._spender()
             # o Sigma Code conversa: só modelo de texto. A classe vem do /models (sem ela, não dá para saber)
             tasks = app._model_tasks()
             if model in (None, ""):
@@ -796,6 +804,8 @@ class CodeRunner:
                 raise AppError(f"o modelo {model} gera imagens ou vídeos: o Sigma Code precisa de um modelo de texto")
             elif model not in client.hosted_models(tasks):
                 raise AppError(f"o modelo {model} não está no ar agora: escolha outro")
+        except _LocalOK:
+            pass
         except SigmaError as e:   # sem modelo no ar, ou o nó fora do ar (aí vale a frase do cliente)
             raise AppError(NO_CODE_MODEL if "nenhuma máquina" in str(e) else friendly(e)) from None
         agent = self.agent_class()(client, model, max_tokens=2048, max_steps=15, auto_yes=False, root=folder,
@@ -953,6 +963,10 @@ class CodeRunner:
 
 
 # ------------------------------------------------------------------- o app
+class _LocalOK(Exception):
+    """Sigma Code no modo local: pula a conferência dos modelos da rede."""
+
+
 class App:
     def __init__(self, args):
         self.args = args
@@ -2650,7 +2664,38 @@ class App:
         os.replace(self._chat_path(cid) + ".tmp", self._chat_path(cid))
         return {"ok": True}
 
+    def local(self):
+        if getattr(self, "_local", None) is None:
+            from .localai import LocalAI
+            self._local = LocalAI(self.data_dir, self.log)
+        return self._local
+
+    def api_local(self, q):
+        loc = self.local()
+        return {"models": loc.models(), "lowmem": loc.lowmem}
+
+    def api_local_download(self, d):
+        try:
+            self.local().download(d.get("catalog_id"))
+        except ValueError as e:
+            raise AppError(str(e)) from None
+        return {"ok": True}
+
+    def api_local_settings(self, d):
+        self.local().set_lowmem(d.get("lowmem") is not False)
+        return {"lowmem": self.local().lowmem}
+
     def api_chat(self, d):
+        if d.get("local") is True:   # modo local: responde o modelo baixado neste PC (sem rede, sem custo)
+            model, clean, max_tokens = self._chat_input(d)
+            try:
+                text, job = self.local().ask(model, clean, max_tokens=max_tokens)
+            except ValueError as e:
+                raise AppError(str(e)) from None
+            except Exception as e:
+                raise AppError(f"o modelo local falhou: {e}") from None
+            return {"text": text, "cost": 0, "machine": "este computador", "trimmed": 0, "attempts": 1, "job": None,
+                    "max_cost": 0, "price": 0, "sources": []}
         model, clean, max_tokens = self._chat_input(d)
         cid = self._chat_id(d)
         sources = []
@@ -2933,6 +2978,9 @@ ROUTES = {
     ("POST", "/api/models/retire"): App.api_model_retire,
     ("POST", "/api/models/withdraw"): App.api_model_withdraw,
     ("GET", "/api/net/chat"): App.api_net_chat,
+    ("GET", "/api/local"): App.api_local,
+    ("POST", "/api/local/download"): App.api_local_download,
+    ("POST", "/api/local/settings"): App.api_local_settings,
     ("POST", "/api/net/chat"): App.api_net_chat_post,
     ("POST", "/api/name"): App.api_set_name,
     ("GET", "/api/net/machines"): App.api_net_machines,

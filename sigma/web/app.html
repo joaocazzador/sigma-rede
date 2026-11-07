@@ -857,7 +857,8 @@ details.more p { margin: 6px 0 0; }
             <div class="comp-wrap">
               <div class="comp-opts">
                 <span id="opt-text"><label>Resposta <select id="ai-len"><option value="256">Curta</option><option value="512" selected>Média</option><option value="1024">Longa</option></select></label>
-                  <label class="check" title="O seu app busca na web e manda o que achou junto com a pergunta"><input type="checkbox" id="ai-web"> Pesquisar na internet</label></span>
+                  <label class="check" title="O seu app busca na web e manda o que achou junto com a pergunta"><input type="checkbox" id="ai-web"> Pesquisar na internet</label>
+                  <span class="local-box"><label class="check" title="Responde um modelo baixado neste computador: sem rede e sem custo"><input type="checkbox" data-local-toggle> Modo local</label><select data-local-model hidden aria-label="Modelo baixado neste computador"></select><label class="check" data-local-lowmem-wrap hidden title="Lê o modelo do disco camada por camada: cabe modelo maior que a memória, mais devagar"><input type="checkbox" data-local-lowmem checked> Economia de memória</label></span></span>
                 <span id="opt-image" hidden><label>Formato <select id="ai-size"><option value="512x512">Quadrado · 512×512</option><option value="768x768">Quadrado · 768×768</option><option value="1024x1024" selected>Quadrado · 1024×1024</option><option value="768x1024">Retrato · 768×1024</option><option value="1024x768">Paisagem · 1024×768</option></select></label>
                   <label>Quantidade <select id="ai-count"><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label></span>
                 <span id="opt-video" hidden><label>Duração <select id="ai-seconds"><option value="2" selected>2 s</option><option value="3">3 s</option><option value="5">5 s</option></select></label>
@@ -889,6 +890,7 @@ details.more p { margin: 6px 0 0; }
           <div class="cc-setup" id="code-setup">
             <div class="cc-folder"><label class="sr" for="code-folder">Pasta do projeto</label><input id="code-folder" spellcheck="false" placeholder="Pasta do projeto, ex.: C:\Users\voce\projetos\meu-site"><button type="button" class="cc-small" id="code-pick">Escolher pasta</button></div>
             <label class="sr" for="code-model">Modelo</label><select id="code-model"></select>
+            <span class="local-box"><label class="check" title="Responde um modelo baixado neste computador: sem rede e sem custo"><input type="checkbox" data-local-toggle> Modo local</label><select data-local-model hidden aria-label="Modelo baixado neste computador"></select><label class="check" data-local-lowmem-wrap hidden title="Lê o modelo do disco camada por camada: cabe modelo maior que a memória, mais devagar"><input type="checkbox" data-local-lowmem checked> Economia de memória</label></span>
             <label class="check" title="Volta desmarcada em toda tarefa nova. Comandos sempre pedem a sua aprovação."><input type="checkbox" id="code-auto"> Aprovar alterações de arquivos sem perguntar</label>
           </div>
           <!-- durante e depois de uma tarefa: onde e com quê -->
@@ -2666,7 +2668,8 @@ async function chatSend(e, retry = null) {
   pollProgress(chat.reqId);
   try {
     const fit = t === "text" ? apiMessages(opts.max_tokens) : null;
-    const body = t === "text" ? {model, id: chat.reqId, max_tokens: opts.max_tokens, messages: fit.messages, web: !!$("ai-web")?.checked}
+    const loc = localPick("opt-text");
+    const body = t === "text" ? {model: loc || model, id: chat.reqId, max_tokens: opts.max_tokens, messages: fit.messages, web: !!$("ai-web")?.checked, ...(loc ? {local: true} : {})}
       : {model, id: chat.reqId, prompt: text, ...opts};
     if (shown) body.max_price = shown;   // o teto que o painel mostrou: o pedido nunca reserva mais do que isso
     const r = await api(t === "text" ? "/api/ai/chat" : t === "image" ? "/api/ai/image" : "/api/ai/video", body);
@@ -2876,6 +2879,8 @@ async function codeSubmit(e) {
       if (!task) throw new Error("Escreva o que o Sigma Code deve fazer.");
       const body = {folder, task, auto_files: $("code-auto").checked};
       if (codeModel) body.model = codeModel;
+      const locm = localPick("code-setup");
+      if (locm) Object.assign(body, {model: locm, local: true});
       const r = await api("/api/code/start", body);
       ccUI.open.clear();
       codeGot(Array.isArray(r.steps) ? r : await api("/api/code/state", undefined, 15000));
@@ -3087,7 +3092,7 @@ function catalogTile(it, onNet, media) {
     + `<dt>Licença</dt><dd>${esc(it.license || "—")}</dd><dt>Custo</dt><dd>~${esc(sig(perDay(size, 2, true, ram)))} SIG por dia com 2 cópias</dd></dl>`
     + (task !== "text" && media === false
       ? `<p class="hint">Ainda não dá para apadrinhar: a rede só aceita modelos de imagem e vídeo depois da atualização das regras v2.</p>`
-      : `<div class="row"><button type="button" class="small primary" data-sponsor="${esc(it.id)}">Apadrinhar</button></div>`) + `</div>`;
+      : `<div class="row"><button type="button" class="small primary" data-sponsor="${esc(it.id)}">Apadrinhar</button>${task === "text" ? `<button type="button" class="small" data-local-dl="${esc(it.id)}">Baixar para este PC</button>` : ""}</div>`) + `</div>`;
 }
 // catálogo em classes recolhíveis (uso e tamanho), cada uma com a sua rolagem; a busca abre as que têm resultado
 const CAT_GROUPS = [
@@ -3314,6 +3319,45 @@ async function showMachines() {
   openDialog({title: "Máquinas online", html, ok: "Fechar", safe: true, run: async () => {}});
 }
 document.addEventListener("click", (e) => { if (e.target.closest?.("[data-net-machines]")) showMachines(); });
+// modo local (padrão: rede). O modelo baixado neste PC responde, sem rede e sem custo.
+const localSt = {models: [], lowmem: true};
+async function loadLocal() {
+  try { Object.assign(localSt, await api("/api/local", undefined, 10000)); } catch (_) { return; }
+  const ready = localSt.models.filter((m) => m.status === "baixado");
+  document.querySelectorAll("[data-local-model]").forEach((sel) => {
+    const v = sel.value;
+    sel.innerHTML = ready.length ? ready.map((m) => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join("")
+      : `<option value="">nenhum modelo baixado (tela Modelos → Baixar)</option>`;
+    if (ready.some((m) => m.id === v)) sel.value = v;
+  });
+  document.querySelectorAll("[data-local-lowmem]").forEach((c) => { c.checked = localSt.lowmem; });
+}
+function localPick(scope) {
+  const box = $(scope)?.querySelector(".local-box") || document.querySelector(`#${scope} .local-box`);
+  if (!box || !box.querySelector("[data-local-toggle]").checked) return "";
+  const m = box.querySelector("[data-local-model]").value;
+  if (!m) throw new Error("No modo local, baixe um modelo antes (tela Modelos → Baixar para este PC).");
+  return m;
+}
+document.addEventListener("change", async (e) => {
+  const t = e.target;
+  if (t.matches?.("[data-local-toggle]")) {
+    const box = t.closest(".local-box");
+    box.querySelector("[data-local-model]").hidden = !t.checked;
+    box.querySelector("[data-local-lowmem-wrap]").hidden = !t.checked;
+    if (t.checked) loadLocal();
+  }
+  if (t.matches?.("[data-local-lowmem]")) {
+    try { await api("/api/local/settings", {lowmem: t.checked}); localSt.lowmem = t.checked; toast(t.checked ? "Economia de memória ligada: o modelo é lido do disco camada por camada." : "Economia de memória desligada: o modelo vai inteiro para a memória (mais rápido)."); }
+    catch (x) { toast(x.message, "err"); }
+  }
+});
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest?.("[data-local-dl]");
+  if (!b) return;
+  try { await api("/api/local/download", {catalog_id: b.dataset.localDl}); toast("Baixando para este computador. Quando terminar, ele aparece no Modo local da IA e do Programar."); }
+  catch (x) { toast(x.message, "err", 8000); }
+});
 function renderRede() {
   if (!gchat.info && !gchat.loading) { gchat.loading = true; loadGChat(); }
   const sup = supply(), net = S.network || {};
