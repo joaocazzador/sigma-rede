@@ -21,6 +21,7 @@ import multiprocessing
 import os
 import random
 import re
+import shutil
 import threading
 import time
 import urllib.parse
@@ -718,13 +719,31 @@ class Host:
         return self._disk_used_bytes() // 1_000_000
 
     def _verified(self, path, size):
-        """O arquivo existe, tem o tamanho certo e já teve o SHA-256 conferido (marcador .ok)?"""
+        """O arquivo existe, tem o tamanho certo e já teve o SHA-256 conferido (marcador .ok)? Se o mesmo arquivo foi
+        baixado para o modo local (local-models, SHA-256 já conferido lá), a rede o reaproveita em vez de baixar."""
+        self._adopt_local(path, size)
         try:
             st = os.stat(path)
             with open(path + ".ok", encoding="utf-8") as f:
                 return st.st_size == size and f.read().strip() == f"{st.st_size}:{st.st_mtime_ns}"
         except OSError:
             return False
+
+    def _adopt_local(self, path, size):
+        if os.path.exists(path):
+            return
+        local = os.path.join(self.data_dir, "local-models", os.path.basename(path))
+        try:
+            if os.path.isfile(local + ".ok") and os.path.getsize(local) == size:
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                try:
+                    os.link(local, path)          # mesmo disco: não ocupa espaço de novo
+                except OSError:
+                    shutil.copyfile(local, path)
+                self._mark_verified(path)
+                self.log(f"[máquina] reaproveitei {os.path.basename(path)[:12]}… baixado no modo local")
+        except OSError:
+            pass
 
     def _mark_verified(self, path):
         st = os.stat(path)

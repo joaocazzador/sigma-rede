@@ -1,2 +1,2 @@
 """Sigma: rede descentralizada de computação, hospedagem e IA paga com tokens."""
-__version__ = "2.15.2"
+__version__ = "2.15.3"
