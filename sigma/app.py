@@ -2681,6 +2681,13 @@ class App:
             raise AppError(str(e)) from None
         return {"ok": True}
 
+    def api_local_delete(self, d):
+        try:
+            self.local().delete(d.get("catalog_id"))
+        except ValueError as e:
+            raise AppError(str(e)) from None
+        return {"ok": True}
+
     def api_local_settings(self, d):
         self.local().set_lowmem(d.get("lowmem") is not False)
         return {"lowmem": self.local().lowmem}
@@ -2981,6 +2988,7 @@ ROUTES = {
     ("GET", "/api/local"): App.api_local,
     ("POST", "/api/local/download"): App.api_local_download,
     ("POST", "/api/local/settings"): App.api_local_settings,
+    ("POST", "/api/local/delete"): App.api_local_delete,
     ("POST", "/api/net/chat"): App.api_net_chat_post,
     ("POST", "/api/name"): App.api_set_name,
     ("GET", "/api/net/machines"): App.api_net_machines,

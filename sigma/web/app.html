@@ -794,6 +794,8 @@ details.more p { margin: 6px 0 0; }
       <h2 id="m-name">—</h2>
       <div class="row"><span class="pill" id="m-online">—</span><span class="pill" id="m-engine">—</span></div>
       <div id="m-alerts"></div>
+      <section class="card mt" aria-labelledby="m-local-title"><h3 id="m-local-title" style="margin:0">Modelos neste computador (modo local)</h3>
+        <div id="m-local"><p class="empty">Carregando…</p></div></section>
       <div class="stats three">
         <div class="stat"><span>Ganhos servindo a rede</span><b id="m-earned">—</b><small>SIG por pedidos e aluguel</small></div>
         <div class="stat"><span>Pedidos atendidos</span><b id="m-jobs">—</b><small id="m-jobs-sub">IA e computação</small></div>
@@ -2019,6 +2021,23 @@ function engineState() {
   if (eng.ready) return {pill: `IA: ${kind} · pronta`, cls: "ok", text: eng.detail || ""};
   return {pill: "IA: com problema", cls: "bad", text: eng.detail || "O motor de IA não está respondendo. O Sigma tenta de novo sozinho."};
 }
+async function renderLocalList() {
+  await loadLocal();
+  const list = localSt.models.filter((m) => m.status);
+  const gb = (b) => (N(b) / 1e9).toLocaleString("pt-BR", {maximumFractionDigits: 1}) + " GB";
+  setHTML("m-local", list.length ? list.map((m) => `<div class="row between" style="padding:8px 0;border-bottom:1px solid var(--line)"><span><b>${esc(m.name)}</b> · ${gb(m.size)} · `
+    + (m.status === "baixado" ? "baixado" : m.status === "baixando" ? `baixando ${Math.floor(N(m.progress) * 100)}%` : `erro: ${esc(m.error || "")}`)
+    + `</span><button type="button" class="small danger" data-local-del="${esc(m.id)}">Excluir</button></div>`).join("")
+    : `<p class="empty">Nenhum modelo baixado. Na tela Modelos, use "Baixar para este PC".</p>`);
+}
+setInterval(() => { if (!$("m-local")?.closest("[hidden]") && !document.hidden) renderLocalList(); }, 3000);
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest?.("[data-local-del]");
+  if (!b) return;
+  if (!confirm("Excluir este modelo deste computador? O arquivo é apagado; dá para baixar de novo depois.")) return;
+  try { await api("/api/local/delete", {catalog_id: b.dataset.localDel}); toast("Modelo excluído deste computador."); renderLocalList(); }
+  catch (x) { toast(x.message, "err"); }
+});
 function renderMaquina() {
   const mc = S.machine || {}, hw = mc.hw || {}, eng = mc.engine || {}, c = settings();
   setText("m-name", c.name || mc.name || "Este computador");

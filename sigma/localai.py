@@ -79,6 +79,20 @@ class LocalAI:
         return text, {"id": None, "cost": 0, "machine": "local", "attempts": 1, "status": "done",
                       "usage": {"tokens_in": tin, "tokens_out": tout}}
 
+    def delete(self, catalog_id):
+        """Apaga o modelo baixado (e o que estava pela metade) deste PC."""
+        it = catalog.find(catalog_id)
+        if not it:
+            raise ValueError("modelo desconhecido")
+        if catalog_id in self.engine.loaded():
+            self.engine.unload(catalog_id)
+        for suffix in (".ok", "", ".part"):
+            try:
+                os.remove(self.path(it) + suffix)
+            except OSError:
+                pass
+        self.jobs.pop(catalog_id, None)
+
     def set_lowmem(self, on):
         self.lowmem = bool(on)
         for name in self.engine.resident():   # vale na próxima carga
