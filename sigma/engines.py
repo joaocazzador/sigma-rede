@@ -61,6 +61,7 @@ IDLE_UNLOAD = 1800
 # texto em fluxo: sem nenhum pedaço novo por tanto tempo, o motor travou; a máquina devolve falha e o cliente vai
 # para a próxima na hora (em vez de esperar o prazo inteiro do pedido)
 STALL_TIMEOUT = 120
+FIRST_TOKEN_WAIT = 900   # s até a primeira palavra (carga do modelo e leitura da pergunta incluídas)
 _LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))   # 127.0.0.1 nunca passa por proxy
 
 
@@ -421,7 +422,10 @@ def _stream_lines(method, url, body, timeout, headers, stall=STALL_TIMEOUT):
     data = json.dumps(body).encode()
     req = urllib.request.Request(url, data=data, method=method, headers=headers or {"Content-Type": "application/json"})
     deadline = time.time() + timeout
-    r = _LOCAL.open(req, timeout=min(stall, timeout))
+    # a primeira palavra pode demorar (carregar o modelo, ler a pergunta num PC lento): espera até FIRST_TOKEN_WAIT;
+    # depois disso, `stall` entre um pedaço e outro
+    r = _LOCAL.open(req, timeout=min(FIRST_TOKEN_WAIT, timeout))
+    first = True
     try:
         while True:
             if time.time() > deadline:
@@ -434,6 +438,12 @@ def _stream_lines(method, url, body, timeout, headers, stall=STALL_TIMEOUT):
                 raise
             if not line:
                 return
+            if first:
+                first = False
+                try:
+                    r.fp.raw._sock.settimeout(min(stall, timeout))
+                except AttributeError:
+                    pass
             yield line
     finally:
         r.close()
